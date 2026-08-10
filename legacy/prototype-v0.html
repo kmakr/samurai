@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Samurai · Ink Arena</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; font-family: Georgia, "Times New Roman", serif; }
+  #game { position: fixed; inset: 0; }
+  #hud { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); color: #e8e2d0; text-align: center; z-index: 10; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+  #hud h1 { margin: 0; font-size: 22px; letter-spacing: 8px; font-weight: normal; opacity: .9; }
+  #hud .score { font-size: 15px; margin-top: 6px; opacity: .85; letter-spacing: 3px; }
+  #bossBarWrap { display: none; position: fixed; top: 90px; left: 50%; transform: translateX(-50%); width: 260px; height: 12px; border: 1px solid #c83434; background: rgba(0,0,0,.4); z-index: 10; }
+  #bossBar { height: 100%; width: 100%; background: #c83434; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; z-index: 20; background: rgba(10,8,6,.55); color: #f0ead8; }
+  #overlay.hidden { display: none; }
+  #overlay h1 { font-size: 46px; letter-spacing: 18px; margin: 0; font-weight: normal; }
+  #overlay p { font-size: 16px; letter-spacing: 2px; opacity: .9; }
+  #overlay .btn { margin-top: 22px; padding: 12px 34px; font-size: 16px; letter-spacing: 4px; color: #1a1410; background: #e8e2d0; border: none; cursor: pointer; font-family: inherit; }
+  #overlay .btn:hover { background: #fff8e6; }
+  #wave { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); color: #e8e2d0; letter-spacing: 6px; font-size: 14px; opacity: .8; z-index: 10; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+  #hp { position: fixed; bottom: 24px; left: 24px; color: #e05757; font-size: 14px; letter-spacing: 2px; z-index: 10; }
+  #help { position: fixed; bottom: 24px; right: 24px; color: rgba(232,226,208,.7); font-size: 12px; letter-spacing: 1px; z-index: 10; text-align: right; line-height: 1.9; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <h1>侍 SAMURAI</h1>
+  <div class="score" id="score">KILLS 0 · WAVE 1</div>
+</div>
+<div id="bossBarWrap"><div id="bossBar"></div></div>
+<div id="wave"></div>
+<div id="hp"></div>
+<div id="help">WASD MOVE · SHIFT DASH<br/>MOUSE AIM · CLICK / SPACE SLASH<br/>→  <b style="color:#d99">ink bleeds into the paper</b></div>
+<div id="overlay">
+  <h1>侍 SAMURAI</h1>
+  <p>INK ARENA — slay the oni, watch the blood bleed into paper</p>
+  <button class="btn" id="startBtn">BEGIN</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const W = window.innerWidth, H = window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16120d);
+scene.fog = new THREE.Fog(0x16120d, 55, 140);
+
+const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 500);
+camera.position.set(0, 26, 14);
+camera.lookAt(0, 0, 0);
+
+// ---------------- PAPER FLOOR & INK ON PAPER EFFECT ----------------
+const ARENA = 46;
+const MAP = 512;                       // low-res paper map for the ink layer
+
+function makePaperCanvas(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#efe9d8'; ctx.fillRect(0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h), d = img.data;
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  // washi: subtle mottling + darker fiber strands
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, y = (i / w) | 0;
+    const n = rnd() * 0.035 + (Math.sin(x * 0.03) * Math.cos(y * 0.02)) * 0.012;
+    const v = 235 + (rnd() - 0.5) * 12;
+    d[i*4] = v; d[i*4+1] = v - 2; d[i*4+2] = v - 6;
+  }
+  // fibers: short random strands
+  for (let f = 0; f < 1600; f++) {
+    const sx = rnd() * w, sy = rnd() * h, len = 6 + rnd() * 30, ang = rnd() * Math.PI;
+    for (let t = 0; t < len; t++) {
+      const px = (sx + Math.cos(ang) * t) | 0, py = (sy + Math.sin(ang) * t) | 0;
+      if (px < 0 || py < 0 || px >= w || py >= h) continue;
+      const idx = (py * w + px) * 4;
+      const dark = 0.045 * (1 - t / len);
+      d[idx] -= dark * 255; d[idx+1] -= dark * 255; d[idx+2] -= dark * 250;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+const paperCanvas = makePaperCanvas(MAP, MAP);
+
+// fiber map (darkness) used to guide ink diffusion along paper fibers
+const fiberCanvas = document.createElement('canvas'); fiberCanvas.width = MAP; fiberCanvas.height = MAP;
+{
+  const ctx = fiberCanvas.getContext('2d');
+  ctx.drawImage(paperCanvas, 0, 0);
+  const img = ctx.getImageData(0, 0, MAP, MAP);
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = (data[i] + data[i+1] + data[i+2]) / 3;
+    data[i] = data[i+1] = data[i+2] = 255 - lum; // darkness 0..255
+  }
+  ctx.putImageData(img, 0, 0);
+}
+const fiberData = fiberCanvas.getContext('2d').getImageData(0, 0, MAP, MAP).data;
+const fiberDark = (x, y) => {
+  const px = Math.max(0, Math.min(MAP - 1, (x / ARENA + 0.5) * MAP | 0));
+  const py = Math.max(0, Math.min(MAP - 1, (y / ARENA + 0.5) * MAP | 0));
+  return fiberData[(py * MAP + px) * 4] / 255;
+};
+
+// ink layer canvas -> texture on floor
+const inkCanvas = document.createElement('canvas'); inkCanvas.width = MAP; inkCanvas.height = MAP;
+const inkCtx = inkCanvas.getContext('2d');
+const inkTex = new THREE.CanvasTexture(inkCanvas);
+inkTex.anisotropy = 8;
+
+// composite the two canvases into one floor texture
+const floorCanvas = document.createElement('canvas'); floorCanvas.width = MAP; floorCanvas.height = MAP;
+const floorCtx = floorCanvas.getContext('2d');
+function rebuildFloor() {
+  floorCtx.clearRect(0, 0, MAP, MAP);
+  floorCtx.drawImage(paperCanvas, 0, 0);
+  floorCtx.drawImage(inkCanvas, 0, 0);
+  inkTex.needsUpdate = true;
+}
+rebuildFloor();
+
+// ink stain database
+const stains = [];
+function addStain(wx, wz, color, size, opts = {}) {
+  const x = (wx / ARENA + 0.5) * MAP;
+  const y = (wz / ARENA + 0.5) * MAP;
+  if (x < -20 || y < -20 || x > MAP + 20 || y > MAP + 20) return;
+  stains.push({
+    x, y, color,
+    r: size || 6,
+    maxR: (size || 6) * (1.4 + Math.random() * 1.6),
+    bleed: opts.bleed ?? 0.6,
+    drops: opts.drops ?? 8,
+    alpha: 0.85,
+    hue: opts.hue
+  });
+}
+
+// draw all stains into inkCanvas (procedural ink-spread with fiber bleeding)
+function renderInk() {
+  inkCtx.clearRect(0, 0, MAP, MAP);
+  for (const s of stains) {
+    // central pool
+    inkCtx.globalAlpha = s.alpha;
+    // blotchy core made of drops
+    for (let i = 0; i < s.drops; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = 0.15 + Math.random() * 0.6;
+      const cx = s.x + Math.cos(a) * s.r * rr;
+      const cy = s.y + Math.sin(a) * s.r * rr;
+      const rad = s.r * (0.25 + rr * 0.5);
+      const g = inkCtx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      g.addColorStop(0, s.color);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      inkCtx.fillStyle = g;
+      inkCtx.beginPath(); inkCtx.arc(cx, cy, rad, 0, Math.PI * 2); inkCtx.fill();
+    }
+    // bleeding rim: dots that spread along paper fibers up to maxR
+    const rimCount = 18;
+    for (let i = 0; i < rimCount; i++) {
+      const dirx = Math.random() * 2 - 1, dirz = Math.random() * 2 - 1;
+      const len = s.r + Math.random() * (s.maxR - s.r);
+      const px = s.x + dirx * len;
+      const py = s.y + dirz * len;
+      const wx = (px / MAP - 0.5) * ARENA;
+      const wz = (py / MAP - 0.5) * ARENA;
+      const fiber = fiberDark(wx, wz);
+      const spread = len * (s.bleed + fiber * 1.6);
+      const g = inkCtx.createRadialGradient(px, py, 0, px, py, spread);
+      g.addColorStop(0, s.color);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      inkCtx.fillStyle = g;
+      inkCtx.globalAlpha = s.alpha * 0.5 * (0.5 + fiber);
+      inkCtx.beginPath(); inkCtx.arc(px, py, spread, 0, Math.PI * 2); inkCtx.fill();
+    }
+    inkCtx.globalAlpha = 1;
+    // grow for a while (bleeding continues after it lands)
+    if (s.r < s.maxR) s.r += 0.35 * (1 + fiberDark((s.x/MAP-0.5)*ARENA, (s.y/MAP-0.5)*ARENA));
+    if (s.alpha > 0.3) s.alpha -= 0.0012;
+  }
+  if (stains.length > 900) stains.splice(0, stains.length - 900);
+  rebuildFloor();
+}
+
+// floor mesh (a scroll of paper)
+const floorGeo = new THREE.PlaneGeometry(ARENA, ARENA);
+const floorMat = new THREE.MeshStandardMaterial({ map: inkTex, roughness: 0.95, metalness: 0 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// decorative border like a scroll edge
+const borderMat = new THREE.MeshStandardMaterial({ color: 0x3a2f22, roughness: 1 });
+for (let i = 0; i < 4; i++) {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(ARENA / (i < 2 ? 1 : 1), 0.3, 1), borderMat);
+  const axial = i < 2;
+  if (axial) { b.scale.set(1, 1, ARENA); } else { b.scale.set(ARENA, 1, 1); }
+  b.position.y = -0.15;
+  if (i === 0) b.position.z = -ARENA / 2;
+  if (i === 1) b.position.z = ARENA / 2;
+  if (i === 2) b.position.x = -ARENA / 2;
+  if (i === 3) b.position.x = ARENA / 2;
+  scene.add(b);
+}
+
+// ---------------- LIGHTS ----------------
+const hemi = new THREE.HemisphereLight(0xfff2dd, 0x2a1f14, 1.0);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffe6c4, 1.4);
+dir.position.set(20, 40, 12);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+dir.shadow.camera.left = -50; dir.shadow.camera.right = 50;
+dir.shadow.camera.top = 50; dir.shadow.camera.bottom = -50;
+scene.add(dir);
+const rim = new THREE.DirectionalLight(0x884422, 0.6);
+rim.position.set(-20, 20, -18);
+scene.add(rim);
+
+// ---------------- HELPERS ----------------
+const groupA = new THREE.Object3D(); // static world
+const groupEnemies = new THREE.Object3D();
+const groupFX = new THREE.Object3D();
+scene.add(groupA, groupEnemies, groupFX);
+
+const colorObj = (c) => new THREE.Color(c);
+function sMesh(geo, color, { metal = 0, rough = 0.8, emissive = 0x000000 } = {}) {
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough, emissive }));
+}
+
+// ---------------- SAMURAI PLAYER ----------------
+function makeSamurai() {
+  const root = new THREE.Group();
+  const body = sMesh(new THREE.BoxGeometry(1, 1.3, 0.7), 0x2c2620); body.position.y = 1.25; body.castShadow = true;
+  const robe = sMesh(new THREE.CylinderGeometry(0.72, 0.95, 0.9, 8), 0x6b2f2f); robe.position.y = 0.9; robe.castShadow = true;
+  const belt = sMesh(new THREE.CylinderGeometry(0.7, 0.7, 0.16, 8), 0x111111); belt.position.y = 1.55;
+  // head
+  const head = sMesh(new THREE.SphereGeometry(0.32, 16, 16), 0xe8c9a0); head.position.y = 2.1; head.castShadow = true;
+  const topknot = sMesh(new THREE.ConeGeometry(0.14, 0.3, 6), 0x1a1a1a); topknot.position.y = 2.42;
+  const hair = sMesh(new THREE.SphereGeometry(0.34, 12, 8, 0, Math.PI*2, 0, Math.PI*0.55), 0x181818); hair.position.y = 2.16;
+  const mask = sMesh(new THREE.BoxGeometry(0.6, 0.22, 0.2), 0x3a3a3a); mask.position.set(0, 2.08, 0.28);
+  // legs
+  const legL = sMesh(new THREE.CylinderGeometry(0.24, 0.24, 0.9, 8), 0x2c2620); legL.position.set(-0.22, 0.45, 0);
+  const legR = legL.clone(); legR.position.x = 0.22;
+  // arms + katana
+  const armL = sMesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), 0x2c2620); armL.position.set(-0.62, 1.35, 0);
+  const armR = new THREE.Group(); armR.position.set(0.62, 1.45, 0);
+  const armRBox = sMesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), 0x6b2f2f);
+  armR.add(armRBox); armRBox.position.y = -0.3;
+  const katana = new THREE.Group();
+  const blade = sMesh(new THREE.BoxGeometry(0.07, 1.1, 0.16), 0xd8d8e0, { metal: 0.9, rough: 0.3 }); blade.position.y = 0.5; blade.castShadow = true;
+  const edge = sMesh(new THREE.BoxGeometry(0.075, 1.1, 0.01), 0xf4f4ff, { metal: 1, rough: 0.2 }); edge.position.set(0, 0.5, 0.09);
+  const tsuka = sMesh(new THREE.CylinderGeometry(0.07, 0.07, 0.32, 8), 0x8a2a2a); tsuka.rotation.x = Math.PI/2; tsuka.position.y = -0.12;
+  const tsuba = sMesh(new THREE.CylinderGeometry(0.11, 0.11, 0.04, 8), 0xd8b44a, { metal: 0.8 }); tsuba.rotation.x = Math.PI/2; tsuka.add(tsuba);
+  katana.add(blade, edge, tsuka);
+  armR.add(katana);
+  root.add(body, robe, belt, head, topknot, hair, mask, legL, legR, armL, armR);
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return { root, katana, armR, legL, legR };
+}
+const player = makeSamurai();
+player.root.scale.setScalar(1.15);
+player.root.position.set(0, 0, 0);
+player.root.castShadow = true;
+scene.add(player.root);
+
+// ---------------- ONI ENEMY ----------------
+function makeOni(scale = 1) {
+  const g = new THREE.Group();
+  const body = sMesh(new THREE.BoxGeometry(1, 1.2, 0.7), 0x9c2b2b); body.position.y = 1.2; body.castShadow = true;
+  const belly = sMesh(new THREE.CylinderGeometry(0.66, 0.62, 0.7, 8), 0xb03a3a); belly.position.y = 1.02;
+  const belt = sMesh(new THREE.CylinderGeometry(0.72, 0.72, 0.18, 8), 0x222222); belt.position.y = 1.52;
+  const head = sMesh(new THREE.SphereGeometry(0.34, 14, 14), 0x9c2b2b); head.position.y = 1.98;
+  const hornL = sMesh(new THREE.ConeGeometry(0.09, 0.4, 6), 0xe8dcc0); hornL.position.set(-0.15, 2.3, 0.05); hornL.rotation.z = -0.4;
+  const hornR = hornL.clone(); hornR.position.x = 0.15; hornR.rotation.z = 0.4;
+  const eyeL = sMesh(new THREE.SphereGeometry(0.05, 8, 8), 0xf0f0f0, { emissive: 0x441111 }); eyeL.position.set(-0.13, 2.02, 0.3);
+  const eyeR = eyeL.clone(); eyeR.position.x = 0.13;
+  const pupilL = sMesh(new THREE.SphereGeometry(0.025, 6, 6), 0x111111); pupilL.position.set(-0.13, 2.0, 0.34);
+  const pupilR = pupilL.clone(); pupilR.position.x = 0.13;
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.06), new THREE.MeshBasicMaterial({ color: 0x1a0a0a }));
+  mouth.position.set(0, 1.86, 0.31);
+  const loin = sMesh(new THREE.CylinderGeometry(0.5, 0.62, 0.5, 8), 0xe8dcc0); loin.position.y = 0.55;
+  const legL = sMesh(new THREE.CylinderGeometry(0.26, 0.22, 0.8, 8), 0x9c2b2b); legL.position.set(-0.2, 0.4, 0);
+  const legR = legL.clone(); legR.position.x = 0.2;
+  const armL = sMesh(new THREE.CylinderGeometry(0.16, 0.12, 0.9, 8), 0x9c2b2b); armL.position.set(-0.58, 1.25, 0);
+  const armR = armL.clone(); armR.position.x = 0.58;
+  g.add(body, belly, belt, head, hornL, hornR, eyeL, eyeR, pupilL, pupilR, mouth, loin, legL, legR, armL, armR);
+  g.scale.setScalar(scale);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+// ---------------- BLOOD PARTICLES (3D spray that lands as ink) ----------------
+const bloodParticles = [];
+function spawnBlood(wx, wy, wz, amount, color = '#7a0f0f') {
+  for (let i = 0; i < amount; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ color, transparent: true }));
+    sp.scale.setScalar(0.35 + Math.random() * 0.5);
+    sp.position.set(wx, wy, wz);
+    groupFX.add(sp);
+    bloodParticles.push({
+      sp,
+      vx: (Math.random() - 0.5) * 4,
+      vy: 1.5 + Math.random() * 3.5,
+      vz: (Math.random() - 0.5) * 4,
+      life: 0.9 + Math.random() * 0.6,
+      age: 0,
+      color
+    });
+  }
+}
+// larger ink splash pool on landing
+function splashStain(wx, wz, color = '#7a0f0f', power = 1) {
+  const count = 1 + Math.floor(Math.random() * 3 * power);
+  for (let i = 0; i < count; i++) {
+    const ox = (Math.random() - 0.5) * 1.6;
+    const oz = (Math.random() - 0.5) * 1.6;
+    addStain(wx + ox, wz + oz, color, 4 + Math.random() * 7 * power, { bleed: 0.5, drops: 6 });
+  }
+}
+
+// ---------------- GAME STATE ----------------
+let enemies = [];
+let playerHP = 100;
+let kills = 0;
+let wave = 0;
+let playing = false;
+let elapsed = 0;
+let scoreEl = document.getElementById('score');
+let waveEl = document.getElementById('wave');
+let hpEl = document.getElementById('hp');
+
+// ---------------- CONTROLS ----------------
+const keys = {};
+const mouse = { x: 0, y: 0 };
+const pointer = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+const btn = document.getElementById('startBtn');
+function start() {
+  document.getElementById('overlay').classList.add('hidden');
+  playing = true;
+  nextWave();
+}
+btn.addEventListener('click', start);
+window.addEventListener('keydown', e => { if (e.code === 'Enter' && !playing) start(); });
+
+// ---------------- COMBAT ----------------
+let attackT = 0;        // time remaining in swing
+let swung = new Set();  // enemies already hit this swing
+let slashArc = null;
+function makeSlashArc() {
+  const geo = new THREE.RingGeometry(0.9, 1.25, 40, 1, 0, Math.PI * 1.7);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+  slashArc = new THREE.Mesh(geo, mat);
+  slashArc.material.rotation = Math.PI; // open toward aim
+  slashArc.visible = false;
+  groupFX.add(slashArc);
+}
+makeSlashArc();
+
+function doSlash() {
+  if (attackT > 0) return;
+  attackT = 0.22;
+  swung = new Set();
+  player.slash = 1;
+}
+
+function handleClick() { if (playing) doSlash(); }
+window.addEventListener('mousedown', handleClick);
+
+// aim direction from camera through mouse
+function getAimDir() {
+  pointer.set((mouse.x / W) * 2 - 1, -(mouse.y / H) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = new THREE.Vector3();
+  raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit);
+  if (hit) {
+    hit.y = 0;
+    const to = hit.sub(player.root.position); to.y = 0;
+    if (to.lengthSq() > 0.001) return to.normalize();
+  }
+  return new THREE.Vector3(0, 0, -1);
+}
+
+// ---------------- WAVES ----------------
+function nextWave() {
+  wave++;
+  waveEl.textContent = 'WAVE ' + wave;
+  const count = 2 + wave * 2;
+  for (let i = 0; i < count; i++) {
+    const oni = makeOni(0.95 + Math.random() * 0.25);
+    const a = Math.random() * Math.PI * 2;
+    const r = 16 + Math.random() * 12;
+    oni.position.set(player.root.position.x + Math.cos(a) * r, 0, player.root.position.z + Math.sin(a) * r);
+    oni.rotation.y = Math.random() * Math.PI * 2;
+    groupEnemies.add(oni);
+    enemies.push({ mesh: oni, hp: 40 + wave * 8, maxHP: 40 + wave * 8, speed: 2.2 + wave * 0.08, wob: Math.random() * 10, hurt: 0, isBoss: false });
+  }
+  // every 3rd wave a boss
+  if (wave % 3 === 0) {
+    const boss = makeOni(1.7);
+    const a = Math.random() * Math.PI * 2;
+    boss.position.set(player.root.position.x + Math.cos(a) * 14, 0, player.root.position.z + Math.sin(a) * 14);
+    groupEnemies.add(boss);
+    enemies.push({ mesh: boss, hp: 300 * (1 + wave * 0.2), maxHP: 300 * (1 + wave * 0.2), speed: 1.7, wob: 0, hurt: 0, isBoss: true });
+  }
+}
+
+// ---------------- UPDATE ----------------
+const pv = new THREE.Vector3();
+const playerDead = () => playerHP <= 0;
+function updateEnemies(dt) {
+  const p = player.root.position;
+  for (const e of enemies) {
+    const dir = new THREE.Vector3(p.x - e.mesh.position.x, 0, p.z - e.mesh.position.z);
+    const dist = dir.length();
+    if (dist > 1.2) {
+      dir.normalize();
+      const sp = e.speed * (1 + (e.hurt > 0 ? -0.6 : 0));
+      e.mesh.position.x += dir.x * sp * dt;
+      e.mesh.position.z += dir.z * sp * dt;
+      e.mesh.rotation.y = Math.atan2(-dir.x, -dir.z);
+      // walk bob
+      e.mesh.position.y = Math.abs(Math.sin(elapsed * 5 + e.wob)) * 0.12;
+    } else {
+      // attack the player
+      e.mesh.position.y = 0;
+      e.mesh.rotation.y = Math.atan2(-dir.x, -dir.z);
+      if (!e.onCd) { e.onCd = 1; e.onCdT = 0.9; playerHP -= 9; }
+    }
+    if (e.onCd) { e.onCdT -= dt; if (e.onCdT <= 0) e.onCd = 0; }
+    if (e.hurt > 0) e.hurt -= dt;
+  }
+  // remove dead
+  enemies = enemies.filter(e => e.mesh.parent);
+}
+
+function hitEnemies() {
+  const aim = getAimDir();
+  const p = player.root.position;
+  for (const e of enemies) {
+    if (swung.has(e)) continue;
+    const to = new THREE.Vector3(e.mesh.position.x - p.x, 0, e.mesh.position.z - p.z);
+    const dist = to.length();
+    if (dist < 3.4) {
+      const dot = to.normalize().dot(aim);
+      if (dot > -0.35) {
+        swung.add(e);
+        e.hp -= 30;
+        e.hurt = 0.25;
+        const hitP = e.mesh.position.clone(); hitP.y = 1.3;
+        spawnBlood(hitP.x, hitP.y, hitP.z, 12);
+        splashStain(e.mesh.position.x, e.mesh.position.z);
+        // knockback
+        e.mesh.position.x += aim.x * 0.9;
+        e.mesh.position.z += aim.z * 0.9;
+        if (e.hp <= 0) killEnemy(e);
+      }
+    }
+  }
+}
+
+function killEnemy(e) {
+  const m = e.mesh;
+  if (e.isBoss) {
+    spawnBlood(m.position.x, 2, m.position.z, 40, '#5a0a0a');
+    for (let i = 0; i < 10; i++) addStain(m.position.x + (Math.random()-0.5)*4, m.position.z + (Math.random()-0.5)*4, '#6a0d0d', 5 + Math.random()*8, { bleed: 0.7, drops: 10 });
+    window.setTimeout(() => m.parent?.remove(m), 600);
+  } else {
+    spawnBlood(m.position.x, 1.5, m.position.z, 18, '#7a0f0f');
+    splashStain(m.position.x, m.position.z, '#7a0f0f', 1.4);
+    m.parent.remove(m);
+  }
+  kills++;
+  updateHUD();
+}
+
+function updateHUD() {
+  scoreEl.textContent = 'KILLS ' + kills + ' · WAVE ' + wave;
+  hpEl.textContent = 'HP ' + Math.max(0, Math.round(playerHP));
+}
+
+function cameraFollow(dt) {
+  const p = player.root.position;
+  const aim = getAimDir();
+  const camPos = p.clone();
+  camPos.y += 6.5;
+  camPos.addScaledVector(aim, -9);
+  const target = p.clone(); target.y += 1.4;
+  camera.position.lerp(camPos, 1 - Math.exp(-4 * dt));
+  camera.lookAt(target);
+}
+
+let slashFlashT = 0;
+function updatePlayer(dt) {
+  const move = new THREE.Vector3();
+  const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), camera.rotation.y);
+  // forward/right relative to camera yaw
+  camera.getWorldDirection(pv); pv.y = 0; pv.normalize();
+  const right = new THREE.Vector3().crossVectors(pv, new THREE.Vector3(0,1,0)).normalize();
+  if (keys['KeyW']) move.add(pv);
+  if (keys['KeyS']) move.sub(pv);
+  if (keys['KeyA']) move.sub(right);
+  if (keys['KeyD']) move.add(right);
+  move.y = 0;
+  let speed = 6;
+  if (move.lengthSq() > 0) {
+    move.normalize();
+    if (keys['ShiftLeft'] || keys['ShiftRight']) speed = 11;
+    move.multiplyScalar(speed * dt);
+    player.root.position.x += move.x;
+    player.root.position.z += move.z;
+    player.speedAnim = Math.min(player.speedAnim + dt * 8, 1);
+  } else player.speedAnim = Math.max(player.speedAnim - dt * 8, 0);
+  // clamp to arena
+  const lim = ARENA / 2 - 1.6;
+  player.root.position.x = Math.max(-lim, Math.min(lim, player.root.position.x));
+  player.root.position.z = Math.max(-lim, Math.min(lim, player.root.position.z));
+
+  // face aim direction
+  const aim = getAimDir();
+  if (aim.lengthSq() > 0.01) {
+    const t = Math.atan2(aim.x, aim.z);
+    player.root.rotation.y += (t - player.root.rotation.y) * Math.min(1, dt * 12);
+  }
+
+  // run bob
+  const bob = Math.sin(elapsed * 11) * 0.09 * player.speedAnim;
+  player.legL.position.y = 0.45 + Math.sin(elapsed * 22) * 0.18 * player.speedAnim;
+  player.legR.position.y = 0.45 - Math.sin(elapsed * 22) * 0.18 * player.speedAnim;
+  player.root.position.y = Math.abs(bob);
+
+  // attack animation
+  if (attackT > 0) {
+    attackT -= dt;
+    const k = 1 - attackT / 0.22;
+    player.katana.rotation.z = -2.4 + k * 5.0;   // sweep
+    player.katana.rotation.x = 0.5 - k * 1.2;
+    player.armR.rotation.x = -1.2 + k * 2.2;
+    if (k >= 0.4 && k <= 0.55) hitEnemies();
+    slashArc.visible = true;
+    slashArc.position.copy(player.root.position); slashArc.position.y = 1.4;
+    slashArc.rotation.y = player.root.rotation.y - Math.PI / 2;
+    slashFlashT = 0.12;
+  } else {
+    const idle = Math.sin(elapsed * 3) * 0.08;
+    player.katana.rotation.z = -0.6 + idle;
+    player.armR.rotation.x = 0;
+    slashArc.visible = false;
+  }
+  player.katana.rotation.y = player.root.rotation.y;
+  if (slashFlashT > 0) {
+    slashFlashT -= dt;
+    slashArc.material.opacity = 0.55 * (slashFlashT / 0.12);
+  }
+}
+
+function updateBlood(dt) {
+  for (let i = bloodParticles.length - 1; i >= 0; i--) {
+    const bp = bloodParticles[i];
+    bp.age += dt;
+    bp.vy -= 9.8 * dt;
+    bp.sp.position.x += bp.vx * dt;
+    bp.sp.position.y += bp.vy * dt;
+    bp.sp.position.z += bp.vz * dt;
+    if (bp.sp.position.y <= 0.05 || bp.age > bp.life) {
+      if (bp.sp.position.y <= 0.05) {
+        // hit the paper -> ink stain
+        addStain(bp.sp.position.x, bp.sp.position.z, bp.color, 2.5 + Math.random() * 4, { bleed: 0.55, drops: 4 });
+      }
+      groupFX.remove(bp.sp);
+      bloodParticles.splice(i, 1);
+    }
+  }
+}
+
+function update(dt) {
+  elapsed += dt;
+  updatePlayer(dt);
+  if (playing) updateEnemies(dt);
+  updateBlood(dt);
+  renderInk();
+  cameraFollow(dt);
+  // check if wave cleared
+  if (playing && enemies.length === 0) {
+    window.setTimeout(() => { if (playing && enemies.length === 0) nextWave(); }, 1600);
+    playing = false;
+  }
+  if (playerDead()) gameOver();
+  renderer.render(scene, camera);
+}
+
+function gameOver() {
+  if (!playing && !gameOverShown) { gameOverShown = true; return; }
+  playing = false;
+  if (gameOverShown) return;
+  gameOverShown = true;
+  document.getElementById('overlay').classList.remove('hidden');
+  document.querySelector('#overlay h1').textContent = '倒れた FELL';
+  document.querySelector('#overlay p').innerHTML = 'You fell.<br><b>KILLS ' + kills + ' · WAVE ' + wave + '</b>';
+  btn.textContent = 'AGAIN';
+  btn.onclick = () => location.reload();
+}
+let gameOverShown = false;
+
+// resize
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+
+// main loop
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// warm the floor with a faint pre-drawn stain ring so gameplay reads ink-on-paper
+addStain(-10, -10, '#5a0c0c', 8, { bleed: 0.5 });
+addStain(12, 8, '#5a0c0c', 6, { bleed: 0.5 });
+renderInk();
+
+// idle gentle camera drift before start
+</script>
+</body>
+</html>

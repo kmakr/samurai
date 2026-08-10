@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>侍 — INK AND STEEL</title>
+<style>
+  :root {
+    --paper: #e9e4d6;
+    --ink: #0a0a0d;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    color: var(--paper);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Songti SC", Georgia, "Times New Roman", serif;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #app { position: fixed; inset: 0; }
+  #app canvas { display: block; }
+
+  /* Ink flicked at the page itself, drawn above the film. */
+  #inkOverlay {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* Scope framing. */
+  .bar { position: fixed; background: #000; z-index: 8; pointer-events: none; }
+  #barTop { top: 0; left: 0; right: 0; }
+  #barBottom { bottom: 0; left: 0; right: 0; }
+  #barLeft { top: 0; bottom: 0; left: 0; }
+  #barRight { top: 0; bottom: 0; right: 0; }
+
+  /* ------------------------------------------------------------------ HUD */
+
+  #hud {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    pointer-events: none;
+  }
+
+  #gauges {
+    position: absolute;
+    left: 3.2vw;
+    bottom: 3.4vh;
+    display: flex;
+    gap: 26px;
+    align-items: flex-end;
+  }
+
+  .gauge { width: min(190px, 20vw); }
+
+  .gauge .label {
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    opacity: 0.55;
+    margin-bottom: 5px;
+  }
+
+  /* Brush-stroke bars: uneven ends, slightly rough, never a clean rectangle. */
+  .gauge .track {
+    position: relative;
+    height: 9px;
+    background: rgba(233, 228, 214, 0.13);
+    clip-path: polygon(0 22%, 1.5% 4%, 99% 0, 100% 45%, 99.2% 96%, 2% 100%, 0 74%);
+  }
+
+  .gauge .fill {
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    transform-origin: left center;
+    transform: scaleX(1);
+    transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  #focusWrap .fill { background: rgba(233, 228, 214, 0.62); }
+
+  #focusWrap.ready .fill {
+    background: #fff;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  #focusWrap.ready .label::after {
+    content: "  ▸ 居合 READY [F]";
+    opacity: 1;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  #stats {
+    position: absolute;
+    top: 3.6vh;
+    right: 3.2vw;
+    font-size: 15px;
+    letter-spacing: 0.3em;
+    opacity: 0.7;
+    text-align: right;
+  }
+
+  #help {
+    position: absolute;
+    right: 3.2vw;
+    bottom: 3.0vh;
+    font-size: 11px;
+    line-height: 2.1;
+    letter-spacing: 0.16em;
+    opacity: 0.4;
+    text-align: right;
+  }
+  #help b { font-weight: normal; opacity: 0.95; }
+
+  /* Wave announcement: a large kanji that strikes and fades, like a title card. */
+  #waveTitle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+  }
+  #waveTitle .kanji {
+    display: block;
+    color: var(--ink);
+    text-shadow: 0 0 34px rgba(255, 255, 255, 0.75);
+    font-size: clamp(64px, 13vw, 190px);
+    line-height: 1;
+    letter-spacing: 0.08em;
+  }
+  #waveTitle .latin {
+    display: block;
+    color: var(--ink);
+    margin-top: 14px;
+    font-size: 13px;
+    letter-spacing: 0.7em;
+    opacity: 0.65;
+  }
+  #waveTitle.show { animation: waveIn 2.4s ease-out forwards; }
+  @keyframes waveIn {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.35); filter: blur(9px); }
+    12%  { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0); }
+    68%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -52%) scale(1.02); }
+  }
+
+  /* -------------------------------------------------------------- overlay */
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.93) 75%);
+    text-align: center;
+  }
+  #overlay.hidden { display: none; }
+
+  #ovTitle {
+    font-size: clamp(58px, 12vw, 165px);
+    line-height: 0.95;
+    margin: 0;
+    letter-spacing: 0.05em;
+    font-weight: normal;
+    text-shadow: 0 0 60px rgba(0,0,0,0.9);
+  }
+
+  #ovSub {
+    font-size: 13px;
+    letter-spacing: 0.85em;
+    opacity: 0.6;
+    margin-top: 4px;
+    text-indent: 0.85em;
+  }
+
+  #ovText {
+    margin: 20px 0 0;
+    font-size: 14px;
+    letter-spacing: 0.24em;
+    line-height: 2;
+    opacity: 0.78;
+    max-width: 34em;
+  }
+
+  #ovBtn {
+    margin-top: 26px;
+    padding: 13px 46px;
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em;
+    color: #0a0a0d;
+    background: var(--paper);
+    border: 0;
+    cursor: pointer;
+    clip-path: polygon(0 14%, 1% 2%, 99.4% 0, 100% 52%, 99% 98%, 1.4% 100%, 0.2% 62%);
+    transition: background 0.2s, transform 0.2s;
+  }
+  #ovBtn:hover { background: #fff; transform: scale(1.03); }
+
+  #controls {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 7px 22px;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    opacity: 0.5;
+  }
+  #controls span:nth-child(odd) { text-align: right; opacity: 0.75; }
+  #controls span:nth-child(even) { text-align: left; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+<canvas id="inkOverlay"></canvas>
+
+<div class="bar" id="barTop"></div>
+<div class="bar" id="barBottom"></div>
+<div class="bar" id="barLeft"></div>
+<div class="bar" id="barRight"></div>
+
+<div id="hud">
+  <div id="gauges">
+    <div class="gauge">
+      <div class="label">命 LIFE</div>
+      <div class="track"><div class="fill" id="hpFill"></div></div>
+    </div>
+    <div class="gauge" id="focusWrap">
+      <div class="label">気 FOCUS</div>
+      <div class="track"><div class="fill" id="focusFill"></div></div>
+    </div>
+  </div>
+
+  <div id="stats">斬 0   波 0</div>
+
+  <div id="help">
+    <b>WASD</b> MOVE · <b>MOUSE</b> AIM<br />
+    <b>CLICK</b> CUT ×3 · <b>SHIFT</b> DASH<br />
+    <b>SPACE</b> PARRY · <b>F</b> IAI
+  </div>
+
+  <div id="waveTitle"></div>
+</div>
+
+<div id="overlay">
+  <h1 id="ovTitle">侍</h1>
+  <div id="ovSub">INK AND STEEL</div>
+  <p id="ovText">
+    A sheet of paper. A hundred blades.<br />
+    Every wound you open bleeds into the page and stays there.
+  </p>
+  <button id="ovBtn">BEGIN 始</button>
+  <div id="controls">
+    <span>WASD</span><span>move</span>
+    <span>MOUSE</span><span>aim the cut</span>
+    <span>CLICK</span><span>slash — the third cut of the chain cleaves a man in two</span>
+    <span>SHIFT</span><span>dash (invulnerable)</span>
+    <span>SPACE</span><span>parry — time it against the white blade</span>
+    <span>F</span><span>iai draw, once focus is full</span>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+
+</body>
+</html>
