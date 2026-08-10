@@ -17,6 +17,20 @@ python3 -m http.server 5173
 
 Then open <http://localhost:5173>.
 
+## Deployment
+
+Hosted on Cloudflare Pages at <https://labs.theoazriel.com>. There is no build
+step, so the project settings are simply:
+
+| Setting | Value |
+| --- | --- |
+| Framework preset | None |
+| Build command | *(empty)* |
+| Build output directory | `/` |
+
+The custom domain is attached in the Pages project. Because `theoazriel.com`
+is a Cloudflare zone, Pages creates and manages the DNS record itself.
+
 ## Controls
 
 | Input | Action |
