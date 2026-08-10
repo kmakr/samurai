@@ -19,17 +19,25 @@ Then open <http://localhost:5173>.
 
 ## Deployment
 
-Hosted on Cloudflare Pages at <https://labs.theoazriel.com>. There is no build
-step, so the project settings are simply:
+Hosted on Cloudflare Pages — project `samurai`, live at
+<https://samurai-exp.pages.dev> and (once DNS is attached)
+<https://labs.theoazriel.com>.
 
-| Setting | Value |
-| --- | --- |
-| Framework preset | None |
-| Build command | *(empty)* |
-| Build output directory | `/` |
+There is no build step, so deploys are a direct upload of the repo contents:
 
-The custom domain is attached in the Pages project. Because `theoazriel.com`
-is a Cloudflare zone, Pages creates and manages the DNS record itself.
+```bash
+git archive HEAD | tar -x -C /tmp/samurai-deploy
+rm -rf /tmp/samurai-deploy/.claude
+npx wrangler pages deploy /tmp/samurai-deploy --project-name=samurai --branch=master
+```
+
+Staging from `git archive` rather than uploading the working directory keeps
+`.git` and local editor state out of the published site.
+
+Note this is **direct upload, not Git-connected** — pushing to GitHub does not
+redeploy on its own. Connecting the repo in the Cloudflare dashboard (Workers &
+Pages → the project → Settings → Builds) enables push-to-deploy and PR previews;
+build command stays empty and output directory is `/`.
 
 ## Controls
 
