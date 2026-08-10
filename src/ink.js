@@ -39,6 +39,7 @@ export class InkSystem {
 
     this.stains = [];
     this.drops = [];
+    this.jets = [];
 
     // Screen-space ink lives on a 2D canvas above the WebGL surface.
     this.screenCanvas = document.getElementById('inkOverlay');
@@ -129,24 +130,59 @@ export class InkSystem {
 
   // --------------------------------------------------------------- airborne
 
+  // A burst of blood. Strongly directional along the cut and mostly flat —
+  // wound spray travels sideways off the blade. High launch angles read as
+  // rain falling on the scene instead of blood leaving a body.
   spray(x, y, z, count, opts = {}) {
     const r = this.rnd;
     const { dirX = 0, dirZ = 0, force = 1, up = 1 } = opts;
     for (let i = 0; i < count; i++) {
       if (this.drops.length >= MAX_DROPS) this.drops.shift();
       const a = r() * Math.PI * 2;
-      const s = r() * 3.2 * force;
+      const s = r() * 2.2 * force;
       this.drops.push({
         p: new THREE.Vector3(x, y, z),
         v: new THREE.Vector3(
-          dirX * 4.5 * force + Math.cos(a) * s,
-          (1.6 + r() * 3.4) * up,
-          dirZ * 4.5 * force + Math.sin(a) * s,
+          dirX * 7.0 * force + Math.cos(a) * s,
+          (0.4 + r() * 1.6) * up,
+          dirZ * 7.0 * force + Math.sin(a) * s,
         ),
-        size: 0.10 + r() * 0.20,
+        size: 0.07 + r() * 0.15,
         uv: cellUV(dropCell(r)),
         alpha: 0.85 + r() * 0.15,
       });
+    }
+  }
+
+  // A sustained arterial jet. `getPos` is sampled every emission, so a jet
+  // attached to a ragdoll joint follows the body down — the blood visibly
+  // comes *from the wound*, not from the point in space where the hit landed.
+  addJet(getPos, dirX, dirZ, { duration = 0.8, rate = 30, force = 1.2, up = 1.0 } = {}) {
+    this.jets.push({ getPos, dirX, dirZ, duration, rate, force, up, t: 0, acc: 0 });
+  }
+
+  updateJets(dt) {
+    const r = this.rnd;
+    for (let i = this.jets.length - 1; i >= 0; i--) {
+      const j = this.jets[i];
+      j.t += dt;
+      if (j.t >= j.duration) { this.jets.splice(i, 1); continue; }
+      // Pressure drops off over the jet's life.
+      const k = 1 - j.t / j.duration;
+      j.acc += j.rate * (0.3 + 0.7 * k) * dt;
+      while (j.acc >= 1) {
+        j.acc -= 1;
+        const p = j.getPos();
+        if (!p) { j.t = j.duration; break; }
+        // Small per-drop cone around the wound direction.
+        const wob = (r() - 0.5) * 0.8;
+        const cos = Math.cos(wob), sin = Math.sin(wob);
+        const dx = j.dirX * cos - j.dirZ * sin;
+        const dz = j.dirX * sin + j.dirZ * cos;
+        this.spray(p.x, Math.max(p.y, 0.12), p.z, 1, {
+          dirX: dx, dirZ: dz, force: j.force * (0.55 + k * 0.7), up: j.up * (0.5 + k),
+        });
+      }
     }
   }
 
@@ -172,6 +208,8 @@ export class InkSystem {
 
   update(dt, camera) {
     const r = this.rnd;
+
+    this.updateJets(dt);
 
     // Airborne blood. A drop that reaches the paper stops being a drop.
     for (let i = this.drops.length - 1; i >= 0; i--) {
@@ -233,7 +271,7 @@ export class InkSystem {
       // will do in that case since the streak has no visible direction anyway.
       if (side.lengthSq() < 1e-6) side.set(1, 0, 0); else side.normalize();
 
-      const long = d.size * (1 + Math.min(speed * 0.13, 2.6));
+      const long = d.size * (1 + Math.min(speed * 0.22, 3.6));
       const wide = d.size;
       const p = d.p;
       c0.copy(p).addScaledVector(velDir, -long).addScaledVector(side, wide);

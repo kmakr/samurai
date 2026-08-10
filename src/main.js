@@ -18,10 +18,12 @@ const DASH_COOLDOWN = 0.42;
 
 // Attack phases, in seconds. Short wind-up, brief active window, longer
 // recovery — committing to a swing should feel like a decision.
+// Active windows sit at 7-10 frames: shorter and the swing arc is over before
+// the eye registers it, which reads as the katana not moving at all.
 const ATTACK = [
-  { windup: 0.09, active: 0.09, recover: 0.20, damage: 34, reach: 3.1, arc: 0.05 },
-  { windup: 0.07, active: 0.09, recover: 0.22, damage: 38, reach: 3.2, arc: -0.15 },
-  { windup: 0.13, active: 0.12, recover: 0.34, damage: 62, reach: 3.6, arc: 0.30 },
+  { windup: 0.09, active: 0.12, recover: 0.20, damage: 34, reach: 3.1, arc: 0.05 },
+  { windup: 0.07, active: 0.12, recover: 0.22, damage: 38, reach: 3.2, arc: -0.15 },
+  { windup: 0.13, active: 0.16, recover: 0.34, damage: 62, reach: 3.6, arc: 0.30 },
 ];
 const COMBO_WINDOW = 0.42;
 
@@ -38,17 +40,18 @@ const app = document.getElementById('app');
 const film = new FilmRenderer(app);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05050a);
-scene.fog = new THREE.FogExp2(0x0a0a10, 0.0075);
+scene.fog = new THREE.FogExp2(0x0a0a10, 0.0105);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 400);
 camera.position.set(0, 16, 20);
 
 const timeUniform = { value: 0 };
-buildWorld(scene, timeUniform);
+const world = buildWorld(scene, timeUniform);
 const dust = new Dust(scene);
 const rain = new Rain(scene);
-const ink = new InkSystem(scene, ARENA);
-const ragdolls = new RagdollSystem(scene, ink, ARENA);
+const WORLD_BOUND = 1e9;   // the page never ends
+const ink = new InkSystem(scene, WORLD_BOUND);
+const ragdolls = new RagdollSystem(scene, ink, WORLD_BOUND);
 const trail = new SlashTrail(scene, { radius: 2.7, width: 1.7, sweep: 3.0 });
 const enemyTrail = new SlashTrail(scene, { radius: 2.2, width: 1.0, sweep: 2.4, color: 0x101015 });
 
@@ -173,9 +176,9 @@ function spawnEnemy(type) {
   const actor = makeEnemy(type);
   actor.baseHipY = actor.hips.position.y;
   actor.root.position.set(
-    THREE.MathUtils.clamp(player.root.position.x + Math.cos(a) * r, -ARENA + 2, ARENA - 2),
+    player.root.position.x + Math.cos(a) * r,
     0,
-    THREE.MathUtils.clamp(player.root.position.z + Math.sin(a) * r, -ARENA + 2, ARENA - 2),
+    player.root.position.z + Math.sin(a) * r,
   );
   scene.add(actor.root);
 
@@ -274,7 +277,7 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
   }
 
   // A wound throws ink in the direction of the cut.
-  ink.spray(p.x, h, p.z, 7, { dirX, dirZ, force: 1.1 });
+  ink.spray(p.x, h, p.z, 9, { dirX, dirZ, force: 1.2, up: 0.6 });
   ink.flick(p.x, p.z, dirX, dirZ, 0.55);
   e.actor.root.position.x += dirX * 0.35;
   e.actor.root.position.z += dirZ * 0.35;
@@ -295,8 +298,9 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   ink.pool(p.x, p.z, big ? 1.1 : 0.55);
   ink.splashScreen(big ? 9 : 4, big ? 1.4 : 0.8);
 
-  hitstop(big ? 0.16 : 0.10, 0.05);
-  shake(big ? 1.1 : 0.5);
+  hitstop(big ? 0.22 : 0.14, 0.04);
+  shake(big ? 1.2 : 0.7);
+  flash(big ? 0.4 : 0.18);
   audio.kill();
 
   state.kills++;
@@ -368,8 +372,8 @@ function tryIai() {
 
   // The flash-step: the samurai finishes the cut well past where they started.
   const dist = Math.min(9, 4 + enemies.length * 0.3);
-  player.root.position.x = THREE.MathUtils.clamp(px + fx * dist, -ARENA + 1.5, ARENA - 1.5);
-  player.root.position.z = THREE.MathUtils.clamp(pz + fz * dist, -ARENA + 1.5, ARENA - 1.5);
+  player.root.position.x = px + fx * dist;
+  player.root.position.z = pz + fz * dist;
 
   vTmp.copy(player.root.position); vTmp.y = 0.2;
   iaiTrail.fire(vTmp, state.facing + Math.PI * 0.5, { duration: 0.75, scale: 1.4 });
@@ -464,10 +468,6 @@ function updatePlayer(dt) {
     player.root.position.z += vMove.z * speed * dt;
   }
 
-  const lim = ARENA - 1.4;
-  player.root.position.x = THREE.MathUtils.clamp(player.root.position.x, -lim, lim);
-  player.root.position.z = THREE.MathUtils.clamp(player.root.position.z, -lim, lim);
-
   player.root.rotation.y = state.facing;
 
   // ---- pose
@@ -485,14 +485,6 @@ function beginAttack(chain = false) {
   state.hitThisSwing = new Set();
   state.comboTimer = COMBO_WINDOW;
   audio.swing();
-
-  const cfg = ATTACK[state.comboIndex];
-  vTmp.copy(player.root.position); vTmp.y = 0.1;
-  trail.fire(vTmp, state.facing, {
-    mirror: state.comboIndex === 1,
-    duration: cfg.windup + cfg.active + cfg.recover * 0.7,
-    scale: state.comboIndex === 2 ? 1.25 : 1,
-  });
 }
 
 function updateAttack(dt) {
@@ -503,7 +495,17 @@ function updateAttack(dt) {
   if (state.actionT < wu) {
     state.attackPhase = 'windup';
   } else if (state.actionT < act) {
-    if (state.attackPhase !== 'active') state.attackPhase = 'active';
+    if (state.attackPhase !== 'active') {
+      state.attackPhase = 'active';
+      // The trail belongs to the cut itself. Firing it at wind-up start (as
+      // before) painted the stroke while the sword was still drawn back.
+      vTmp.copy(player.root.position); vTmp.y = 0.1;
+      trail.fire(vTmp, state.facing, {
+        mirror: state.comboIndex === 1,
+        duration: cfg.active + cfg.recover * 0.8,
+        scale: state.comboIndex === 2 ? 1.25 : 1,
+      });
+    }
     playerAttackHits();
   } else if (state.actionT < rec) {
     state.attackPhase = 'recover';
@@ -518,25 +520,50 @@ function updateAttack(dt) {
 function poseArms(dt) {
   const a = player;
   let armX = 0, armZ = 0, torsoY = 0, torsoZ = 0;
+  let katanaRoll = 0;
+  // Attack poses are written directly, not smoothed: a full swing lasts a
+  // dozen frames, and the exponential lerp below never got the arm more than
+  // partway to its keys before the swing was over — which is why the katana
+  // hardly appeared to move.
+  let snap = false;
 
   if (state.action === 'attack') {
     const cfg = ATTACK[state.comboIndex];
-    const total = cfg.windup + cfg.active + cfg.recover;
-    const k = THREE.MathUtils.clamp(state.actionT / total, 0, 1);
-    const wuFrac = cfg.windup / total;
-    if (k < wuFrac) {
-      // Draw back.
-      const w = k / wuFrac;
-      armX = -1.9 * w;
-      torsoY = -0.5 * w * (state.comboIndex === 1 ? -1 : 1);
+    const mirror = state.comboIndex === 1 ? -1 : 1;
+    const wu = cfg.windup, act = cfg.active;
+    const t = state.actionT;
+    snap = true;
+
+    // Torso and arm swing the SAME direction throughout — the torso leads and
+    // the arm follows. With opposite signs they cancel and the blade tip
+    // barely translates, which is exactly the "katana isn't swinging" bug.
+    if (t < wu) {
+      // Coil: torso twists toward the sword side, blade cocked past the ear.
+      const w = t / wu;
+      const e = 1 - Math.pow(1 - w, 2);              // ease-out into the cock
+      armX = -0.35 - 2.15 * e;
+      armZ = (0.28 + 0.62 * e) * mirror;
+      torsoY = 0.7 * e * mirror;
+      katanaRoll = -0.6 * e * mirror;
+    } else if (t < wu + act) {
+      // Release: everything unwinds across the body in a few frames, and the
+      // blade rolls so the edge leads the arc.
+      const w = (t - wu) / act;
+      const e = Math.pow(w, 0.4);                     // violent start, soft end
+      armX = -2.5 + 3.6 * e;                          // overhead -> past the hip
+      armZ = (0.9 - 2.1 * e) * mirror;                // sweeps across the body
+      torsoY = (0.7 - 1.8 * e) * mirror;
+      torsoZ = Math.sin(e * Math.PI) * 0.3;
+      katanaRoll = (-0.6 + 1.5 * e) * mirror;
     } else {
-      // Cut through and follow past.
-      const w = (k - wuFrac) / (1 - wuFrac);
-      armX = -1.9 + 3.4 * Math.pow(w, 0.45);
-      torsoY = (-0.5 + 1.0 * Math.pow(w, 0.5)) * (state.comboIndex === 1 ? -1 : 1);
-      torsoZ = Math.sin(w * Math.PI) * 0.22;
+      // Follow-through: hold the finish, then ease back toward guard.
+      const w = (t - wu - act) / cfg.recover;
+      const e = w * w;
+      armX = 1.1 - 1.45 * e;
+      armZ = (-1.2 + 1.48 * e) * mirror;
+      torsoY = (-1.1 + 1.1 * e) * mirror;
+      katanaRoll = (0.9 - 0.9 * e) * mirror;
     }
-    armZ = state.comboIndex === 1 ? -0.5 : 0.5;
   } else if (state.action === 'parry') {
     // Blade up, held across the body.
     const k = THREE.MathUtils.clamp(state.actionT / (PARRY_STARTUP + PARRY_ACTIVE), 0, 1);
@@ -552,12 +579,15 @@ function poseArms(dt) {
     armZ = 0.28;
   }
 
-  const lerp = 1 - Math.exp(-26 * dt);
+  // Smoothing is for transitions between held stances; the swing itself must
+  // hit its keyframes exactly on time.
+  const lerp = snap ? 1 : 1 - Math.exp(-26 * dt);
   a.armR.rotation.x += (armX - a.armR.rotation.x) * lerp;
   a.armR.rotation.z += (armZ - a.armR.rotation.z) * lerp;
   a.armL.rotation.x += (armX * 0.45 - a.armL.rotation.x) * lerp;
   a.hips.rotation.y += (torsoY - a.hips.rotation.y) * lerp;
   a.torso.rotation.z += (torsoZ - a.torso.rotation.z) * lerp;
+  a.katana.rotation.z += (katanaRoll - a.katana.rotation.z) * lerp;
 }
 
 const parryActive = () => state.action === 'parry'
@@ -571,6 +601,21 @@ function updateEnemies(dt) {
 
   for (const e of enemies) {
     const pos = e.actor.root.position;
+
+    // The land is endless, so a sprinting player can leave pursuers arbitrarily
+    // far behind — and a wave that can never catch up stalls the game. Anyone
+    // dropped too far re-emerges from the fog ahead instead.
+    {
+      const lx = p.x - pos.x, lz = p.z - pos.z;
+      if (lx * lx + lz * lz > 45 * 45) {
+        const a = Math.atan2(lx, lz) + (Math.random() - 0.5) * 1.2;
+        pos.x = p.x + Math.sin(a) * 26;
+        pos.z = p.z + Math.cos(a) * 26;
+        e.state = 'approach';
+        e.t = 0;
+      }
+    }
+
     const dx = p.x - pos.x, dz = p.z - pos.z;
     const dist = Math.hypot(dx, dz) || 1;
     const nx = dx / dist, nz = dz / dist;
@@ -695,12 +740,6 @@ function updateEnemies(dt) {
 
   separate(dt);
 
-  // Keep everyone on the map.
-  for (const e of enemies) {
-    const pos = e.actor.root.position;
-    pos.x = THREE.MathUtils.clamp(pos.x, -ARENA - 4, ARENA + 4);
-    pos.z = THREE.MathUtils.clamp(pos.z, -ARENA - 4, ARENA + 4);
-  }
 }
 
 function resolveEnemyStrike(e, dist, nx, nz, reach) {
@@ -930,6 +969,7 @@ function step(dt) {
   enemyTrail.update(sdt);
   ragdolls.update(sdt);
   ink.update(sdt, camera);
+  world.update(player.root.position);
   dust.update(sdt, camera.position);
 
   const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
@@ -963,6 +1003,8 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
+  version: 5,
+  world,
   film, scene, camera, state, ink, ragdolls, input, player, step,
   get enemies() { return enemies; },
 };

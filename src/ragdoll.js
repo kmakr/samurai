@@ -180,11 +180,27 @@ export class RagdollSystem {
     // The sword always leaves the hand.
     if (actor.katana) this.addDebris(actor.katana, cut, 0.9, true);
 
-    // A severed joint throws a lot of ink at the moment of the cut.
+    // Even a clean kill opens the torso along the cut — every death bleeds
+    // from the body itself.
+    if (!body.wounds.length) {
+      body.wounds.push(cut.x > 0 ? 'chestR' : 'chestL');
+    }
+
+    // Wounds gush. The jet samples the particle every emission, so the spray
+    // follows the body as it falls instead of hanging where the hit landed.
+    for (const key of body.wounds) {
+      const particle = P[key];
+      this.ink.addJet(() => particle.pos, cut.x, cut.z, {
+        duration: 0.8 + Math.random() * 0.5,
+        rate: 26,
+        force: 1.3,
+      });
+    }
+    // The instant of the cut still gets its burst.
     if (severed.size) {
       const at = severed.has('legs') ? P.pelvisL.pos : P.chestL.pos;
-      this.ink.spray(at.x, at.y, at.z, 16 + severed.size * 8, {
-        dirX: cut.x, dirZ: cut.z, force: 1.7,
+      this.ink.spray(at.x, at.y, at.z, 10 + severed.size * 6, {
+        dirX: cut.x, dirZ: cut.z, force: 1.6,
       });
     }
 
@@ -415,14 +431,14 @@ export class RagdollSystem {
       const body = this.bodies[i];
       body.age += dt;
 
-      // Bleed from open joints while the body is fresh.
-      if (body.wounds.length && body.age < 3.0) {
+      // After the jets die down, open joints keep seeping.
+      if (body.wounds.length && body.age > 1.2 && body.age < 3.4) {
         body.bleedT = (body.bleedT ?? 0) - dt;
         if (body.bleedT <= 0) {
-          body.bleedT = 0.07;
+          body.bleedT = 0.16;
           const key = body.wounds[(Math.random() * body.wounds.length) | 0];
           const p = body.P[key].pos;
-          this.ink.spray(p.x, Math.max(p.y, 0.12), p.z, 1, { force: 0.5, up: 0.5 });
+          this.ink.spray(p.x, Math.max(p.y, 0.12), p.z, 1, { force: 0.3, up: 0.4 });
         }
       }
 
