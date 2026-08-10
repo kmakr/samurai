@@ -20,8 +20,7 @@ Then open <http://localhost:5173>.
 ## Deployment
 
 Hosted on Cloudflare Pages — project `samurai`, live at
-<https://samurai-exp.pages.dev> and (once DNS is attached)
-<https://labs.theoazriel.com>.
+<https://samurai.theoazriel.com> (also <https://samurai-exp.pages.dev>).
 
 There is no build step, so deploys are a direct upload of the repo contents:
 
