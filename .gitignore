@@ -13,3 +13,6 @@ dist/
 # Local Claude Code state. launch.json is intentionally tracked: it is the
 # dev-server config, not a personal setting.
 .claude/settings.local.json
+
+# Wrangler local state
+.wrangler/
