@@ -86,8 +86,12 @@ export class Audio {
   swing() { this.noise(0.22, { freq: 2600, q: 1.2, gain: 0.16, sweep: 0.25 }); }
 
   hit() {
-    this.noise(0.16, { type: 'lowpass', freq: 900, gain: 0.32, sweep: 0.3 });
-    this.tone(150, 0.16, { type: 'triangle', gain: 0.22, to: 60 });
+    // Three layers on the contact frame: the slice, the body thud, and a low
+    // punch that lands under both. The bottom layer carries the weight.
+    this.noise(0.12, { freq: 3400, q: 2.5, gain: 0.18, sweep: 0.3 });
+    this.noise(0.16, { type: 'lowpass', freq: 900, gain: 0.34, sweep: 0.3 });
+    this.tone(150, 0.16, { type: 'triangle', gain: 0.24, to: 60 });
+    this.tone(72, 0.22, { type: 'sine', gain: 0.32, to: 38 });
   }
 
   kill() {

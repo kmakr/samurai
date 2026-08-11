@@ -118,6 +118,7 @@ const vTmp = new THREE.Vector3();
 const vTmp2 = new THREE.Vector3();
 const camTarget = new THREE.Vector3();
 const camShake = new THREE.Vector3();
+const camPunch = new THREE.Vector3();
 const vCut = new THREE.Vector3();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.0);
 const raycaster = new THREE.Raycaster();
@@ -242,6 +243,14 @@ function playerAttackHits() {
   const fx = Math.sin(state.facing), fz = Math.cos(state.facing);
   let hitAny = false;
 
+  // The direction a victim is thrown follows the *blade's travel*, not the
+  // line from attacker to victim. Cut 1 sweeps right-to-left, cut 2 mirrors
+  // it, and the overhead finisher drives straight through. Radial-only
+  // knockback is what made hits feel like a shove instead of a cut.
+  const mirror = state.comboIndex === 1 ? -1 : 1;
+  const tangX = -fz * mirror, tangZ = fx * mirror;
+  const overhead = state.comboIndex === 2 ? 1 : 0;
+
   for (const e of enemies) {
     if (e.dead || state.hitThisSwing.has(e)) continue;
     const dx = e.actor.root.position.x - px;
@@ -254,13 +263,21 @@ function playerAttackHits() {
 
     state.hitThisSwing.add(e);
     hitAny = true;
-    damageEnemy(e, cfg.damage, dx / (dist || 1), dz / (dist || 1),
+    let cx = (dx / (dist || 1)) * 0.35 + tangX * (1 - overhead) + fx * (0.3 + overhead);
+    let cz = (dz / (dist || 1)) * 0.35 + tangZ * (1 - overhead) + fz * (0.3 + overhead);
+    const cl = Math.hypot(cx, cz) || 1;
+    damageEnemy(e, cfg.damage, cx / cl, cz / cl,
       state.comboIndex === 2 ? 'bisect' : 'limb');
   }
 
   if (hitAny) {
-    hitstop(state.comboIndex === 2 ? 0.09 : 0.05, 0.08);
+    hitstop(state.comboIndex === 2 ? 0.12 : 0.06, 0.06);
     shake(state.comboIndex === 2 ? 0.7 : 0.35);
+    // The camera bites forward along the cut — contact should be felt in the
+    // frame, not just heard.
+    camPunch.x += fx * (0.5 + overhead * 0.4);
+    camPunch.z += fz * (0.5 + overhead * 0.4);
+    camPunch.y -= 0.16;
     audio.hit();
   }
 }
@@ -449,6 +466,22 @@ function updatePlayer(dt) {
   } else if (state.action === 'attack') {
     updateAttack(dt);
     speed = PLAYER_SPEED * 0.22;
+    // Root motion: the body drives the cut. A small settle backward during the
+    // coil, then a hard step through the active frames — the swing carries the
+    // samurai forward instead of the sword waving from a planted figure.
+    if (state.action === 'attack') {   // updateAttack may have ended the swing
+      const cfg = ATTACK[state.comboIndex];
+      const t = state.actionT, wu = cfg.windup, act = cfg.active;
+      let drive = 0;
+      if (t < wu) {
+        drive = -1.3 * (t / wu);
+      } else if (t < wu + act) {
+        const w = (t - wu) / act;
+        drive = (state.comboIndex === 2 ? 15 : 10.5) * Math.pow(1 - w, 1.4);
+      }
+      player.root.position.x += Math.sin(state.facing) * drive * dt;
+      player.root.position.z += Math.cos(state.facing) * drive * dt;
+    }
   } else if (state.action === 'parry') {
     state.actionT += dt;
     speed = PLAYER_SPEED * 0.15;
@@ -521,6 +554,8 @@ function poseArms(dt) {
   const a = player;
   let armX = 0, armZ = 0, torsoY = 0, torsoZ = 0;
   let katanaRoll = 0;
+  let smear = 0;         // 0..1, peak of the release — stretches the blade
+  let twoHanded = false; // left hand joins the tsuka for the swing
   // Attack poses are written directly, not smoothed: a full swing lasts a
   // dozen frames, and the exponential lerp below never got the arm more than
   // partway to its keys before the swing was over — which is why the katana
@@ -555,6 +590,8 @@ function poseArms(dt) {
       torsoY = (0.7 - 1.8 * e) * mirror;
       torsoZ = Math.sin(e * Math.PI) * 0.3;
       katanaRoll = (-0.6 + 1.5 * e) * mirror;
+      // Smear peaks early in the release, when the blade is fastest.
+      smear = Math.sin(Math.min(1, w * 1.6) * Math.PI);
     } else {
       // Follow-through: hold the finish, then ease back toward guard.
       const w = (t - wu - act) / cfg.recover;
@@ -579,15 +616,28 @@ function poseArms(dt) {
     armZ = 0.28;
   }
 
+  if (state.action === 'attack') twoHanded = true;
+
   // Smoothing is for transitions between held stances; the swing itself must
   // hit its keyframes exactly on time.
   const lerp = snap ? 1 : 1 - Math.exp(-26 * dt);
   a.armR.rotation.x += (armX - a.armR.rotation.x) * lerp;
   a.armR.rotation.z += (armZ - a.armR.rotation.z) * lerp;
-  a.armL.rotation.x += (armX * 0.45 - a.armL.rotation.x) * lerp;
   a.hips.rotation.y += (torsoY - a.hips.rotation.y) * lerp;
   a.torso.rotation.z += (torsoZ - a.torso.rotation.z) * lerp;
   a.katana.rotation.z += (katanaRoll - a.katana.rotation.z) * lerp;
+
+  // Off hand: on the tsuka during a swing — both arms driving the same arc is
+  // most of what makes a cut look committed — trailing loose otherwise.
+  const lArmX = twoHanded ? armX : armX * 0.45;
+  const lArmZ = twoHanded ? -armZ * 0.72 : 0;
+  a.armL.rotation.x += (lArmX - a.armL.rotation.x) * lerp;
+  a.armL.rotation.z += (lArmZ - a.armL.rotation.z) * lerp;
+
+  // Smear: the blade stretches along its length at peak speed and thins edge-on,
+  // a hand-drawn motion streak rather than a rigid prop photographed mid-arc.
+  const stretch = 1 + smear * 0.85;
+  a.katana.scale.set(1 / (1 + smear * 0.25), stretch, 1 / (1 + smear * 0.25));
 }
 
 const parryActive = () => state.action === 'parry'
@@ -845,6 +895,10 @@ function updateCamera(dt) {
     (Math.random() - 0.5) * shakeAmount * 0.5,
   );
   camera.position.add(camShake);
+  // Contact punch: a directed kick into the cut, unlike the undirected shake.
+  // Decays on real time so hitstop doesn't freeze it mid-lurch.
+  camPunch.multiplyScalar(Math.exp(-9 * dt));
+  camera.position.add(camPunch);
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
 
   // Keep the shadow frustum on the action.
