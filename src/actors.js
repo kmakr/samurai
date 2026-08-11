@@ -182,6 +182,10 @@ export function makeSamurai() {
 
   const katana = makeKatana(1.2);
   katana.position.set(0, -0.56, 0.06);
+  // Grip pitch: the blade leaves the fist angled forward (chūdan guard), not
+  // straight up the arm — bare +Y runs the blade vertically past the skull,
+  // which from the game's top-down camera reads as growing out of the head.
+  katana.rotation.x = 1.05;
   armR.add(katana);
 
   const legL = new THREE.Group();
@@ -284,6 +288,8 @@ export function makeEnemy(type) {
 
   const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, false);
   katana.position.set(0, -0.52, 0.05);
+  // Same grip pitch as the player: without it the blade skewers the kasa.
+  katana.rotation.x = 1.05;
   armR.add(katana);
 
   const legL = new THREE.Group();
