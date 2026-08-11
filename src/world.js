@@ -58,60 +58,94 @@ export function buildWorld(scene, timeUniform) {
   // ------------------------------------------------------------ vegetation
   const scatters = [];
 
-  // Bamboo: clustered groves. Stalks are tall enough to break the horizon.
+  // Bamboo: clustered groves. A bare pole reads as scaffolding from the
+  // game's steep camera, so each stalk carries leaf tufts near the top —
+  // that is what makes both the stalk and its long shadow read as a plant.
   {
     const geo = new THREE.CylinderGeometry(0.07, 0.10, 11, 5, 1, true);
     geo.translate(0, 5.5, 0);
     const mat = toon(0.34, { side: THREE.DoubleSide });
     addSway(mat, timeUniform, 0.9);
-    scatters.push(new Scatter(group, [{ geo, mat }], 220, 72, rnd, {
+
+    const leafMat = toon(0.30);
+    addSway(leafMat, timeUniform, 1.1);
+    const leaf = (r, h, y, ox, rotY) => {
+      const c = new THREE.ConeGeometry(r, h, 5);
+      c.scale(1, 0.42, 1);
+      c.rotateY(rotY);
+      c.translate(ox, y, 0);
+      return c;
+    };
+
+    scatters.push(new Scatter(group, [
+      { geo, mat },
+      { geo: leaf(1.05, 1.6, 8.0, 0.35, 0.0), mat: leafMat },
+      { geo: leaf(0.85, 1.4, 9.4, -0.3, 2.1), mat: leafMat },
+      { geo: leaf(0.55, 1.2, 10.6, 0.15, 4.2), mat: leafMat },
+    ], 150, 72, rnd, {
       cluster: 3.5,
-      minDist: 10,
+      minDist: 12,
       scale: () => [0.7 + rnd() * 0.6, 0.55 + rnd() * 0.75, 0.7 + rnd() * 0.6],
       lean: 0.1,
       shadows: true,
     }));
   }
 
-  // Pines: a bare trunk with flattened cone tiers — the classic ink-wash tree.
+  // Pines. Stacked cones read as concentric blobs from the game's overhead
+  // camera, so the canopy is built the way ink painters actually draw pine:
+  // flat irregular bough-pads, offset asymmetrically around the trunk. From
+  // above they overlap into a broken silhouette instead of a target.
   {
-    const trunk = new THREE.CylinderGeometry(0.16, 0.30, 5.2, 6);
+    const trunk = new THREE.CylinderGeometry(0.22, 0.38, 5.2, 6);
     trunk.translate(0, 2.6, 0);
-    const t1 = new THREE.ConeGeometry(2.6, 1.7, 8);
-    t1.scale(1, 0.8, 1); t1.translate(0, 4.6, 0);
-    const t2 = new THREE.ConeGeometry(1.9, 1.5, 8);
-    t2.scale(1, 0.8, 1); t2.translate(0, 5.9, 0);
-    const t3 = new THREE.ConeGeometry(1.2, 1.3, 7);
-    t3.scale(1, 0.85, 1); t3.translate(0, 7.0, 0);
+    // A stub of trunk continuing into the canopy keeps distant trees from
+    // reading as floating caps once fog eats the thin lower trunk.
+    const upper = new THREE.CylinderGeometry(0.13, 0.2, 2.6, 5);
+    upper.translate(0.1, 6.2, 0);
+
+    const pad = (r, y, ox, oz, rotY) => {
+      const p = new THREE.IcosahedronGeometry(r, 0);
+      p.scale(1, 0.28, 1);
+      p.rotateY(rotY);
+      p.translate(ox, y, oz);
+      return p;
+    };
+
     const trunkMat = toon(0.18);
     const needleMat = toon(0.27);
     addSway(needleMat, timeUniform, 0.35);
     scatters.push(new Scatter(group, [
       { geo: trunk, mat: trunkMat },
-      { geo: t1, mat: needleMat },
-      { geo: t2, mat: needleMat },
-      { geo: t3, mat: needleMat },
+      { geo: upper, mat: trunkMat },
+      { geo: pad(2.1, 4.7, 0.9, 0.3, 0.4), mat: needleMat },
+      { geo: pad(1.7, 5.6, -1.0, -0.4, 1.9), mat: needleMat },
+      { geo: pad(1.35, 6.5, 0.4, -0.8, 3.6), mat: needleMat },
+      { geo: pad(0.9, 7.3, -0.2, 0.5, 5.1), mat: needleMat },
     ], 54, 84, rnd, {
       // Trees stay a backdrop. Anything closer than this is re-seated at the
       // rim by Scatter.update, so a canopy never sits between camera and duel.
       minDist: 22,
-      scale: () => { const s = 0.8 + rnd() * 0.9; return [s, s * (0.8 + rnd() * 0.5), s]; },
+      scale: () => { const s = 0.75 + rnd() * 0.6; return [s, s * (0.85 + rnd() * 0.4), s]; },
       lean: 0.05,
       shadows: true,
     }));
   }
 
-  // Grass: tufts everywhere, swaying hard. This is what makes the ground feel
-  // inhabited rather than blank.
+  // Grass: tufts everywhere, swaying hard. Two crossed planes per tuft — a
+  // single vertical card viewed from the game's steep camera collapses
+  // edge-on into a hairline scratch, which is exactly how it used to look.
+  // Wider, shorter, and mid-grey, it reads as a brushed tuft instead.
   {
-    const geo = new THREE.PlaneGeometry(0.8, 1.5);
-    geo.translate(0, 0.75, 0);
-    const mat = toon(0.20, {
+    const a = new THREE.PlaneGeometry(1.1, 1.0);
+    a.translate(0, 0.5, 0);
+    const b = a.clone();
+    b.rotateY(Math.PI / 2);
+    const mat = toon(0.30, {
       side: THREE.DoubleSide, transparent: true, alphaTest: 0.5, map: makeGrassAlpha(),
     });
     addSway(mat, timeUniform, 2.2);
-    scatters.push(new Scatter(group, [{ geo, mat }], 1300, 52, rnd, {
-      scale: () => { const s = 0.5 + rnd() * 1.0; return [s, s * (0.7 + rnd() * 0.8), s]; },
+    scatters.push(new Scatter(group, [{ geo: a, mat }, { geo: b, mat }], 1300, 52, rnd, {
+      scale: () => { const s = 0.5 + rnd() * 0.9; return [s, s * (0.6 + rnd() * 0.6), s]; },
     }));
   }
 
@@ -254,22 +288,32 @@ class Scatter {
   }
 }
 
-// A grass-blade alpha mask: a few tapered strands per quad.
+// A grass-tuft alpha mask: a fan of blades rising from one root point, the
+// way a loaded brush flicks a tuft in three strokes. Fanning from a shared
+// base is what keeps it reading as a plant rather than stray hairs.
 function makeGrassAlpha() {
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  const S = 96;
+  c.width = c.height = S;
   const ctx = c.getContext('2d');
   const rnd = rng(4);
-  ctx.clearRect(0, 0, 64, 64);
+  ctx.clearRect(0, 0, S, S);
   ctx.fillStyle = '#fff';
-  for (let i = 0; i < 7; i++) {
-    const x = 6 + rnd() * 52;
-    const h = 28 + rnd() * 34;
-    const lean = (rnd() - 0.5) * 22;
+  const rootX = S / 2, rootY = S;
+  for (let i = 0; i < 13; i++) {
+    // Spread across the fan, denser in the middle, arcing outward.
+    const t = (i + 0.5) / 13;
+    const spread = (t - 0.5) * 2;                       // -1..1 across the fan
+    const h = (0.45 + rnd() * 0.5) * S * (1 - Math.abs(spread) * 0.35);
+    const tipX = rootX + spread * S * 0.52 + (rnd() - 0.5) * 8;
+    const tipY = rootY - h;
+    const ctrlX = rootX + spread * S * 0.18;
+    const ctrlY = rootY - h * 0.55;
+    const w = 2.2 + rnd() * 2.4;                        // base width of blade
     ctx.beginPath();
-    ctx.moveTo(x - 2.2, 64);
-    ctx.quadraticCurveTo(x + lean * 0.4, 64 - h * 0.6, x + lean, 64 - h);
-    ctx.quadraticCurveTo(x + lean * 0.4 + 2, 64 - h * 0.6, x + 2.2, 64);
+    ctx.moveTo(rootX - w, rootY);
+    ctx.quadraticCurveTo(ctrlX - w * 0.5, ctrlY, tipX, tipY);
+    ctx.quadraticCurveTo(ctrlX + w * 0.5, ctrlY, rootX + w, rootY);
     ctx.closePath();
     ctx.fill();
   }
