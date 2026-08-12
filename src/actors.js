@@ -160,21 +160,30 @@ function makeKatana(len = 1.15, dark = false) {
 
 export function makeSamurai() {
   const root = new THREE.Group();
+  root.scale.setScalar(1.06);
 
   const hips = new THREE.Group();
-  hips.position.y = 0.92;
+  hips.position.y = 0.94;
   root.add(hips);
 
-  const torso = vpart('pTorso', boxLayers(6, 4, 7), 0.30);
+  // A fitted dō instead of the enemy's square robe. The bright front plates
+  // and lacing keep their shape while the torso twists through a cut.
+  const torso = vpart('pTorsoArmored', taperLayers(7, 5, 6, 4, 7, 1), 0.38);
   torso.position.y = 0.34;
   hips.add(torso);
+  const breastplate = vpart('pBreastplate', boxLayers(6, 1, 4, 1), 0.68);
+  breastplate.position.set(0, 0.02, 0.28);
+  torso.add(breastplate);
+  const chestLace = vpart('pChestLace', boxLayers(6, 1, 1), 0.08);
+  chestLace.position.set(0, -0.14, 0.34);
+  torso.add(chestLace);
 
-  // Haori shoulders — the flared silhouette that says "samurai" at a glance.
-  const shoulders = vpart('pShoulders', boxLayers(10, 4, 2), 0.58);
+  // Broad lamellar shoulders are the first player-only silhouette cue.
+  const shoulders = vpart('pShouldersArmored', taperLayers(12, 5, 9, 4, 3, 1), 0.52);
   shoulders.position.y = 0.60;
   hips.add(shoulders);
 
-  const hakama = vpart('pHakama', taperLayers(9, 9, 4, 4, 9, 1), 0.14);
+  const hakama = vpart('pHakamaArmored', taperLayers(10, 9, 5, 4, 9, 1), 0.18);
   hakama.position.y = -0.44;
   hips.add(hakama);
 
@@ -182,32 +191,56 @@ export function makeSamurai() {
   obi.position.y = 0.0;
   hips.add(obi);
 
-  const neck = vpart('pNeck', boxLayers(2, 2, 1), 0.55);
+  const neck = vpart('pNeck', boxLayers(2, 2, 1), 0.48);
   neck.position.y = 0.74;
   hips.add(neck);
 
+  // Two white war-sash tails stay visible from the high camera at every
+  // facing. They are both costume and player marker, not a HUD ring.
+  const sashL = vpart('pSashLong', boxLayers(2, 2, 12), 0.94);
+  sashL.position.set(-0.15, 0.38, -0.62);
+  sashL.rotation.set(Math.PI / 2, -0.09, 0);
+  hips.add(sashL);
+  const sashR = vpart('pSashShort', boxLayers(2, 2, 9), 0.82);
+  sashR.position.set(0.14, 0.34, -0.50);
+  sashR.rotation.set(Math.PI / 2, 0.12, 0);
+  hips.add(sashR);
+
   const head = new THREE.Group();
-  head.position.y = 0.86;
+  head.position.y = 0.88;
   hips.add(head);
-  const skull = vpart('pSkull', boxLayers(3, 3, 3), 0.72);
+  const skull = vpart('pSkullArmored', boxLayers(3, 3, 3), 0.42);
   head.add(skull);
-  const hair = vpart('pHair', boxLayers(4, 4, 2, 1), 0.04);
-  hair.position.y = 0.16;
-  head.add(hair);
-  const knot = vpart('pKnot', boxLayers(1, 1, 2), 0.04);
-  knot.position.set(0, 0.28, -0.12);
-  knot.rotation.x = -0.5;
-  head.add(knot);
+  // Kabuto bowl, flared shikoro neck guard, and a bright frontal maedate.
+  // The crest is a flat voxel sun rather than oni-like horns.
+  const shikoro = vpart('pShikoro', taperLayers(7, 6, 4, 4, 3, 1), 0.14);
+  shikoro.position.y = -0.02;
+  head.add(shikoro);
+  const kabuto = vpart('pKabuto', taperLayers(5, 5, 4, 4, 4, 1), 0.10);
+  kabuto.position.y = 0.20;
+  head.add(kabuto);
+  const maedate = vpart('pMaedate', boxLayers(5, 1, 4, 1), 0.96);
+  maedate.position.set(0, 0.30, 0.28);
+  head.add(maedate);
+  const faceGuard = vpart('pMenpo', boxLayers(3, 1, 2, 1), 0.06);
+  faceGuard.position.set(0, -0.07, 0.20);
+  head.add(faceGuard);
 
   const armL = new THREE.Group();
-  armL.position.set(-0.5, 0.55, 0);
+  armL.position.set(-0.58, 0.55, 0);
   hips.add(armL);
   armL.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
+  const sodeL = vpart('pSode', boxLayers(3, 2, 5, 1), 0.62);
+  sodeL.position.set(-0.05, -0.14, 0);
+  armL.add(sodeL);
 
   const armR = new THREE.Group();
-  armR.position.set(0.5, 0.55, 0);
+  armR.position.set(0.58, 0.55, 0);
   hips.add(armR);
   armR.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
+  const sodeR = vpart('pSode', boxLayers(3, 2, 5, 1), 0.62);
+  sodeR.position.set(0.05, -0.14, 0);
+  armR.add(sodeR);
 
   const katana = makeKatana(1.2);
   katana.position.set(0, -0.56, 0.06);
@@ -227,7 +260,7 @@ export function makeSamurai() {
   hips.add(legR);
   legR.add(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34));
 
-  return { root, hips, head, torso, armL, armR, legL, legR, katana };
+  return { root, hips, head, torso, shoulders, hakama, armL, armR, legL, legR, katana, sashL, sashR };
 }
 
 // ------------------------------------------------------------------ enemies
@@ -309,7 +342,9 @@ export function makeEnemy(type) {
   hips.add(armR);
   armR.add(vlimb('eArm', boxLayers(2, 2, 6), 0.18, -0.27));
 
-  const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, false);
+  // Enemy steel stays grey until the emissive wind-up telegraph. The player's
+  // blade remains white, which makes ownership clear when figures overlap.
+  const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, true);
   katana.position.set(0, -0.52, 0.05);
   // Same grip pitch as the player: without it the blade skewers the kasa.
   katana.rotation.x = 1.05;
@@ -344,4 +379,9 @@ export function animateLocomotion(a, phase, blend, t) {
   // Idle breathing, so a standing figure is never perfectly still.
   const breathe = Math.sin(t * 1.9) * 0.02 * (1 - blend);
   a.hips.position.y += breathe;
+  if (a.sashL) {
+    const drift = Math.sin(t * 3.1 + phase * 0.18) * (0.035 + blend * 0.065);
+    a.sashL.rotation.y = -0.09 + drift;
+    a.sashR.rotation.y = 0.12 - drift * 0.8;
+  }
 }

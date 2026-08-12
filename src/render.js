@@ -32,7 +32,7 @@ const FILM_FRAG = /* glsl */`
 
     // Halation. Silver-halide stock blooms around bright areas; a handful of
     // taps is enough to suggest it and costs almost nothing.
-    vec2 px = 2.5 / uRes;
+    vec2 px = 2.0 / uRes;
     vec3 bl = vec3(0.0);
     bl += texture2D(tDiffuse, uv + px * vec2( 1.0,  0.0)).rgb;
     bl += texture2D(tDiffuse, uv + px * vec2(-1.0,  0.0)).rgb;
@@ -44,7 +44,7 @@ const FILM_FRAG = /* glsl */`
     bl += texture2D(tDiffuse, uv + px * vec2(-2.0, -2.0)).rgb;
     bl *= 0.125;
     float bLum = dot(bl, vec3(0.30, 0.59, 0.11));
-    c += bl * smoothstep(0.55, 1.0, bLum) * 0.5;
+    c += bl * smoothstep(0.62, 1.0, bLum) * 0.30;
 
     // Orthochromatic weighting: reds sink toward black, greens go bright. This
     // is why skin and blood look so dark in period black-and-white.
@@ -115,8 +115,11 @@ export class FilmRenderer {
 
     this.target = new THREE.WebGLRenderTarget(1, 1, {
       type: THREE.HalfFloatType,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
+      // The film pass renders at the same pixel size as this target. Linear
+      // sampling plus subpixel gate weave softened every voxel edge. Keep the
+      // resolved MSAA image intact and move it only by complete pixels.
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
       depthBuffer: true,
       samples: 4,
     });
@@ -172,7 +175,11 @@ export class FilmRenderer {
     this.uniforms.uTime.value = t;
     const wx = Math.sin(t * 2.3) * 0.0006 + Math.sin(t * 11.7) * 0.0003;
     const wy = Math.cos(t * 1.9) * 0.0008 + Math.sin(t * 9.1) * 0.0004;
-    this.uniforms.uWeave.value.set(wx, wy);
+    const res = this.uniforms.uRes.value;
+    this.uniforms.uWeave.value.set(
+      Math.round(wx * res.x) / res.x,
+      Math.round(wy * res.y) / res.y,
+    );
     this.uniforms.uFlicker.value = 0.965 + Math.abs(Math.sin(t * 31.0)) * 0.05 + Math.sin(t * 7.3) * 0.012;
   }
 

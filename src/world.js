@@ -311,6 +311,12 @@ class Scatter {
     this.meshes = parts.map(({ geo, mat }) => {
       const m = new THREE.InstancedMesh(geo, mat, count);
       m.castShadow = !!opts.shadows;
+      // Instances wrap around the moving player. Three.js does not refresh an
+      // InstancedMesh bounding sphere when those matrices change, so frustum
+      // culling eventually tests the new scenery against its old world bounds
+      // and hides the complete pool. The pools are always near the camera and
+      // cheap to draw in one call, so keep them out of static-bound culling.
+      m.frustumCulled = false;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       parent.add(m);
       return m;

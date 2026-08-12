@@ -29,36 +29,38 @@ export class Audio {
 
   get t() { return this.ctx.currentTime; }
 
-  noise(dur, { type = 'bandpass', freq = 1200, q = 1, gain = 0.3, sweep = 0 } = {}) {
+  noise(dur, { type = 'bandpass', freq = 1200, q = 1, gain = 0.3, sweep = 0, delay = 0 } = {}) {
     if (!this.ctx) return;
+    const start = this.t + delay;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuf;
     src.loop = true;
     const f = this.ctx.createBiquadFilter();
     f.type = type;
-    f.frequency.setValueAtTime(freq, this.t);
-    if (sweep) f.frequency.exponentialRampToValueAtTime(Math.max(60, freq * sweep), this.t + dur);
+    f.frequency.setValueAtTime(freq, start);
+    if (sweep) f.frequency.exponentialRampToValueAtTime(Math.max(60, freq * sweep), start + dur);
     f.Q.value = q;
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(gain, this.t);
-    g.gain.exponentialRampToValueAtTime(0.0001, this.t + dur);
+    g.gain.setValueAtTime(gain, start);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
     src.connect(f).connect(g).connect(this.master);
-    src.start();
-    src.stop(this.t + dur + 0.02);
+    src.start(start);
+    src.stop(start + dur + 0.02);
   }
 
-  tone(freq, dur, { type = 'sine', gain = 0.3, to = null } = {}) {
+  tone(freq, dur, { type = 'sine', gain = 0.3, to = null, delay = 0 } = {}) {
     if (!this.ctx) return;
+    const start = this.t + delay;
     const o = this.ctx.createOscillator();
     o.type = type;
-    o.frequency.setValueAtTime(freq, this.t);
-    if (to) o.frequency.exponentialRampToValueAtTime(to, this.t + dur);
+    o.frequency.setValueAtTime(freq, start);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, start + dur);
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(gain, this.t);
-    g.gain.exponentialRampToValueAtTime(0.0001, this.t + dur);
+    g.gain.setValueAtTime(gain, start);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
     o.connect(g).connect(this.master);
-    o.start();
-    o.stop(this.t + dur + 0.02);
+    o.start(start);
+    o.stop(start + dur + 0.02);
   }
 
   // A low bed of wind that never stops. It does a lot of the atmosphere work.
@@ -127,15 +129,40 @@ export class Audio {
     this.noise(0.03, { freq: 1900 + Math.random() * 700, q: 2.5, gain: 0.025 });
   }
 
-  swing() { this.noise(0.22, { freq: 2600, q: 1.2, gain: 0.16, sweep: 0.25 }); }
+  swing(style = 0) {
+    if (style === 1) {
+      // Return cut: short, high, and fast.
+      this.noise(0.17, { freq: 3900, q: 1.7, gain: 0.17, sweep: 0.20 });
+      this.tone(520, 0.10, { type: 'triangle', gain: 0.035, to: 260 });
+    } else if (style === 2) {
+      // Execution stroke: cloth rush above a low blade weight.
+      this.noise(0.34, { freq: 1900, q: 0.9, gain: 0.24, sweep: 0.16 });
+      this.tone(118, 0.30, { type: 'triangle', gain: 0.16, to: 48 });
+    } else {
+      this.noise(0.22, { freq: 2700, q: 1.2, gain: 0.16, sweep: 0.25 });
+    }
+  }
 
-  hit() {
+  hit(style = 0) {
     // Three layers on the contact frame: the slice, the body thud, and a low
     // punch that lands under both. The bottom layer carries the weight.
-    this.noise(0.12, { freq: 3400, q: 2.5, gain: 0.18, sweep: 0.3 });
-    this.noise(0.16, { type: 'lowpass', freq: 900, gain: 0.34, sweep: 0.3 });
-    this.tone(150, 0.16, { type: 'triangle', gain: 0.24, to: 60 });
-    this.tone(72, 0.22, { type: 'sine', gain: 0.32, to: 38 });
+    const second = style === 1;
+    const finisher = style === 2;
+    this.noise(finisher ? 0.20 : 0.12, {
+      freq: second ? 4300 : finisher ? 2700 : 3400,
+      q: second ? 3.4 : 2.5,
+      gain: finisher ? 0.28 : 0.18,
+      sweep: finisher ? 0.18 : 0.3,
+    });
+    this.noise(finisher ? 0.28 : 0.16, {
+      type: 'lowpass', freq: finisher ? 720 : 900, gain: finisher ? 0.46 : 0.34, sweep: 0.3,
+    });
+    this.tone(finisher ? 112 : second ? 180 : 150, finisher ? 0.28 : 0.16, {
+      type: 'triangle', gain: finisher ? 0.32 : 0.24, to: finisher ? 44 : 60,
+    });
+    this.tone(finisher ? 54 : 72, finisher ? 0.38 : 0.22, {
+      type: 'sine', gain: finisher ? 0.42 : 0.32, to: finisher ? 28 : 38,
+    });
   }
 
   kill() {
@@ -148,6 +175,22 @@ export class Audio {
     this.noise(0.35, { freq: 5200, q: 6, gain: 0.28, sweep: 0.5 });
     this.tone(2400, 0.3, { type: 'square', gain: 0.06, to: 1400 });
     this.tone(3600, 0.22, { type: 'sine', gain: 0.08, to: 2600 });
+  }
+
+  perfectParry() {
+    if (!this.ctx) return;
+    const now = this.t;
+    // Pull the whole soundscape away before the steel lands. The 38 ms gap is
+    // short enough to feel immediate and long enough for the strike to cut in.
+    this.master.gain.cancelScheduledValues(now);
+    this.master.gain.setValueAtTime(this.master.gain.value, now);
+    this.master.gain.linearRampToValueAtTime(0.08, now + 0.012);
+    this.master.gain.setValueAtTime(0.08, now + 0.038);
+    this.master.gain.exponentialRampToValueAtTime(0.55, now + 0.13);
+    this.noise(0.38, { freq: 5600, q: 7, gain: 0.38, sweep: 0.42, delay: 0.038 });
+    this.tone(2800, 0.34, { type: 'square', gain: 0.055, to: 1250, delay: 0.038 });
+    this.tone(4200, 0.26, { type: 'sine', gain: 0.11, to: 2400, delay: 0.038 });
+    this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
   }
 
   hurt() {

@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>侍 — INK AND STEEL</title>
+<title>SAMURAI — THE PAGE REMEMBERS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Boku&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700&amp;display=swap" rel="stylesheet" />
 <style>
   :root {
     --paper: #e9e4d6;
     --ink: #0a0a0d;
+    --font-brush: "Yuji Boku", "Kaiti SC", "STKaiti", cursive;
+    --font-ui: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
   }
 
   * { box-sizing: border-box; }
@@ -18,7 +23,8 @@
     overflow: hidden;
     background: #000;
     color: var(--paper);
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Songti SC", Georgia, "Times New Roman", serif;
+    font-family: var(--font-ui);
+    font-synthesis: none;
     cursor: crosshair;
     user-select: none;
     -webkit-user-select: none;
@@ -95,7 +101,7 @@
     animation: pulse 1.1s ease-in-out infinite;
   }
   #focusWrap.ready .label::after {
-    content: "  ▸ 居合 READY [F]";
+    content: "  ▸ IAI READY [F]";
     opacity: 1;
   }
   @keyframes pulse {
@@ -111,6 +117,31 @@
     letter-spacing: 0.3em;
     opacity: 0.7;
     text-align: right;
+  }
+
+  #flow {
+    position: absolute;
+    top: calc(3.6vh + 32px);
+    right: 3.2vw;
+    text-align: right;
+    opacity: 0;
+    transform: translateX(12px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  #flow.active { opacity: 0.8; transform: translateX(0); }
+  #flow strong {
+    display: block;
+    font-size: clamp(22px, 3vw, 42px);
+    font-weight: normal;
+    line-height: 1;
+    letter-spacing: 0.12em;
+  }
+  #flow small {
+    display: block;
+    margin-top: 5px;
+    font-size: 9px;
+    letter-spacing: 0.34em;
+    opacity: 0.66;
   }
 
   #help {
@@ -142,6 +173,7 @@
     font-size: clamp(64px, 13vw, 190px);
     line-height: 1;
     letter-spacing: 0.08em;
+    font-family: var(--font-brush);
   }
   #waveTitle .latin {
     display: block;
@@ -159,6 +191,172 @@
     100% { opacity: 0; transform: translate(-50%, -52%) scale(1.02); }
   }
 
+  /* A single ceremonial stamp for earned combat moments. */
+  #combatCallout {
+    position: absolute;
+    left: 50%;
+    top: 31%;
+    width: max-content;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0;
+  }
+  #combatCallout .mark {
+    display: block;
+    color: #fff;
+    font-size: clamp(52px, 9vw, 118px);
+    font-weight: normal;
+    line-height: 0.85;
+    text-shadow: 0 0 22px rgba(255,255,255,0.72);
+    font-family: var(--font-brush);
+  }
+  #combatCallout .meaning {
+    display: block;
+    margin-top: 12px;
+    color: #fff;
+    font-size: 10px;
+    letter-spacing: 0.62em;
+    text-indent: 0.62em;
+  }
+  #combatCallout.show { animation: stampIn 1.05s ease-out forwards; }
+  @keyframes stampIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(1.7) rotate(-3deg); filter: blur(7px); }
+    12% { opacity: 1; transform: translate(-50%, -50%) scale(0.96) rotate(-1deg); filter: blur(0); }
+    68% { opacity: 0.94; }
+    100% { opacity: 0; transform: translate(-50%, -56%) scale(1.03) rotate(-1deg); }
+  }
+
+  /* ------------------------------------------------------ wave discipline */
+
+  #upgradeOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: max(48px, 8vh) 5vw;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.34), rgba(0,0,0,0.88) 78%);
+    cursor: default;
+  }
+  #upgradeOverlay.hidden { display: none; }
+  #upgradeHeading {
+    margin: 0 0 4px;
+    font-size: clamp(28px, 4vw, 56px);
+    font-weight: normal;
+    letter-spacing: 0.18em;
+    text-indent: 0.18em;
+    font-family: var(--font-brush);
+  }
+  #upgradePrompt {
+    margin: 0 0 clamp(20px, 4vh, 42px);
+    font-size: 10px;
+    letter-spacing: 0.62em;
+    text-indent: 0.62em;
+    opacity: 0.62;
+  }
+  #upgradeChoices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 250px));
+    gap: clamp(12px, 2.2vw, 34px);
+    align-items: stretch;
+  }
+  .scroll {
+    position: relative;
+    min-height: 310px;
+    padding: 42px 25px 30px;
+    color: var(--ink);
+    background:
+      linear-gradient(90deg, rgba(10,10,13,0.12), transparent 9%, transparent 90%, rgba(10,10,13,0.10)),
+      var(--paper);
+    border: 0;
+    font-family: inherit;
+    text-align: center;
+    cursor: pointer;
+    clip-path: polygon(2% 0, 48% 1.4%, 98% 0.4%, 100% 8%, 98% 48%, 100% 94%, 95% 100%, 50% 98.5%, 4% 100%, 0 92%, 2% 48%, 0 7%);
+    box-shadow: 0 24px 55px rgba(0,0,0,0.42);
+    transform: translateY(18px) rotate(var(--tilt, 0deg));
+    opacity: 0;
+    animation: unroll 0.55s cubic-bezier(0.2,0.8,0.2,1) forwards;
+    transition: filter 0.16s ease, margin 0.16s ease;
+  }
+  .scroll:nth-child(1) { --tilt: -1.4deg; animation-delay: 0.03s; }
+  .scroll:nth-child(2) { --tilt: 0.6deg; animation-delay: 0.11s; }
+  .scroll:nth-child(3) { --tilt: -0.3deg; animation-delay: 0.19s; }
+  .scroll::before,
+  .scroll::after {
+    content: "";
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: var(--ink);
+    opacity: 0.18;
+  }
+  .scroll::before { top: 18px; }
+  .scroll::after { bottom: 18px; }
+  .scroll:hover { filter: brightness(1.12); margin-top: -7px; margin-bottom: 7px; }
+  .scroll:focus-visible { outline: 3px solid #fff; outline-offset: 7px; }
+  .scroll .key {
+    position: absolute;
+    top: 24px;
+    right: 18px;
+    font: 10px/1 Arial, sans-serif;
+    letter-spacing: 0.16em;
+    opacity: 0.42;
+  }
+  .scroll .sigil {
+    display: block;
+    margin-top: 6px;
+    font-size: 34px;
+    line-height: 1;
+    font-weight: normal;
+    font-family: var(--font-brush);
+    letter-spacing: 0.08em;
+  }
+  .scroll .name {
+    display: block;
+    margin-top: 20px;
+    font-size: 13px;
+    letter-spacing: 0.34em;
+    text-indent: 0.34em;
+  }
+  .scroll .level {
+    display: block;
+    margin-top: 8px;
+    min-height: 1em;
+    font: 9px/1.2 Arial, sans-serif;
+    letter-spacing: 0.22em;
+    opacity: 0.48;
+  }
+  .scroll .desc {
+    display: block;
+    margin-top: 25px;
+    font-size: 12px;
+    line-height: 1.75;
+    letter-spacing: 0.07em;
+  }
+  @keyframes unroll {
+    from { opacity: 0; transform: translateY(18px) scaleY(0.45) rotate(var(--tilt)); }
+    to { opacity: 1; transform: translateY(0) scaleY(1) rotate(var(--tilt)); }
+  }
+
+  @media (max-width: 720px) {
+    #upgradeOverlay { padding: 24px 4vw; justify-content: flex-start; overflow-y: auto; }
+    #upgradeHeading { margin-top: 18px; }
+    #upgradeChoices { width: min(430px, 100%); grid-template-columns: 1fr; }
+    .scroll { min-height: 148px; padding: 25px 30px 22px 118px; text-align: left; }
+    .scroll .sigil { position: absolute; left: 28px; top: 48px; width: 70px; margin: 0; font-size: 24px; text-align: center; }
+    .scroll .name { margin-top: 8px; }
+    .scroll .desc { margin-top: 13px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #waveTitle.show, #combatCallout.show, .scroll { animation-duration: 0.01ms; }
+    .scroll, #flow { transition: none; }
+  }
+
   /* -------------------------------------------------------------- overlay */
 
   #overlay {
@@ -171,6 +369,7 @@
     justify-content: center;
     background: radial-gradient(ellipse at center, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.93) 75%);
     text-align: center;
+    pointer-events: none;
   }
   #overlay.hidden { display: none; }
 
@@ -181,14 +380,15 @@
     letter-spacing: 0.05em;
     font-weight: normal;
     text-shadow: 0 0 60px rgba(0,0,0,0.9);
+    font-family: var(--font-brush);
   }
 
   #ovSub {
-    font-size: 13px;
-    letter-spacing: 0.85em;
+    font-size: clamp(9px, 1vw, 13px);
+    letter-spacing: clamp(0.32em, 0.9vw, 0.75em);
     opacity: 0.6;
     margin-top: 4px;
-    text-indent: 0.85em;
+    text-indent: clamp(0.32em, 0.9vw, 0.75em);
   }
 
   #ovText {
@@ -201,6 +401,8 @@
   }
 
   #ovBtn {
+    position: relative;
+    z-index: 2;
     margin-top: 26px;
     padding: 13px 46px;
     font-family: inherit;
@@ -211,6 +413,8 @@
     background: var(--paper);
     border: 0;
     cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
     clip-path: polygon(0 14%, 1% 2%, 99.4% 0, 100% 52%, 99% 98%, 1.4% 100%, 0.2% 62%);
     transition: background 0.2s, transform 0.2s;
   }
@@ -242,16 +446,17 @@
 <div id="hud">
   <div id="gauges">
     <div class="gauge">
-      <div class="label">命 LIFE</div>
+      <div class="label">LIFE</div>
       <div class="track"><div class="fill" id="hpFill"></div></div>
     </div>
     <div class="gauge" id="focusWrap">
-      <div class="label">気 FOCUS</div>
+      <div class="label">FOCUS</div>
       <div class="track"><div class="fill" id="focusFill"></div></div>
     </div>
   </div>
 
-  <div id="stats">斬 0   波 0</div>
+  <div id="stats">KILLS 0 · WAVE 0</div>
+  <div id="flow"><strong>FLOW ×0</strong><small>FOCUS RATE</small></div>
 
   <div id="help">
     <b>WASD</b> MOVE · <b>MOUSE</b> AIM<br />
@@ -260,16 +465,23 @@
   </div>
 
   <div id="waveTitle"></div>
+  <div id="combatCallout"><span class="mark"></span><span class="meaning"></span></div>
+</div>
+
+<div id="upgradeOverlay" class="hidden" aria-hidden="true" aria-labelledby="upgradeHeading">
+  <h2 id="upgradeHeading">CHOOSE A DISCIPLINE</h2>
+  <p id="upgradePrompt">ONE CHOICE BEFORE THE NEXT WAVE</p>
+  <div id="upgradeChoices"></div>
 </div>
 
 <div id="overlay">
-  <h1 id="ovTitle">侍</h1>
-  <div id="ovSub">INK AND STEEL</div>
+  <h1 id="ovTitle">SAMURAI</h1>
+  <div id="ovSub">THE PAGE REMEMBERS</div>
   <p id="ovText">
     A sheet of paper. A hundred blades.<br />
     Every wound you open bleeds into the page and stays there.
   </p>
-  <button id="ovBtn">BEGIN 始</button>
+  <button id="ovBtn" type="button">BEGIN</button>
   <div id="controls">
     <span>WASD</span><span>move</span>
     <span>MOUSE</span><span>aim the cut</span>
@@ -287,7 +499,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=4"></script>
+<script type="module" src="./src/main.js?v=8"></script>
 
 </body>
 </html>
