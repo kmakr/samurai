@@ -58,6 +58,9 @@ export function buildWorld(scene, timeUniform) {
 
   // ------------------------------------------------------------ vegetation
   const scatters = [];
+  // Canopy materials fade when the player stands in a grove: trees never
+  // move away (that reads as a bug), the player just sees through foliage.
+  const canopies = [];
 
   // Bamboo: clustered groves. A bare pole reads as scaffolding from the
   // game's steep camera, so each stalk carries leaf tufts near the top —
@@ -67,7 +70,7 @@ export function buildWorld(scene, timeUniform) {
     const mat = toon(0.34, { vertexColors: true });
     addSway(mat, timeUniform, 0.9);
 
-    const leafMat = toon(0.30, { vertexColors: true });
+    const leafMat = toon(0.30, { vertexColors: true, transparent: true });
     addSway(leafMat, timeUniform, 1.1);
     const leaf = (w, y, ox, seed) => {
       const g = vox(taperLayers(w, w, 1, 1, 2, 1), WS, { seed });
@@ -75,7 +78,7 @@ export function buildWorld(scene, timeUniform) {
       return g;
     };
 
-    scatters.push(new Scatter(group, [
+    const bambooScatter = new Scatter(group, [
       { geo, mat },
       { geo: leaf(9, 8.0, 0.35, 52), mat: leafMat },
       { geo: leaf(7, 9.4, -0.3, 53), mat: leafMat },
@@ -86,7 +89,9 @@ export function buildWorld(scene, timeUniform) {
       scale: () => [0.7 + rnd() * 0.6, 0.55 + rnd() * 0.75, 0.7 + rnd() * 0.6],
       lean: 0.1,
       shadows: true,
-    }));
+    });
+    scatters.push(bambooScatter);
+    canopies.push({ scatter: bambooScatter, mats: [leafMat], near: 4.5 });
   }
 
   // Pines. Stacked cones read as concentric blobs from the game's overhead
@@ -108,9 +113,9 @@ export function buildWorld(scene, timeUniform) {
     };
 
     const trunkMat = toon(0.18, { vertexColors: true });
-    const needleMat = toon(0.27, { vertexColors: true });
+    const needleMat = toon(0.27, { vertexColors: true, transparent: true });
     addSway(needleMat, timeUniform, 0.35);
-    scatters.push(new Scatter(group, [
+    const pineScatter = new Scatter(group, [
       { geo: trunk, mat: trunkMat },
       { geo: upper, mat: trunkMat },
       { geo: pad(18, 4.7, 0.9, 0.3, 63), mat: needleMat },
@@ -118,13 +123,15 @@ export function buildWorld(scene, timeUniform) {
       { geo: pad(12, 6.5, 0.4, -0.8, 65), mat: needleMat },
       { geo: pad(8, 7.3, -0.2, 0.5, 66), mat: needleMat },
     ], 54, 84, rnd, {
-      // Trees stay a backdrop. Anything closer than this is re-seated at the
-      // rim by Scatter.update, so a canopy never sits between camera and duel.
+      // Placement-time only: fresh trees seed away from the action, but once
+      // placed they stay — walking up to one ghosts its canopy instead.
       minDist: 22,
       scale: () => { const s = 0.75 + rnd() * 0.6; return [s, s * (0.85 + rnd() * 0.4), s]; },
       lean: 0.05,
       shadows: true,
-    }));
+    });
+    scatters.push(pineScatter);
+    canopies.push({ scatter: pineScatter, mats: [needleMat], near: 6.5 });
   }
 
   // Grass: tufts everywhere, swaying hard. Two crossed planes per tuft — a
@@ -160,12 +167,96 @@ export function buildWorld(scene, timeUniform) {
     }));
   }
 
+  // Small stones: single bricks half-sunk in the page. Ground clutter is what
+  // makes the paper read as terrain rather than a void between set pieces.
+  {
+    const a = vox(boxLayers(2, 2, 1), WS, { seed: 73 });
+    const b = vox(boxLayers(1, 1, 1), WS, { seed: 74 });
+    b.translate(0.3, 0, 0.12);
+    const mat = toon(0.30, { vertexColors: true });
+    scatters.push(new Scatter(group, [{ geo: a, mat }, { geo: b, mat }], 110, 46, rnd, {
+      scale: () => { const s = 0.5 + rnd() * 0.9; return [s, s * (0.6 + rnd() * 0.5), s]; },
+      lean: 0.15,
+      sink: 0.05,
+    }));
+  }
+
+  // Stone lanterns (tōrō): base, shaft, firebox, stepped roof, cap. The
+  // firebox is the lightest value on any prop, so it reads as holding a
+  // flame even in monochrome. Sparse — a landmark, not clutter.
+  {
+    const parts = [];
+    const stone = toon(0.24, { vertexColors: true });
+    const lit = toon(0.60, { vertexColors: true });
+    const add = (g, mat) => parts.push({ geo: g, mat });
+    const base = vox(boxLayers(5, 5, 2, 1), WS, { centerY: false, seed: 81 });
+    add(base, stone);
+    const shaft = vox(boxLayers(2, 2, 6), WS, { centerY: false, seed: 82 });
+    shaft.translate(0, 0.44, 0);
+    add(shaft, stone);
+    const firebox = vox(boxLayers(4, 4, 3, 1), WS, { centerY: false, seed: 83 });
+    firebox.translate(0, 1.76, 0);
+    add(firebox, lit);
+    const roof = vox(taperLayers(7, 7, 3, 3, 3, 1), WS, { centerY: false, seed: 84 });
+    roof.translate(0, 2.42, 0);
+    add(roof, stone);
+    const cap = vox(boxLayers(1, 1, 2), WS, { centerY: false, seed: 85 });
+    cap.translate(0, 3.08, 0);
+    add(cap, stone);
+    scatters.push(new Scatter(group, parts, 8, 74, rnd, {
+      minDist: 9,
+      scale: () => { const s = 0.85 + rnd() * 0.35; return [s, s, s]; },
+      lean: 0.02,
+      shadows: true,
+    }));
+  }
+
+  // Grave markers (sotoba): thin planks with a stepped point, leaning in
+  // small clusters — the page keeps its dead.
+  {
+    const plank = vox([...boxLayers(2, 1, 8), ...taperLayers(2, 1, 1, 1, 2)], WS, { centerY: false, seed: 91 });
+    scatters.push(new Scatter(group, [{ geo: plank, mat: toon(0.16, { vertexColors: true }) }], 26, 60, rnd, {
+      cluster: 2.2,
+      minDist: 7,
+      scale: () => { const s = 0.8 + rnd() * 0.5; return [s, 0.8 + rnd() * 0.7, s]; },
+      lean: 0.14,
+      shadows: true,
+      sink: 0.05,
+    }));
+  }
+
+  // Fallen logs, lying across the ground.
+  {
+    const log = vox(boxLayers(3, 3, 16), WS, { seed: 95 });
+    log.rotateZ(Math.PI / 2);
+    log.translate(0, 0.33, 0);
+    scatters.push(new Scatter(group, [{ geo: log, mat: toon(0.12, { vertexColors: true }) }], 12, 62, rnd, {
+      minDist: 7,
+      scale: () => { const s = 0.7 + rnd() * 0.7; return [s, s, s]; },
+      lean: 0.05,
+      shadows: true,
+      sink: 0.1,
+    }));
+  }
+
   // ------------------------------------------------------------------ update
   function update(center) {
     // Snap the paper to the texture tile so the pattern is continuous.
     paper.position.x = Math.round(center.x / PAPER_TILE) * PAPER_TILE;
     paper.position.z = Math.round(center.z / PAPER_TILE) * PAPER_TILE;
     for (const s of scatters) s.update(center);
+
+    // Ghost the foliage when the player is inside a stand of it.
+    for (const c of canopies) {
+      const pos = c.scatter.pos;
+      let inside = false;
+      for (let i = 0; i < pos.length; i += 2) {
+        const dx = pos[i] - center.x, dz = pos[i + 1] - center.z;
+        if (dx * dx + dz * dz < c.near * c.near) { inside = true; break; }
+      }
+      const target = inside ? 0.33 : 1;
+      for (const m of c.mats) m.opacity += (target - m.opacity) * 0.1;
+    }
   }
 
   return { group, update, scatters };
@@ -264,14 +355,15 @@ class Scatter {
 
   update(center) {
     const R = this.radius;
-    const near = this.minDist;
     let dirty = false;
     for (let i = 0; i < this.count; i++) {
       const dx = this.pos[i * 2] - center.x;
       const dz = this.pos[i * 2 + 1] - center.z;
       const d2 = dx * dx + dz * dz;
-      // Too far behind, or (for backdrop pieces) too close to the action.
-      if (d2 > R * R * 1.1 || (near > 0 && d2 < near * near)) {
+      // Recycle only what has fallen far behind, hidden by fog. minDist is a
+      // placement rule, never a live one: a tree the player walks up to must
+      // stay put — scenery that flees the approaching player reads as a bug.
+      if (d2 > R * R * 1.1) {
         // Rebirth on the leading edge, in a random forward-ish arc.
         this.place(i, center.x, center.z, false);
         // Nudge the fresh position toward the rim opposite where it left.
