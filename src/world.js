@@ -6,13 +6,15 @@
 // and stalks quietly recycle from behind you to ahead of you, hidden by fog.
 
 import * as THREE from 'three';
-import { toon, addOutlines } from './actors.js';
+import { toon } from './actors.js';
+import { vox, boxLayers, taperLayers, slab } from './voxel.js';
 import { makePaperTexture, rng } from './paper.js';
 
 // Kept for spawn-distance scale; the world itself no longer has walls.
 export const ARENA = 20;
 
 const PAPER_TILE = 8;          // world units per texture repeat; snap unit
+const WS = 0.22;               // world voxel size — coarser than character bricks
 const PAPER_SIZE = 480;
 
 export function buildWorld(scene, timeUniform) {
@@ -37,22 +39,21 @@ export function buildWorld(scene, timeUniform) {
   // A single fixed landmark. On an endless page it doubles as the only proof
   // of how far you have wandered.
   const torii = new THREE.Group();
-  const pillarGeo = new THREE.BoxGeometry(0.72, 7.4, 0.72);
+  const pillarGeo = vox(boxLayers(3, 3, 34), WS, { centerY: false, seed: 41 });
   for (const x of [-3.1, 3.1]) {
-    const p = new THREE.Mesh(pillarGeo, toon(0.09));
-    p.position.set(x, 3.7, 0);
+    const p = new THREE.Mesh(pillarGeo, toon(0.09, { vertexColors: true }));
+    p.position.set(x, 0, 0);
     p.castShadow = true;
     torii.add(p);
   }
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.55, 0.8), toon(0.07));
+  const lintel = new THREE.Mesh(vox(boxLayers(42, 4, 2), WS, { seed: 42 }), toon(0.07, { vertexColors: true }));
   lintel.position.y = 7.5;
   lintel.castShadow = true;
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.36, 0.6), toon(0.07));
+  const beam = new THREE.Mesh(vox(boxLayers(34, 3, 2), WS, { seed: 43 }), toon(0.07, { vertexColors: true }));
   beam.position.y = 6.5;
   beam.castShadow = true;
   torii.add(lintel, beam);
   torii.position.set(0, 0, -25);
-  addOutlines(torii, 1.4);
   group.add(torii);
 
   // ------------------------------------------------------------ vegetation
@@ -62,27 +63,23 @@ export function buildWorld(scene, timeUniform) {
   // game's steep camera, so each stalk carries leaf tufts near the top —
   // that is what makes both the stalk and its long shadow read as a plant.
   {
-    const geo = new THREE.CylinderGeometry(0.09, 0.12, 11, 4, 1);
-    geo.rotateY(Math.PI / 4);
-    geo.translate(0, 5.5, 0);
-    const mat = toon(0.34, { side: THREE.DoubleSide });
+    const geo = vox(boxLayers(1, 1, 50), WS, { centerY: false, seed: 51 });
+    const mat = toon(0.34, { vertexColors: true });
     addSway(mat, timeUniform, 0.9);
 
-    const leafMat = toon(0.30);
+    const leafMat = toon(0.30, { vertexColors: true });
     addSway(leafMat, timeUniform, 1.1);
-    const leaf = (r, h, y, ox, rotY) => {
-      const c = new THREE.ConeGeometry(r, h, 4);
-      c.scale(1, 0.42, 1);
-      c.rotateY(rotY);
-      c.translate(ox, y, 0);
-      return c;
+    const leaf = (w, y, ox, seed) => {
+      const g = vox(taperLayers(w, w, 1, 1, 2, 1), WS, { seed });
+      g.translate(ox, y, 0);
+      return g;
     };
 
     scatters.push(new Scatter(group, [
       { geo, mat },
-      { geo: leaf(1.05, 1.6, 8.0, 0.35, 0.0), mat: leafMat },
-      { geo: leaf(0.85, 1.4, 9.4, -0.3, 2.1), mat: leafMat },
-      { geo: leaf(0.55, 1.2, 10.6, 0.15, 4.2), mat: leafMat },
+      { geo: leaf(9, 8.0, 0.35, 52), mat: leafMat },
+      { geo: leaf(7, 9.4, -0.3, 53), mat: leafMat },
+      { geo: leaf(5, 10.6, 0.15, 54), mat: leafMat },
     ], 150, 72, rnd, {
       cluster: 3.5,
       minDist: 12,
@@ -97,33 +94,29 @@ export function buildWorld(scene, timeUniform) {
   // flat irregular bough-pads, offset asymmetrically around the trunk. From
   // above they overlap into a broken silhouette instead of a target.
   {
-    const trunk = new THREE.CylinderGeometry(0.26, 0.42, 5.2, 4);
-    trunk.rotateY(Math.PI / 4);
-    trunk.translate(0, 2.6, 0);
+    const trunk = vox(boxLayers(2, 2, 24), WS, { centerY: false, seed: 61 });
     // A stub of trunk continuing into the canopy keeps distant trees from
     // reading as floating caps once fog eats the thin lower trunk.
-    const upper = new THREE.CylinderGeometry(0.15, 0.22, 2.6, 4);
-    upper.rotateY(Math.PI / 4);
-    upper.translate(0.1, 6.2, 0);
+    const upper = vox(boxLayers(1, 1, 12), WS, { centerY: false, seed: 62 });
+    upper.translate(0.1, 5.0, 0);
 
-    const pad = (r, y, ox, oz, rotY) => {
-      // A flat slab per bough — blocky pine tiers, offset like brush pads.
-      const p = new THREE.BoxGeometry(r * 1.9, r * 0.42, r * 1.9);
-      p.rotateY(rotY);
+    const pad = (cells, y, ox, oz, seed) => {
+      // A flat voxel slab per bough, corners cut — blocky pine tiers.
+      const p = vox(boxLayers(cells, cells, 2, Math.max(1, cells >> 2)), WS, { seed });
       p.translate(ox, y, oz);
       return p;
     };
 
-    const trunkMat = toon(0.18);
-    const needleMat = toon(0.27);
+    const trunkMat = toon(0.18, { vertexColors: true });
+    const needleMat = toon(0.27, { vertexColors: true });
     addSway(needleMat, timeUniform, 0.35);
     scatters.push(new Scatter(group, [
       { geo: trunk, mat: trunkMat },
       { geo: upper, mat: trunkMat },
-      { geo: pad(2.1, 4.7, 0.9, 0.3, 0.4), mat: needleMat },
-      { geo: pad(1.7, 5.6, -1.0, -0.4, 1.9), mat: needleMat },
-      { geo: pad(1.35, 6.5, 0.4, -0.8, 3.6), mat: needleMat },
-      { geo: pad(0.9, 7.3, -0.2, 0.5, 5.1), mat: needleMat },
+      { geo: pad(18, 4.7, 0.9, 0.3, 63), mat: needleMat },
+      { geo: pad(15, 5.6, -1.0, -0.4, 64), mat: needleMat },
+      { geo: pad(12, 6.5, 0.4, -0.8, 65), mat: needleMat },
+      { geo: pad(8, 7.3, -0.2, 0.5, 66), mat: needleMat },
     ], 54, 84, rnd, {
       // Trees stay a backdrop. Anything closer than this is re-seated at the
       // rim by Scatter.update, so a canopy never sits between camera and duel.
@@ -154,8 +147,11 @@ export function buildWorld(scene, timeUniform) {
 
   // Rocks.
   {
-    const geo = new THREE.BoxGeometry(1.7, 1.1, 1.7);
-    scatters.push(new Scatter(group, [{ geo, mat: toon(0.26) }], 42, 68, rnd, {
+    const geo = vox(boxLayers(8, 7, 4, 2), WS, { seed: 71 });
+    const cap = vox(boxLayers(4, 4, 2, 1), WS, { seed: 72 });
+    cap.translate(0.25, 0.55, -0.15);
+    const rockMat = toon(0.26, { vertexColors: true });
+    scatters.push(new Scatter(group, [{ geo, mat: rockMat }, { geo: cap, mat: rockMat }], 42, 68, rnd, {
       minDist: 6,
       scale: () => [0.4 + rnd() * 1.5, 0.25 + rnd() * 0.7, 0.4 + rnd() * 1.5],
       lean: 0.6,

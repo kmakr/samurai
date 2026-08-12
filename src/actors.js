@@ -4,6 +4,7 @@
 // in outline — hat, height, stance — rather than in colour.
 
 import * as THREE from 'three';
+import { vox, boxLayers, taperLayers } from './voxel.js';
 
 // --------------------------------------------------------------- materials
 
@@ -105,9 +106,32 @@ function part(geo, value, opts) {
   return m;
 }
 
+// ------------------------------------------------------------- voxel parts
+
+// All characters share one voxel scale, so every figure reads as built from
+// the same bricks. Geometry is cached by key; materials stay per-instance.
+const VS = 0.105;
+
+function vpart(key, layers, value, opts = {}) {
+  const geo = cached(`v${key}`, () => vox(layers, VS, { seed: hashKey(key), ...opts }));
+  const m = new THREE.Mesh(geo, toon(value, { vertexColors: true }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  // The inverted-hull outline splits at every cube edge on non-indexed voxel
+  // geometry; voxel figures carry their shape with faces, not ink lines.
+  m.userData.noOutline = true;
+  return m;
+}
+
+function hashKey(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
 // A limb mesh hung below its pivot group, so rotation happens at the joint.
-function limb(geo, value, dropY) {
-  const m = part(geo, value);
+function vlimb(key, layers, value, dropY) {
+  const m = vpart(key, layers, value);
   m.position.y = dropY;
   return m;
 }
@@ -116,18 +140,19 @@ function limb(geo, value, dropY) {
 
 function makeKatana(len = 1.15, dark = false) {
   const g = new THREE.Group();
-  // Slight curve, faked by tilting two segments rather than bending geometry.
-  const blade = part(box(0.045, len, 0.115), dark ? 0.42 : 0.95);
-  blade.position.y = len * 0.5 + 0.12;
-  const tip = part(cone(0.062, 0.2, 4), dark ? 0.42 : 0.95);
-  tip.rotation.y = Math.PI * 0.25;
-  tip.scale.set(1, 1, 0.55);
-  tip.position.y = len + 0.2;
-  const tsuba = part(box(0.24, 0.035, 0.17), 0.10);
+  // Voxel blade with a stepped tip — the last two cells shift sideways, the
+  // way a voxel sword suggests its kissaki. Length in cells tracks `len`.
+  const cells = Math.round(len / VS);
+  const bladeLayers = [];
+  for (let i = 0; i < cells - 2; i++) bladeLayers.push(['X ']);
+  bladeLayers.push(['XX'], [' X']);
+  const blade = vpart(`blade${cells}`, bladeLayers, dark ? 0.42 : 0.95, { centerY: false });
+  blade.position.y = 0.12;
+  const tsuba = vpart('tsuba', boxLayers(2, 2, 1), 0.10);
   tsuba.position.y = 0.10;
-  const tsuka = part(box(0.062, 0.30, 0.085), 0.06);
+  const tsuka = vpart('tsuka', boxLayers(1, 1, 3), 0.06);
   tsuka.position.y = -0.06;
-  g.add(blade, tip, tsuba, tsuka);
+  g.add(blade, tsuba, tsuka);
   return g;
 }
 
@@ -140,53 +165,49 @@ export function makeSamurai() {
   hips.position.y = 0.92;
   root.add(hips);
 
-  const torso = part(box(0.62, 0.72, 0.38), 0.30);
+  const torso = vpart('pTorso', boxLayers(6, 4, 7), 0.30);
   torso.position.y = 0.34;
   hips.add(torso);
 
   // Haori shoulders — the flared silhouette that says "samurai" at a glance.
-  const shoulders = part(box(1.06, 0.24, 0.44), 0.58);
+  const shoulders = vpart('pShoulders', boxLayers(10, 4, 2), 0.58);
   shoulders.position.y = 0.60;
   hips.add(shoulders);
 
-  const hakama = part(sq(0.34, 0.62, 0.92), 0.14);
+  const hakama = vpart('pHakama', taperLayers(9, 9, 4, 4, 9, 1), 0.14);
   hakama.position.y = -0.44;
   hips.add(hakama);
 
-  const obi = part(sq(0.36, 0.36, 0.13), 0.03);
+  const obi = vpart('pObi', boxLayers(6, 5, 1), 0.03);
   obi.position.y = 0.0;
   hips.add(obi);
 
-  const neck = part(box(0.16, 0.12, 0.16), 0.55);
+  const neck = vpart('pNeck', boxLayers(2, 2, 1), 0.55);
   neck.position.y = 0.74;
   hips.add(neck);
 
   const head = new THREE.Group();
   head.position.y = 0.86;
   hips.add(head);
-  const skull = part(box(0.3, 0.34, 0.3), 0.72);
+  const skull = vpart('pSkull', boxLayers(3, 3, 3), 0.72);
   head.add(skull);
-  const hair = part(box(0.33, 0.2, 0.33), 0.04);
-  hair.position.y = 0.11;
+  const hair = vpart('pHair', boxLayers(4, 4, 2, 1), 0.04);
+  hair.position.y = 0.16;
   head.add(hair);
-  const knot = part(box(0.09, 0.16, 0.09), 0.04);
-  knot.position.set(0, 0.2, -0.09);
+  const knot = vpart('pKnot', boxLayers(1, 1, 2), 0.04);
+  knot.position.set(0, 0.28, -0.12);
   knot.rotation.x = -0.5;
   head.add(knot);
 
   const armL = new THREE.Group();
   armL.position.set(-0.5, 0.55, 0);
   hips.add(armL);
-  const armLMesh = part(box(0.17, 0.62, 0.19), 0.42);
-  armLMesh.position.y = -0.28;
-  armL.add(armLMesh);
+  armL.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
 
   const armR = new THREE.Group();
   armR.position.set(0.5, 0.55, 0);
   hips.add(armR);
-  const armRMesh = part(box(0.17, 0.62, 0.19), 0.42);
-  armRMesh.position.y = -0.28;
-  armR.add(armRMesh);
+  armR.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
 
   const katana = makeKatana(1.2);
   katana.position.set(0, -0.56, 0.06);
@@ -199,18 +220,12 @@ export function makeSamurai() {
   const legL = new THREE.Group();
   legL.position.set(-0.17, -0.78, 0);
   hips.add(legL);
-  const legLMesh = part(box(0.2, 0.72, 0.22), 0.12);
-  legLMesh.position.y = -0.34;
-  legL.add(legLMesh);
+  legL.add(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34));
 
   const legR = new THREE.Group();
   legR.position.set(0.17, -0.78, 0);
   hips.add(legR);
-  const legRMesh = part(box(0.2, 0.72, 0.22), 0.12);
-  legRMesh.position.y = -0.34;
-  legR.add(legRMesh);
-
-  addOutlines(root, 1.15);
+  legR.add(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34));
 
   return { root, hips, head, torso, armL, armR, legL, legR, katana };
 }
@@ -236,36 +251,36 @@ export function makeEnemy(type) {
   hips.position.y = 0.88;
   root.add(hips);
 
-  const torso = part(box(0.6, 0.7, 0.36), 0.05);
+  const torso = vpart('eTorso', boxLayers(6, 4, 7), 0.05);
   torso.position.y = 0.32;
   hips.add(torso);
 
-  const shoulders = part(box(0.94, 0.2, 0.4), 0.03);
+  const shoulders = vpart('eShoulders', boxLayers(9, 4, 2), 0.03);
   shoulders.position.y = 0.56;
   hips.add(shoulders);
 
-  const skirt = part(sq(0.32, 0.54, 0.8), 0.08);
+  const skirt = vpart('eSkirt', taperLayers(8, 8, 4, 4, 8, 1), 0.08);
   skirt.position.y = -0.40;
   hips.add(skirt);
 
   const head = new THREE.Group();
   head.position.y = 0.82;
   hips.add(head);
-  const skull = part(box(0.28, 0.32, 0.28), spec.mask ? 0.02 : 0.62);
+  const skull = vpart('eSkull', boxLayers(3, 3, 3), spec.mask ? 0.02 : 0.62);
   head.add(skull);
 
   if (spec.hat) {
-    // Kasa: a wide cone that hides the face entirely.
-    const hat = part(cone(0.52, 0.26, 4), 0.78);
-    hat.position.y = 0.2;
+    // Kasa: a wide stepped pyramid that hides the face entirely.
+    const hat = vpart('eKasa', taperLayers(9, 9, 3, 3, 3, 2), 0.78);
+    hat.position.y = 0.24;
     head.add(hat);
   } else if (spec.mask) {
     const horns = new THREE.Group();
-    const hornL = part(cone(0.06, 0.34, 4), 0.88);
-    hornL.position.set(-0.11, 0.28, 0);
+    const hornL = vpart('eHorn', boxLayers(1, 1, 3), 0.88);
+    hornL.position.set(-0.11, 0.31, 0);
     hornL.rotation.z = -0.42;
-    const hornR = hornL.clone();
-    hornR.position.x = 0.11;
+    const hornR = vpart('eHorn', boxLayers(1, 1, 3), 0.88);
+    hornR.position.set(0.11, 0.31, 0);
     hornR.rotation.z = 0.42;
     horns.add(hornL, hornR);
     head.add(horns);
@@ -279,20 +294,20 @@ export function makeEnemy(type) {
     eyes.userData.noOutline = true;
     head.add(eyes);
   } else {
-    const hair = part(box(0.3, 0.16, 0.3), 0.03);
-    hair.position.y = 0.1;
+    const hair = vpart('eHair', boxLayers(4, 4, 2, 1), 0.03);
+    hair.position.y = 0.14;
     head.add(hair);
   }
 
   const armL = new THREE.Group();
   armL.position.set(-0.46, 0.5, 0);
   hips.add(armL);
-  armL.add(limb(box(0.16, 0.58, 0.17), 0.05, -0.27));
+  armL.add(vlimb('eArm', boxLayers(2, 2, 6), 0.05, -0.27));
 
   const armR = new THREE.Group();
   armR.position.set(0.46, 0.5, 0);
   hips.add(armR);
-  armR.add(limb(box(0.16, 0.58, 0.17), 0.05, -0.27));
+  armR.add(vlimb('eArm', boxLayers(2, 2, 6), 0.05, -0.27));
 
   const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, false);
   katana.position.set(0, -0.52, 0.05);
@@ -303,15 +318,14 @@ export function makeEnemy(type) {
   const legL = new THREE.Group();
   legL.position.set(-0.16, -0.74, 0);
   hips.add(legL);
-  legL.add(limb(box(0.19, 0.68, 0.2), 0.04, -0.32));
+  legL.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.04, -0.32));
 
   const legR = new THREE.Group();
   legR.position.set(0.16, -0.74, 0);
   hips.add(legR);
-  legR.add(limb(box(0.19, 0.68, 0.2), 0.04, -0.32));
+  legR.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.04, -0.32));
 
   root.scale.setScalar(spec.height);
-  addOutlines(root, 1.1);
 
   return { root, hips, head, torso, shoulders, skirt, armL, armR, legL, legR, katana };
 }

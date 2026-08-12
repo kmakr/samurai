@@ -71,12 +71,18 @@ ink reads at any distance and the frame gets its Kurosawa contrast for free.
   outlines. In monochrome the silhouette carries everything, so enemy types
   differ by outline (straw kasa, horned mask, height) rather than by colour.
   The player is deliberately the lightest figure on the field.
-- **Isometric & blocky** — a fixed 45° orthographic camera, and every figure
-  and plant cut from square stock: box limbs, tapered square columns (4-sided
-  cylinders turned 45°), pyramid hats, slab pine boughs, pixel-art grass
-  tufts. The organic ink on rigid blocks is the contrast the look leans on.
-  The key light hangs off the camera's left shoulder — lit from behind the
-  camera, every shadow hides behind its caster and the frame goes flat.
+- **Isometric & voxel** — a fixed 45° orthographic camera, and everything
+  built from voxels (`src/voxel.js`): models are tiny 3D bitmaps merged into
+  one geometry with interior faces culled, and every vertex carries a
+  per-voxel value jitter so flat faces read as individual bricks. Characters
+  share one brick size (0.105), scenery a coarser one (0.22). Kills burst
+  into tumbling cubes — bodies come apart into what they are made of — via a
+  fixed instanced pool that marks the paper where chunks land. The organic
+  ink on rigid voxels is the contrast the look leans on. The key light hangs
+  off the camera's left shoulder: lit from behind the camera, every shadow
+  hides behind its caster and the frame goes flat. Voxel figures drop the
+  inverted-hull outline — it splits at every cube edge on non-indexed
+  geometry, and voxels carry their shape with faces, not ink lines.
 - **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
   play in. The HUD lives inside the black bars, which keeps it legible no
   matter how bright the paper gets.
@@ -142,7 +148,8 @@ src/quads.js      one-draw-call dynamic quad batch
 src/actors.js     cel-shaded figures, outlines, geometry cache
 src/ragdoll.js    Verlet ragdolls and dismemberment
 src/trail.js      sumi-e sword stroke
-src/world.js      arena, bamboo, torii, wind, rain
+src/world.js      endless paper, voxel vegetation, wind, rain
+src/voxel.js      voxel model builder + gib bursts
 src/audio.js      procedural WebAudio (no samples)
 src/input.js      keyboard/mouse with input buffering
 legacy/           the original single-file prototype, kept for reference

@@ -7,6 +7,8 @@ import { SlashTrail } from './trail.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { RagdollSystem } from './ragdoll.js';
+import { VoxelGibs } from './voxel.js';
+import { toon } from './actors.js';
 
 // ---------------------------------------------------------------- constants
 
@@ -68,6 +70,8 @@ const rain = new Rain(scene);
 const WORLD_BOUND = 1e9;   // the page never ends
 const ink = new InkSystem(scene, WORLD_BOUND);
 const ragdolls = new RagdollSystem(scene, ink, WORLD_BOUND);
+// Bodies are made of cubes now, so they come apart into cubes.
+const gibs = new VoxelGibs(scene, toon(0.07), 320, 0.13);
 const trail = new SlashTrail(scene, { radius: 2.7, width: 1.7, sweep: 3.0 });
 const enemyTrail = new SlashTrail(scene, { radius: 2.2, width: 1.0, sweep: 2.4, color: 0x101015 });
 
@@ -334,6 +338,7 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   hitstop(big ? 0.22 : 0.14, 0.04);
   shake(big ? 1.2 : 0.7);
   flash(big ? 0.4 : 0.18);
+  gibs.burst(p.x, h, p.z, severity === 'bisect' ? 26 : 13, dirX, dirZ, big ? 1.5 : 1.0);
   audio.kill();
 
   state.kills++;
@@ -1055,6 +1060,7 @@ function step(dt) {
   trail.update(sdt);
   enemyTrail.update(sdt);
   ragdolls.update(sdt);
+  gibs.update(sdt, ink);
   ink.update(sdt, camera);
   world.update(player.root.position);
   dust.update(sdt, camera.position);
