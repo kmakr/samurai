@@ -203,6 +203,12 @@ export class RagdollSystem {
         dirX: cut.x, dirZ: cut.z, force: 1.6,
       });
     }
+    // Decapitation gets its own fountain: straight up from the neck, the
+    // single most legible kill signal the game has.
+    if (severed.has('head')) {
+      const n = P.head.pos;
+      this.ink.spray(n.x, n.y - 0.1, n.z, 14, { force: 0.55, up: 2.2 });
+    }
 
     // Anything still parented to the actor (the empty root, stray bits) goes.
     if (actor.root.parent) actor.root.parent.remove(actor.root);
@@ -215,18 +221,25 @@ export class RagdollSystem {
     const out = new Set();
     if (severity === 'none') return out;
 
-    // Big enemies hold together unless the blow was a heavy one.
+    // A killing cut takes the head — that is the read of the kill. Big
+    // enemies resist: they lose an arm more often than the head, and only
+    // come fully apart under the heavy blow.
     const tough = spec.height >= 1.3;
     if (severity === 'bisect') {
       out.add('legs');
-      if (Math.random() < 0.4) out.add(Math.random() < 0.5 ? 'armL' : 'armR');
+      if (Math.random() < 0.6) out.add('head');
+      else if (Math.random() < 0.5) out.add(Math.random() < 0.5 ? 'armL' : 'armR');
       return out;
     }
     const roll = Math.random();
-    const threshold = tough ? 0.22 : 0.45;
-    if (roll < threshold * 0.35) out.add('head');
-    else if (roll < threshold * 0.75) out.add('armR');
-    else if (roll < threshold) out.add('armL');
+    if (tough) {
+      if (roll < 0.4) out.add('head');
+      else if (roll < 0.75) out.add(Math.random() < 0.5 ? 'armL' : 'armR');
+    } else if (roll < 0.78) {
+      out.add('head');
+    } else {
+      out.add(roll < 0.89 ? 'armR' : 'armL');
+    }
     return out;
   }
 

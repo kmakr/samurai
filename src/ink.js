@@ -1,24 +1,29 @@
-// The blood system: everything is ink, and ink behaves like ink on paper.
+// The blood system: the world is voxels, so blood flies as voxels — and the
+// paper is paper, so blood lands as ink.
 //
 // Three layers:
-//   1. floor stains  — permanent marks that bleed outward after they land
-//   2. droplets      — airborne blood, which becomes a stain where it falls
+//   1. floor stains  — organic ink marks that bleed outward after they land
+//   2. droplets      — airborne voxel cubes; each becomes a stain on impact
 //   3. screen ink    — marks flicked at the "page" itself, which soak and fade
 
 import * as THREE from 'three';
 import { QuadBatch, quadMaterial } from './quads.js';
+import { toon } from './actors.js';
 import {
-  makeInkAtlas, cellUV, splatCell, flickCell, dropCell, rng,
+  makeInkAtlas, cellUV, splatCell, flickCell, rng,
 } from './paper.js';
 
 const MAX_STAINS = 620;
 const MAX_DROPS = 420;
 
-const camDir = new THREE.Vector3();
-const velDir = new THREE.Vector3();
-const side = new THREE.Vector3();
 const c0 = new THREE.Vector3(), c1 = new THREE.Vector3();
 const c2 = new THREE.Vector3(), c3 = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _p = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 export class InkSystem {
   constructor(scene, arenaHalf) {
@@ -33,9 +38,15 @@ export class InkSystem {
     this.stainBatch.mesh.renderOrder = 2;
     scene.add(this.stainBatch.mesh);
 
-    this.dropBatch = new QuadBatch(MAX_DROPS, quadMaterial(this.atlas, 0x08080b, false));
-    this.dropBatch.mesh.renderOrder = 3;
-    scene.add(this.dropBatch.mesh);
+    // Airborne blood: tumbling voxel cubes, matching what bodies are made of.
+    // Only the landing turns organic — the paper absorbs the cube as ink.
+    this.dropMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1), toon(0.05), MAX_DROPS,
+    );
+    this.dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.dropMesh.frustumCulled = false;
+    for (let i = 0; i < MAX_DROPS; i++) this.dropMesh.setMatrixAt(i, HIDDEN);
+    scene.add(this.dropMesh);
 
     this.stains = [];
     this.drops = [];
@@ -147,9 +158,9 @@ export class InkSystem {
           (0.4 + r() * 1.6) * up,
           dirZ * 7.0 * force + Math.sin(a) * s,
         ),
-        size: 0.07 + r() * 0.15,
-        uv: cellUV(dropCell(r)),
-        alpha: 0.85 + r() * 0.15,
+        size: 0.06 + r() * 0.11,
+        rx: r() * Math.PI, rz: r() * Math.PI,
+        wx: (r() - 0.5) * 18, wz: (r() - 0.5) * 18,
       });
     }
   }
@@ -232,8 +243,11 @@ export class InkSystem {
       if (s.fade > 0 && s.alpha > s.floor) s.alpha = Math.max(s.floor, s.alpha - s.fade * dt);
     }
 
+    // Tumble the airborne cubes.
+    for (const d of this.drops) { d.rx += d.wx * dt; d.rz += d.wz * dt; }
+
     this.buildStains();
-    this.buildDrops(camera);
+    this.buildDropCubes();
     this.drawScreen(dt);
   }
 
@@ -258,29 +272,18 @@ export class InkSystem {
     b.end();
   }
 
-  buildDrops(camera) {
-    const b = this.dropBatch;
-    b.begin();
-    camera.getWorldDirection(camDir);
-    for (const d of this.drops) {
-      // Stretch each drop along its own motion so fast blood reads as a streak.
-      const speed = d.v.length();
-      velDir.copy(d.v).divideScalar(speed || 1);
-      side.crossVectors(velDir, camDir);
-      // Degenerate when the drop flies straight at the camera; any perpendicular
-      // will do in that case since the streak has no visible direction anyway.
-      if (side.lengthSq() < 1e-6) side.set(1, 0, 0); else side.normalize();
-
-      const long = d.size * (1 + Math.min(speed * 0.22, 3.6));
-      const wide = d.size;
-      const p = d.p;
-      c0.copy(p).addScaledVector(velDir, -long).addScaledVector(side, wide);
-      c1.copy(p).addScaledVector(velDir, long).addScaledVector(side, wide);
-      c2.copy(p).addScaledVector(velDir, long).addScaledVector(side, -wide);
-      c3.copy(p).addScaledVector(velDir, -long).addScaledVector(side, -wide);
-      b.push(c0, c1, c2, c3, d.uv, d.alpha);
+  buildDropCubes() {
+    const drops = this.drops;
+    for (let i = 0; i < MAX_DROPS; i++) {
+      const d = drops[i];
+      if (!d) { this.dropMesh.setMatrixAt(i, HIDDEN); continue; }
+      _p.copy(d.p);
+      _q.setFromEuler(_e.set(d.rx, 0, d.rz));
+      _s.setScalar(d.size);
+      _m.compose(_p, _q, _s);
+      this.dropMesh.setMatrixAt(i, _m);
     }
-    b.end();
+    this.dropMesh.instanceMatrix.needsUpdate = true;
   }
 
   drawScreen(dt) {
