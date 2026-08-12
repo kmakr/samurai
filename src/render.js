@@ -57,8 +57,11 @@ const FILM_FRAG = /* glsl */`
     l = l * (1.0 - uLift) + uLift;
     l *= uFlicker;
 
-    // Grain, strongest through the midtones.
-    float g = hash(vUv * uRes + fract(uTime) * 431.7) - 0.5;
+    // Grain, strongest through the midtones. Two decorrelated samples
+    // averaged: same photographic texture, half the per-pixel spike — single
+    // -sample noise at this amplitude reads as discrete dots on flat paper.
+    float g = (hash(vUv * uRes + fract(uTime) * 431.7)
+             + hash(vUv * uRes * 1.13 + fract(uTime * 1.7) * 289.3)) * 0.5 - 0.5;
     l += g * uGrain * (0.30 + 1.0 * (1.0 - abs(l * 2.0 - 1.0)));
 
     // Print damage, resampled on a 16fps step so it stutters like a projector.
@@ -66,20 +69,22 @@ const FILM_FRAG = /* glsl */`
     // pixels they stop reading as film and start reading as broken rendering.
     float frame = floor(uTime * 16.0);
     float lane = floor(vUv.x * 620.0);
-    if (hash(vec2(lane, frame)) > 0.9975) {
-      // Vertical scratches run only part of the frame height.
+    if (hash(vec2(lane, frame)) > 0.999) {
+      // Vertical scratches run only part of the frame height, faintly.
       float span = hash(vec2(lane, frame + 3.0));
       float top = hash(vec2(lane, frame + 9.0));
       float inSpan = step(top, vUv.y) * step(vUv.y, top + span * 0.7);
-      l += 0.22 * uDamage * inSpan;
+      l += 0.10 * uDamage * inSpan;
     }
-    vec2 dgrid = vec2(340.0, 190.0);
+    // Dust: a rare, soft-edged fleck — an accent a few times a second, not a
+    // field of black dots. The soft falloff is what stops it reading as a
+    // literal square drawn on the frame.
+    vec2 dgrid = vec2(520.0, 300.0);
     vec2 dcell = floor(vUv * dgrid);
     float dust = hash(dcell + frame * 7.13);
-    if (dust > 0.99955) {
-      // Round the speck off inside its cell so it is a fleck, not a block.
+    if (dust > 0.99991) {
       float d = length(fract(vUv * dgrid) - 0.5);
-      l -= 0.5 * uDamage * step(d, 0.42);
+      l -= 0.22 * uDamage * smoothstep(0.45, 0.1, d);
     }
 
     vec2 d = vUv - 0.5;

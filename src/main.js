@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FilmRenderer, applyLetterbox } from './render.js';
 import { InkSystem } from './ink.js';
-import { buildWorld, ARENA, Dust, Rain } from './world.js';
+import { buildWorld, ARENA, Rain } from './world.js';
 import { makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion } from './actors.js';
 import { SlashTrail } from './trail.js';
 import { Input } from './input.js';
@@ -65,7 +65,6 @@ camera.position.copy(ISO_OFFSET);
 
 const timeUniform = { value: 0 };
 const world = buildWorld(scene, timeUniform);
-const dust = new Dust(scene);
 const rain = new Rain(scene);
 const WORLD_BOUND = 1e9;   // the page never ends
 const ink = new InkSystem(scene, WORLD_BOUND);
@@ -1070,7 +1069,6 @@ function step(dt) {
   ink.update(sdt, camera);
   world.update(player.root.position);
   audio.setRustle(world.ambience.rustle);
-  dust.update(sdt, camera.position);
 
   const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
   rain.update(sdt, player.root.position, bossWave ? 1 : 0);
@@ -1080,7 +1078,7 @@ function step(dt) {
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
-  film.uniforms.uGrain.value = 0.085 + hurtK * 0.10;
+  film.uniforms.uGrain.value = 0.05 + hurtK * 0.06;
   film.uniforms.uVignette.value = 0.32 + hurtK * 0.45;
   film.uniforms.uContrast.value = 1.42 + hurtK * 0.25;
   whiteFlash *= Math.exp(-9 * dt);
