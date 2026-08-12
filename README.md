@@ -52,8 +52,9 @@ build command stays empty and output directory is `/`.
 
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
-meter buys one iai draw, which flash-steps forward and cuts down everything in
-a corridor ahead.
+focus charge makes white ink light pulse around the player and briefly shows
+the Iai key. One iai draw flash-steps forward and cuts down everything in a
+corridor ahead.
 
 Perfect parries and kills build **Flow**. Flow breaks when the player takes a
 hit or goes too long without another success; higher Flow increases focus gain
@@ -61,6 +62,12 @@ and pushes the film contrast harder. After each cleared wave, three discipline
 scrolls pause the fight and offer a run upgrade: parry timing, dash damage,
 combo-finisher damage, focus retention, or iai reach. Each discipline has three
 ranks; selecting a mastered discipline restores life and focus instead.
+
+Every fifth wave brings a named rival with a fast follow-up cut. Defeating the
+rival restores focus and forces an execution finish. A well-timed dash through
+an incoming strike holds Flow and grants focus. Falling Leaf is an additional
+discipline that can prevent one fatal hit. Defeat appears quickly and records
+wave, kills, perfect parries, and best Flow in local browser storage.
 
 ## The look
 
@@ -92,8 +99,8 @@ ink reads at any distance and the frame gets its Kurosawa contrast for free.
   inverted-hull outline — it splits at every cube edge on non-indexed
   geometry, and voxels carry their shape with faces, not ink lines.
 - **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
-  play in. The HUD lives inside the black bars, which keeps it legible no
-  matter how bright the paper gets.
+  play in. A circular HP ring follows the player. Iai readiness uses a white
+  ink aura instead of another meter; run statistics stay in the black bars.
 
 ## The ink
 

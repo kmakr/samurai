@@ -107,6 +107,7 @@ const state = {
   over: false,
   hp: PLAYER_MAX_HP,
   kills: 0,
+  perfectParries: 0,
   wave: 0,
   focus: 0,
   time: 0,
@@ -130,6 +131,8 @@ const state = {
   chain: 0,
   chainTimer: 0,
   bestChain: 0,
+  rivalKills: 0,
+  escapeCharges: 0,
   pendingUpgrade: false,
   choosingUpgrade: false,
   upgrades: {
@@ -138,6 +141,7 @@ const state = {
     finalStroke: 0,
     stillWater: 0,
     longShadow: 0,
+    fallingLeaf: 0,
   },
   dashHit: new Set(),
 };
@@ -219,6 +223,42 @@ function makeBrushRing() {
 
 const parryRingGeo = makeBrushRing();
 const parryRings = [];
+
+const iaiAura = new THREE.Group();
+const iaiAuraRings = [0, 1].map((index) => {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+  const mesh = new THREE.Mesh(parryRingGeo, material);
+  mesh.rotation.x = -Math.PI * 0.5;
+  mesh.position.y = 0.05 + index * 0.012;
+  iaiAura.add(mesh);
+  return mesh;
+});
+const iaiLight = new THREE.PointLight(0xffffff, 0, 5, 2);
+iaiLight.position.y = 1.15;
+iaiAura.add(iaiLight);
+iaiAura.visible = false;
+player.root.add(iaiAura);
+
+function updateIaiAura() {
+  const ready = state.running && !state.over && state.focus >= FOCUS_MAX;
+  iaiAura.visible = ready;
+  if (!ready) return;
+  for (let i = 0; i < iaiAuraRings.length; i++) {
+    const ring = iaiAuraRings[i];
+    const phase = (state.time * 0.72 + i * 0.5) % 1;
+    ring.scale.setScalar(1.15 + phase * 2.15);
+    ring.material.opacity = Math.sin(phase * Math.PI) * 0.58;
+  }
+  iaiLight.intensity = 1.0 + Math.sin(state.time * 5.5) * 0.32;
+}
+
 function spawnParryRing(position) {
   const mat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -294,7 +334,7 @@ function waveComposition(n) {
   return list;
 }
 
-function spawnEnemy(type) {
+function spawnEnemy(type, options = {}) {
   const spec = ENEMY_TYPES[type];
   const a = Math.random() * Math.PI * 2;
   const r = 13 + Math.random() * 6;
@@ -315,6 +355,9 @@ function spawnEnemy(type) {
   const scale = 1 + state.wave * 0.06;
   enemies.push({
     type, spec, actor, bladeMats,
+    rival: Boolean(options.rival),
+    rivalName: options.rivalName || '',
+    rivalFollowup: false,
     hp: spec.hp * scale,
     maxHp: spec.hp * scale,
     state: 'approach',
@@ -335,7 +378,10 @@ function spawnEnemy(type) {
 function startWave() {
   state.wave++;
   state.slots = Math.min(4, 2 + Math.floor(state.wave / 4));
-  for (const type of waveComposition(state.wave)) spawnEnemy(type);
+  const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
+  for (const type of waveComposition(state.wave)) {
+    spawnEnemy(type, { rival: type === 'oni', rivalName });
+  }
   audio.taiko(state.wave % 5 === 0 ? 58 : 82, 0.55);
   showWaveTitle(state.wave);
   updateHUD();
@@ -345,11 +391,16 @@ const waveTitleEl = document.getElementById('waveTitle');
 function showWaveTitle(n) {
   const boss = n % 5 === 0;
   waveTitleEl.innerHTML = boss
-    ? `<span class="kanji">鬼</span><span class="latin">WAVE ${n} — ONI</span>`
+    ? `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)} — THE IRON DEMON</span>`
     : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
   waveTitleEl.classList.remove('show');
   void waveTitleEl.offsetWidth; // restart the animation
   waveTitleEl.classList.add('show');
+}
+
+function rivalNameForWave(n) {
+  const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
+  return names[(Math.floor(n / 5) - 1) % names.length];
 }
 
 function numberKanji(n) {
@@ -379,6 +430,10 @@ const UPGRADE_DEFS = [
   {
     id: 'longShadow', mark: 'REACH', name: 'LONG SHADOW',
     describe: (level) => `Iai reaches ${level * 6} units farther and ${level * 0.6} wider.`,
+  },
+  {
+    id: 'fallingLeaf', mark: 'RISE', name: 'FALLING LEAF',
+    describe: () => 'Gain one escape from a fatal strike.',
   },
 ];
 
@@ -436,6 +491,7 @@ function takeUpgrade(upgrade) {
     state.focus = Math.min(FOCUS_MAX, state.focus + 20);
   } else {
     state.upgrades[upgrade.id]++;
+    if (upgrade.id === 'fallingLeaf') state.escapeCharges++;
   }
   state.choosingUpgrade = false;
   state.pendingUpgrade = false;
@@ -539,6 +595,7 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
 
 function killEnemy(e, dirX, dirZ, severity = 'limb') {
   e.dead = true;
+  if (e.rival) severity = 'bisect';
   if (e.hasSlot) releaseSlot(e);
   const p = e.actor.root.position;
   const h = 1.0 * e.spec.height;
@@ -556,6 +613,12 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   audio.kill();
 
   state.kills++;
+  if (e.rival) {
+    state.rivalKills++;
+    state.focus = FOCUS_MAX;
+    showCombatCallout(e.rivalName, 'RIVAL DEFEATED · FOCUS RESTORED');
+    audio.taiko(48, 0.72);
+  }
   addFlow();
   state.focus = Math.min(FOCUS_MAX, state.focus + (big ? 20 : 9) * flowMultiplier());
 
@@ -569,6 +632,20 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
 
 function damagePlayer(amount) {
   if (state.invuln > 0 || state.over) return;
+  if (amount >= state.hp && state.escapeCharges > 0) {
+    state.escapeCharges--;
+    state.hp = 1;
+    state.invuln = 1.4;
+    breakFlow();
+    flash(1);
+    ink.splashScreen(12, 1.5);
+    hitstop(0.22, 0.035);
+    shake(1.1);
+    showCombatCallout('FALLING LEAF', 'DEATH ESCAPED');
+    audio.perfectParry();
+    updateHUD();
+    return;
+  }
   state.hp -= amount;
   state.invuln = 0.55;
   state.focus = Math.max(0, state.focus - Math.max(0, 18 - state.upgrades.stillWater * 6));
@@ -615,6 +692,26 @@ function playerDashHits() {
     shake(0.22);
     audio.hit();
   }
+}
+
+function rewardDashRead() {
+  let read = false;
+  for (const e of enemies) {
+    if (e.dead || e.state !== 'strike' || e.resolved) continue;
+    const dx = e.actor.root.position.x - player.root.position.x;
+    const dz = e.actor.root.position.z - player.root.position.z;
+    const reach = e.spec.reach * e.spec.height * 1.45;
+    if (dx * dx + dz * dz <= reach * reach) {
+      read = true;
+      e.resolved = true;
+    }
+  }
+  if (!read) return;
+  state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
+  state.focus = Math.min(FOCUS_MAX, state.focus + 10 * flowMultiplier());
+  showCombatCallout('EVADE', 'ATTACK READ · FLOW HELD');
+  audio.parry();
+  updateHUD();
 }
 
 // ---------------------------------------------------------------------- iai
@@ -693,6 +790,7 @@ function updatePlayer(dt) {
       state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
       state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
       state.dashHit.clear();
+      rewardDashRead();
       audio.dash();
     } else if (input.take('attack')) {
       beginAttack();
@@ -709,6 +807,7 @@ function updatePlayer(dt) {
       state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
       state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
       state.dashHit.clear();
+      rewardDashRead();
       audio.dash();
     }
   }
@@ -1035,10 +1134,19 @@ function updateEnemies(dt) {
       case 'recover': {
         turn = false;
         if (e.t >= 0.42) {
-          releaseSlot(e);
-          e.cooldown = 0.8 + Math.random() * 1.6;
-          e.state = dist > reach * 1.6 ? 'approach' : 'circle';
-          e.t = 0;
+          if (e.rival && !e.rivalFollowup && dist < reach * 1.8) {
+            e.rivalFollowup = true;
+            e.state = 'windup';
+            e.t = Math.max(0, e.spec.windup - 0.24);
+            e.circleDir *= -1;
+            for (const m of e.bladeMats) m.emissive.setScalar(1);
+          } else {
+            e.rivalFollowup = false;
+            releaseSlot(e);
+            e.cooldown = e.rival ? 0.55 : 0.8 + Math.random() * 1.6;
+            e.state = dist > reach * 1.6 ? 'approach' : 'circle';
+            e.t = 0;
+          }
         }
         break;
       }
@@ -1082,6 +1190,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     e.cooldown = 1.4;
     releaseSlot(e);
     addFlow();
+    state.perfectParries++;
     state.focus = Math.min(FOCUS_MAX, state.focus + 34 * flowMultiplier());
     const pos = e.actor.root.position;
     ink.spray(pos.x, 1.4 * e.spec.height, pos.z, 6, { dirX: -nx, dirZ: -nz, force: 0.7 });
@@ -1200,17 +1309,44 @@ function updateCamera(dt) {
 
 // ----------------------------------------------------------------------- UI
 
-const hpFillEl = document.getElementById('hpFill');
-const focusFillEl = document.getElementById('focusFill');
+const hpArcEl = document.getElementById('hpArc');
+const hpGaugeEl = document.getElementById('hpGauge');
 const statsEl = document.getElementById('stats');
-const focusWrapEl = document.getElementById('focusWrap');
 const flowEl = document.getElementById('flow');
+const gaugesEl = document.getElementById('gauges');
+const iaiReadyNoticeEl = document.getElementById('iaiReadyNotice');
+const hudAnchor = new THREE.Vector3();
+let iaiWasReady = false;
+let iaiNoticeTimer = 0;
+
+function updatePlayerHUDPosition() {
+  hudAnchor.copy(player.root.position);
+  hudAnchor.y += 2.55;
+  hudAnchor.project(camera);
+  const rect = film.domElement.getBoundingClientRect();
+  const x = rect.left + (hudAnchor.x * 0.5 + 0.5) * rect.width;
+  const y = rect.top + (-hudAnchor.y * 0.5 + 0.5) * rect.height;
+  gaugesEl.classList.toggle('flip', x > innerWidth - 190);
+  gaugesEl.style.left = `${Math.round(THREE.MathUtils.clamp(x, 28, innerWidth - 28))}px`;
+  gaugesEl.style.top = `${Math.round(THREE.MathUtils.clamp(y, 54, innerHeight - 30))}px`;
+}
 
 function updateHUD() {
-  hpFillEl.style.transform = `scaleX(${Math.max(0, state.hp) / PLAYER_MAX_HP})`;
-  focusFillEl.style.transform = `scaleX(${state.focus / FOCUS_MAX})`;
-  focusWrapEl.classList.toggle('ready', state.focus >= FOCUS_MAX);
-  statsEl.textContent = `KILLS ${state.kills} · WAVE ${state.wave}`;
+  gaugesEl.classList.toggle('active', state.running && !state.over);
+  const hpPercent = THREE.MathUtils.clamp(state.hp / PLAYER_MAX_HP, 0, 1);
+  hpArcEl.style.strokeDashoffset = `${100 - hpPercent * 100}`;
+  hpGaugeEl.setAttribute('aria-valuenow', `${Math.round(hpPercent * 100)}`);
+  const iaiReady = state.running && !state.over && state.focus >= FOCUS_MAX;
+  if (iaiReady && !iaiWasReady) {
+    iaiReadyNoticeEl.classList.add('show');
+    clearTimeout(iaiNoticeTimer);
+    iaiNoticeTimer = setTimeout(() => iaiReadyNoticeEl.classList.remove('show'), 1800);
+  } else if (!iaiReady) {
+    clearTimeout(iaiNoticeTimer);
+    iaiReadyNoticeEl.classList.remove('show');
+  }
+  iaiWasReady = iaiReady;
+  statsEl.textContent = `KILLS ${state.kills} · WAVE ${state.wave}${state.escapeCharges ? ` · ESCAPE ${state.escapeCharges}` : ''}`;
   flowEl.classList.toggle('active', state.chain > 1);
   flowEl.querySelector('strong').textContent = `FLOW ×${state.chain}`;
   flowEl.querySelector('small').textContent = `FLOW · FOCUS ×${flowMultiplier().toFixed(1)}`;
@@ -1218,23 +1354,48 @@ function updateHUD() {
 
 const overlay = document.getElementById('overlay');
 const ovTitle = document.getElementById('ovTitle');
+const ovSub = document.getElementById('ovSub');
 const ovText = document.getElementById('ovText');
 const ovBtn = document.getElementById('ovBtn');
+
+function loadRecords() {
+  try {
+    return { wave: 0, kills: 0, parries: 0, flow: 0, ...JSON.parse(localStorage.getItem('samurai-records') || '{}') };
+  } catch {
+    return { wave: 0, kills: 0, parries: 0, flow: 0 };
+  }
+}
+
+function saveRecords(records) {
+  try { localStorage.setItem('samurai-records', JSON.stringify(records)); } catch { /* Private storage can fail. */ }
+}
 
 function gameOver() {
   if (state.over) return;
   state.over = true;
   state.running = false;
+  updateHUD();
   ink.splashScreen(20, 2.2);
   hitstop(0.5, 0.05);
   audio.setWind(0.12);
+  const records = loadRecords();
+  const newRecords = {
+    wave: Math.max(records.wave, state.wave),
+    kills: Math.max(records.kills, state.kills),
+    parries: Math.max(records.parries, state.perfectParries),
+    flow: Math.max(records.flow, state.bestChain),
+  };
+  saveRecords(newRecords);
+  const record = state.wave > records.wave || state.kills > records.kills
+    || state.perfectParries > records.parries || state.bestChain > records.flow;
   setTimeout(() => {
     ovTitle.textContent = 'DEFEAT';
-    ovText.innerHTML = `A LIFE ENDS ON THE PAGE<br><b>${state.kills} SLAIN · WAVE ${state.wave} · BEST FLOW ${state.bestChain}</b>`;
-    ovBtn.textContent = 'TRY AGAIN';
+    ovSub.textContent = record ? 'NEW PERSONAL RECORD' : 'DRAW AGAIN';
+    ovText.innerHTML = `WAVE ${state.wave} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
+    ovBtn.textContent = 'DRAW AGAIN';
     overlay.classList.remove('hidden');
     input.enabled = false;
-  }, 900);
+  }, 420);
 }
 
 function beginGame() {
@@ -1316,7 +1477,7 @@ function step(dt) {
         }
       } else if (enemies.length === 0) {
         state.pendingUpgrade = state.wave > 0;
-        state.waveBreak = state.pendingUpgrade ? 1.4 : 1.0;
+        state.waveBreak = state.pendingUpgrade ? 2.6 : 1.0;
       }
     }
   } else if (!state.over) {
@@ -1340,6 +1501,8 @@ function step(dt) {
   audio.setWind(bossWave ? 0.13 : 0.05);
 
   updateCamera(dt);
+  updatePlayerHUDPosition();
+  updateIaiAura();
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
@@ -1367,7 +1530,7 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
-  version: 9,
+  version: 10,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
   get enemies() { return enemies; },
