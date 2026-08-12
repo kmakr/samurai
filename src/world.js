@@ -37,7 +37,7 @@ export function buildWorld(scene, timeUniform) {
   // A single fixed landmark. On an endless page it doubles as the only proof
   // of how far you have wandered.
   const torii = new THREE.Group();
-  const pillarGeo = new THREE.CylinderGeometry(0.34, 0.42, 7.4, 8);
+  const pillarGeo = new THREE.BoxGeometry(0.72, 7.4, 0.72);
   for (const x of [-3.1, 3.1]) {
     const p = new THREE.Mesh(pillarGeo, toon(0.09));
     p.position.set(x, 3.7, 0);
@@ -62,7 +62,8 @@ export function buildWorld(scene, timeUniform) {
   // game's steep camera, so each stalk carries leaf tufts near the top —
   // that is what makes both the stalk and its long shadow read as a plant.
   {
-    const geo = new THREE.CylinderGeometry(0.07, 0.10, 11, 5, 1, true);
+    const geo = new THREE.CylinderGeometry(0.09, 0.12, 11, 4, 1);
+    geo.rotateY(Math.PI / 4);
     geo.translate(0, 5.5, 0);
     const mat = toon(0.34, { side: THREE.DoubleSide });
     addSway(mat, timeUniform, 0.9);
@@ -70,7 +71,7 @@ export function buildWorld(scene, timeUniform) {
     const leafMat = toon(0.30);
     addSway(leafMat, timeUniform, 1.1);
     const leaf = (r, h, y, ox, rotY) => {
-      const c = new THREE.ConeGeometry(r, h, 5);
+      const c = new THREE.ConeGeometry(r, h, 4);
       c.scale(1, 0.42, 1);
       c.rotateY(rotY);
       c.translate(ox, y, 0);
@@ -96,16 +97,18 @@ export function buildWorld(scene, timeUniform) {
   // flat irregular bough-pads, offset asymmetrically around the trunk. From
   // above they overlap into a broken silhouette instead of a target.
   {
-    const trunk = new THREE.CylinderGeometry(0.22, 0.38, 5.2, 6);
+    const trunk = new THREE.CylinderGeometry(0.26, 0.42, 5.2, 4);
+    trunk.rotateY(Math.PI / 4);
     trunk.translate(0, 2.6, 0);
     // A stub of trunk continuing into the canopy keeps distant trees from
     // reading as floating caps once fog eats the thin lower trunk.
-    const upper = new THREE.CylinderGeometry(0.13, 0.2, 2.6, 5);
+    const upper = new THREE.CylinderGeometry(0.15, 0.22, 2.6, 4);
+    upper.rotateY(Math.PI / 4);
     upper.translate(0.1, 6.2, 0);
 
     const pad = (r, y, ox, oz, rotY) => {
-      const p = new THREE.IcosahedronGeometry(r, 0);
-      p.scale(1, 0.28, 1);
+      // A flat slab per bough — blocky pine tiers, offset like brush pads.
+      const p = new THREE.BoxGeometry(r * 1.9, r * 0.42, r * 1.9);
       p.rotateY(rotY);
       p.translate(ox, y, oz);
       return p;
@@ -151,7 +154,7 @@ export function buildWorld(scene, timeUniform) {
 
   // Rocks.
   {
-    const geo = new THREE.IcosahedronGeometry(1, 0);
+    const geo = new THREE.BoxGeometry(1.7, 1.1, 1.7);
     scatters.push(new Scatter(group, [{ geo, mat: toon(0.26) }], 42, 68, rnd, {
       minDist: 6,
       scale: () => [0.4 + rnd() * 1.5, 0.25 + rnd() * 0.7, 0.4 + rnd() * 1.5],
@@ -293,23 +296,25 @@ class Scatter {
 // base is what keeps it reading as a plant rather than stray hairs.
 function makeGrassAlpha() {
   const c = document.createElement('canvas');
-  const S = 96;
+  // Low-res on purpose: with nearest filtering the blade edges land as hard
+  // pixel steps, which is the grass equivalent of the blocky geometry.
+  const S = 24;
   c.width = c.height = S;
   const ctx = c.getContext('2d');
   const rnd = rng(4);
   ctx.clearRect(0, 0, S, S);
   ctx.fillStyle = '#fff';
   const rootX = S / 2, rootY = S;
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 7; i++) {
     // Spread across the fan, denser in the middle, arcing outward.
-    const t = (i + 0.5) / 13;
+    const t = (i + 0.5) / 7;
     const spread = (t - 0.5) * 2;                       // -1..1 across the fan
     const h = (0.45 + rnd() * 0.5) * S * (1 - Math.abs(spread) * 0.35);
-    const tipX = rootX + spread * S * 0.52 + (rnd() - 0.5) * 8;
+    const tipX = rootX + spread * S * 0.52 + (rnd() - 0.5) * 2;
     const tipY = rootY - h;
     const ctrlX = rootX + spread * S * 0.18;
     const ctrlY = rootY - h * 0.55;
-    const w = 2.2 + rnd() * 2.4;                        // base width of blade
+    const w = 1.2 + rnd() * 1.1;                        // base width of blade
     ctx.beginPath();
     ctx.moveTo(rootX - w, rootY);
     ctx.quadraticCurveTo(ctrlX - w * 0.5, ctrlY, tipX, tipY);
@@ -319,6 +324,9 @@ function makeGrassAlpha() {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
   return tex;
 }
 

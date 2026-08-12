@@ -40,10 +40,26 @@ const app = document.getElementById('app');
 const film = new FilmRenderer(app);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05050a);
-scene.fog = new THREE.FogExp2(0x0a0a10, 0.0105);
+// Linear fog suits the orthographic camera: view depth barely varies with an
+// ortho projection, so exponential fog just dims the whole frame uniformly.
+// A near/far band instead fades the rim of the visible ground into dark.
+scene.fog = new THREE.Fog(0x0a0a10, 88, 150);
 
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 400);
-camera.position.set(0, 16, 20);
+// Isometric: a fixed diagonal viewpoint, orthographic so nothing changes size
+// with distance. Azimuth 45 puts world edges on screen diagonals — with the
+// blocky art every box shows two faces plus a top, which is the whole look.
+const ISO_AZIMUTH = Math.PI / 4;
+const ISO_ELEVATION = 0.72;          // ~41 degrees; higher reads clearer, lower more dramatic
+const ISO_DISTANCE = 80;
+const VIEW_HALF = 9.5;               // world units from screen centre to top edge
+const ISO_OFFSET = new THREE.Vector3(
+  Math.sin(ISO_AZIMUTH) * Math.cos(ISO_ELEVATION),
+  Math.sin(ISO_ELEVATION),
+  Math.cos(ISO_AZIMUTH) * Math.cos(ISO_ELEVATION),
+).multiplyScalar(ISO_DISTANCE);
+
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
+camera.position.copy(ISO_OFFSET);
 
 const timeUniform = { value: 0 };
 const world = buildWorld(scene, timeUniform);
@@ -61,7 +77,7 @@ const audio = new Audio();
 // Lighting: one hard key for shape, a dim fill so blacks aren't dead, and a
 // back light to separate figures from the ground.
 const key = new THREE.DirectionalLight(0xffffff, 1.5);
-key.position.set(26, 40, 18);
+key.position.set(-24, 38, 24);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.left = -46; key.shadow.camera.right = 46;
@@ -72,7 +88,7 @@ key.shadow.normalBias = 0.02;
 scene.add(key, key.target);
 scene.add(new THREE.HemisphereLight(0x9fb0c8, 0x0a0a10, 0.30));
 const back = new THREE.DirectionalLight(0xffffff, 0.5);
-back.position.set(-22, 14, -26);
+back.position.set(26, 14, -20);
 scene.add(back);
 
 // -------------------------------------------------------------------- state
@@ -412,6 +428,14 @@ function updatePlayer(dt) {
   else state.comboIndex = 0;
 
   const moving = input.moveVector(vMove);
+  // Rotate raw WASD into the isometric frame: W is up-screen, which under a
+  // 45-degree camera is the world diagonal, not the world -Z axis.
+  if (moving) {
+    const mx = vMove.x, mz = vMove.z;
+    const s = Math.sin(ISO_AZIMUTH), c = Math.cos(ISO_AZIMUTH);
+    vMove.x = mx * c + mz * s;
+    vMove.z = mz * c - mx * s;
+  }
 
   // ---- action transitions
   if (state.action === 'idle') {
@@ -880,12 +904,14 @@ function updateCamera(dt) {
 
   camTarget.set(p.x + vTmp2.x, 1.2, p.z + vTmp2.z);
 
-  // Pull back when the arena is crowded so the fight stays readable.
+  // Crowded fights zoom out instead of pulling back — with an orthographic
+  // camera, distance changes nothing; only the frustum (via zoom) does.
   const pressure = Math.min(1, enemies.length / 12);
-  const dist = 18.5 + pressure * 5;
-  const height = 13 + pressure * 3.0;
+  const wantZoom = 1 / (1 + pressure * 0.28);
+  camera.zoom += (wantZoom - camera.zoom) * (1 - Math.exp(-3 * dt));
+  camera.updateProjectionMatrix();
 
-  vTmp.set(camTarget.x, height, camTarget.z + dist);
+  vTmp.copy(camTarget).add(ISO_OFFSET);
   camera.position.lerp(vTmp, 1 - Math.exp(-5 * dt));
 
   shakeAmount *= Math.exp(-6 * dt);
@@ -901,8 +927,11 @@ function updateCamera(dt) {
   camera.position.add(camPunch);
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
 
-  // Keep the shadow frustum on the action.
-  key.position.set(p.x + 26, 40, p.z + 18);
+  // Keep the shadow frustum on the action. The light hangs off the camera's
+  // LEFT shoulder: lit from behind the camera, every shadow falls directly
+  // behind its caster and the frame goes flat — from the side, shadows rake
+  // visibly across the paper.
+  key.position.set(p.x - 24, 38, p.z + 24);
   key.target.position.set(p.x, 0, p.z);
   key.target.updateMatrixWorld();
 }
@@ -964,7 +993,11 @@ let sizedW = 0, sizedH = 0;
 function onResize() {
   const { w, h } = film.resize();
   sizedW = w; sizedH = h;
-  camera.aspect = w / h;
+  const aspect = w / h;
+  camera.left = -VIEW_HALF * aspect;
+  camera.right = VIEW_HALF * aspect;
+  camera.top = VIEW_HALF;
+  camera.bottom = -VIEW_HALF;
   camera.updateProjectionMatrix();
   ink.resizeScreen();
   applyLetterbox(2.39);

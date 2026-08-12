@@ -71,6 +71,12 @@ ink reads at any distance and the frame gets its Kurosawa contrast for free.
   outlines. In monochrome the silhouette carries everything, so enemy types
   differ by outline (straw kasa, horned mask, height) rather than by colour.
   The player is deliberately the lightest figure on the field.
+- **Isometric & blocky** — a fixed 45° orthographic camera, and every figure
+  and plant cut from square stock: box limbs, tapered square columns (4-sided
+  cylinders turned 45°), pyramid hats, slab pine boughs, pixel-art grass
+  tufts. The organic ink on rigid blocks is the contrast the look leans on.
+  The key light hangs off the camera's left shoulder — lit from behind the
+  camera, every shadow hides behind its caster and the frame goes flat.
 - **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
   play in. The HUD lives inside the black bars, which keeps it legible no
   matter how bright the paper gets.

@@ -89,6 +89,14 @@ const box = (w, h, d) => cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w
 const cyl = (rt, rb, h, s, open = false) =>
   cached(`c${rt},${rb},${h},${s},${open}`, () => new THREE.CylinderGeometry(rt, rb, h, s, 1, open));
 const cone = (r, h, s) => cached(`n${r},${h},${s}`, () => new THREE.ConeGeometry(r, h, s));
+// Square column, optionally tapered: a 4-sided cylinder turned 45 degrees so
+// its faces are axis-aligned. Radius is bumped so the face width matches the
+// round primitive it replaces. This is the "blocky" workhorse.
+const sq = (rt, rb, h) => cached(`s${rt},${rb},${h}`, () => {
+  const g = new THREE.CylinderGeometry(rt * 1.18, rb * 1.18, h, 4, 1);
+  g.rotateY(Math.PI / 4);
+  return g;
+});
 
 function part(geo, value, opts) {
   const m = new THREE.Mesh(geo, toon(value, opts));
@@ -115,7 +123,7 @@ function makeKatana(len = 1.15, dark = false) {
   tip.rotation.y = Math.PI * 0.25;
   tip.scale.set(1, 1, 0.55);
   tip.position.y = len + 0.2;
-  const tsuba = part(cyl(0.11, 0.11, 0.035, 8), 0.10);
+  const tsuba = part(box(0.24, 0.035, 0.17), 0.10);
   tsuba.position.y = 0.10;
   const tsuka = part(box(0.062, 0.30, 0.085), 0.06);
   tsuka.position.y = -0.06;
@@ -141,15 +149,15 @@ export function makeSamurai() {
   shoulders.position.y = 0.60;
   hips.add(shoulders);
 
-  const hakama = part(cyl(0.34, 0.62, 0.92, 8), 0.14);
+  const hakama = part(sq(0.34, 0.62, 0.92), 0.14);
   hakama.position.y = -0.44;
   hips.add(hakama);
 
-  const obi = part(cyl(0.36, 0.36, 0.13, 8), 0.03);
+  const obi = part(sq(0.36, 0.36, 0.13), 0.03);
   obi.position.y = 0.0;
   hips.add(obi);
 
-  const neck = part(cyl(0.1, 0.1, 0.12, 6), 0.55);
+  const neck = part(box(0.16, 0.12, 0.16), 0.55);
   neck.position.y = 0.74;
   hips.add(neck);
 
@@ -161,7 +169,7 @@ export function makeSamurai() {
   const hair = part(box(0.33, 0.2, 0.33), 0.04);
   hair.position.y = 0.11;
   head.add(hair);
-  const knot = part(cyl(0.045, 0.06, 0.16, 6), 0.04);
+  const knot = part(box(0.09, 0.16, 0.09), 0.04);
   knot.position.set(0, 0.2, -0.09);
   knot.rotation.x = -0.5;
   head.add(knot);
@@ -236,7 +244,7 @@ export function makeEnemy(type) {
   shoulders.position.y = 0.56;
   hips.add(shoulders);
 
-  const skirt = part(cyl(0.32, 0.54, 0.8, 7), 0.08);
+  const skirt = part(sq(0.32, 0.54, 0.8), 0.08);
   skirt.position.y = -0.40;
   hips.add(skirt);
 
@@ -248,12 +256,12 @@ export function makeEnemy(type) {
 
   if (spec.hat) {
     // Kasa: a wide cone that hides the face entirely.
-    const hat = part(cone(0.46, 0.26, 10), 0.78);
+    const hat = part(cone(0.52, 0.26, 4), 0.78);
     hat.position.y = 0.2;
     head.add(hat);
   } else if (spec.mask) {
     const horns = new THREE.Group();
-    const hornL = part(cone(0.055, 0.34, 5), 0.88);
+    const hornL = part(cone(0.06, 0.34, 4), 0.88);
     hornL.position.set(-0.11, 0.28, 0);
     hornL.rotation.z = -0.42;
     const hornR = hornL.clone();
