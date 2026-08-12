@@ -1,4 +1,4 @@
-# 侍 — INK AND STEEL
+# SAMURAI — THE PAGE REMEMBERS
 
 A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
 every wound bleeds into the arena like ink soaking into paper.
@@ -48,11 +48,19 @@ build command stays empty and output directory is `/`.
 | `Shift` | Dash (invulnerable) |
 | `Space` | Parry — time it against the enemy's white blade |
 | `F` | Iai draw, once focus is full |
+| `1` / `2` / `3` | Choose a discipline between waves |
 
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
 meter buys one iai draw, which flash-steps forward and cuts down everything in
 a corridor ahead.
+
+Perfect parries and kills build **Flow**. Flow breaks when the player takes a
+hit or goes too long without another success; higher Flow increases focus gain
+and pushes the film contrast harder. After each cleared wave, three discipline
+scrolls pause the fight and offer a run upgrade: parry timing, dash damage,
+combo-finisher damage, focus retention, or iai reach. Each discipline has three
+ranks; selecting a mastered discipline restores life and focus instead.
 
 ## The look
 
@@ -167,6 +175,16 @@ legacy/           the original single-file prototype, kept for reference
 - **Fixed camera yaw.** Aim drives the character, not the camera, with only a
   small look-ahead bias. A camera that chases the cursor while the cursor is
   measured against the camera feeds back on itself and spins.
+- **Player ownership.** The samurai carries a bright war sash, white blade,
+  kabuto crest, and broad shoulder armor. Enemies keep compact dark silhouettes
+  and grey blades; their steel turns white only during an attack warning.
+- **Combo grammar.** Each cut has its own readable stroke: a broad opening
+  crescent, a fast reverse whip, and a heavy diagonal execution mark. Their
+  swing pitch, contact weight, camera kick, and hit-stop rise with the combo.
+- **Sharp film sampling.** The film target stays at full device resolution and
+  uses resolved nearest sampling. Gate weave moves by complete pixels, so the
+  print can move without smearing voxel edges; halation stays limited to hot
+  highlights.
 - **Rain** is held back for boss waves, where white streaks over a dark field
   are the single most recognisable image in the genre.
 

@@ -39,7 +39,17 @@ const FRAG = /* glsl */`
   }
 `;
 
-function arcGeometry(segments, radius, width, sweep) {
+function arcGeometry(segments, radius, width, sweep, profile = {}) {
+  const {
+    bowAmount = 0.16,
+    curlAmount = 0.22,
+    baseY = 0.5,
+    arch = 0.6,
+    rise = 0.62,
+    edgeLift = 0.42,
+    swellPeak = 1.1,
+    whipAmount = 0.6,
+  } = profile;
   const g = new THREE.BufferGeometry();
   const pos = new Float32Array((segments + 1) * 2 * 3);
   const uv = new Float32Array((segments + 1) * 2 * 2);
@@ -50,25 +60,59 @@ function arcGeometry(segments, radius, width, sweep) {
 
     // Calligraphic radius: the stroke bows outward mid-sweep and pulls in
     // through the final fifth — the wrist turning over at the end of a cut.
-    const bow = 1 + 0.16 * Math.sin(t * Math.PI);
-    const curl = 1 - 0.22 * Math.pow(Math.max(0, (t - 0.78) / 0.22), 1.6);
+    const bow = 1 + bowAmount * Math.sin(t * Math.PI);
+    const curl = 1 - curlAmount * Math.pow(Math.max(0, (t - 0.78) / 0.22), 1.6);
     const r = radius * bow * curl;
 
     // The cut rises as it travels — kesagiri runs high-to-low on the victim,
     // which from the attacker's arc is a climbing diagonal.
-    const y = 0.5 + Math.sin(t * Math.PI) * 0.6 + t * 0.62;
+    const y = baseY + Math.sin(t * Math.PI) * arch + t * rise;
 
     // Width: lands thin, swells just before the middle, then a long whip to
     // nothing. The long thin end is what makes it flowy instead of stubby.
-    const swell = Math.pow(Math.sin(Math.min(1, t * 1.1) * Math.PI), 0.8);
-    const whip = 1 - 0.6 * Math.pow(Math.max(0, (t - 0.55) / 0.45), 1.3);
+    const swell = Math.pow(Math.sin(Math.min(1, t * swellPeak) * Math.PI), 0.8);
+    const whip = 1 - whipAmount * Math.pow(Math.max(0, (t - 0.55) / 0.45), 1.3);
     const w = width * (0.1 + 0.9 * swell * whip);
 
     const dirX = Math.sin(a), dirZ = Math.cos(a);
     const r0 = r - w * 0.5, r1 = r + w * 0.5;
     const o = i * 6;
     pos[o] = dirX * r0; pos[o + 1] = y; pos[o + 2] = dirZ * r0;
-    pos[o + 3] = dirX * r1; pos[o + 4] = y + 0.42 * swell; pos[o + 5] = dirZ * r1;
+    pos[o + 3] = dirX * r1; pos[o + 4] = y + edgeLift * swell; pos[o + 5] = dirZ * r1;
+    const u = i * 4;
+    uv[u] = t; uv[u + 1] = 0;
+    uv[u + 2] = t; uv[u + 3] = 1;
+    if (i < segments) {
+      const v = i * 2;
+      idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
+    }
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+// The third cut is not another radial arc. It is a nearly straight execution
+// stroke driven forward through the target, with a heavy belly and broken tip.
+function cleaveGeometry(segments, length, width) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array((segments + 1) * 2 * 3);
+  const uv = new Float32Array((segments + 1) * 2 * 2);
+  const idx = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    // A diagonal drive retains screen width even when the player cuts toward
+    // the camera. A purely forward ribbon collapses into a round blob there.
+    const z = -0.40 + length * t * 0.78;
+    const x = length * (-0.30 + t * 0.60) + Math.sin(t * Math.PI) * 0.18;
+    const y = 2.35 - t * 1.92 + Math.sin(t * Math.PI) * 0.24;
+    const belly = Math.pow(Math.sin(Math.min(1, t * 1.08) * Math.PI), 0.72);
+    const taper = 1 - 0.76 * Math.pow(Math.max(0, (t - 0.64) / 0.36), 1.2);
+    const w = width * (0.08 + 0.92 * belly * taper);
+    const o = i * 6;
+    pos[o] = x - w * 0.5; pos[o + 1] = y; pos[o + 2] = z;
+    pos[o + 3] = x + w * 0.5; pos[o + 4] = y + 0.10 * belly; pos[o + 5] = z;
     const u = i * 4;
     uv[u] = t; uv[u + 1] = 0;
     uv[u + 2] = t; uv[u + 3] = 1;
@@ -101,7 +145,24 @@ export class SlashTrail {
       side: THREE.DoubleSide,
     });
 
-    const geo = arcGeometry(48, radius, width, sweep);
+    this.geometries = [
+      // Opening draw: broad and balanced.
+      arcGeometry(48, radius, width, sweep),
+      // Return cut: longer, lower, and much thinner at the lifting tip.
+      arcGeometry(52, radius * 1.08, width * 0.72, sweep * 1.13, {
+        bowAmount: 0.10,
+        curlAmount: 0.32,
+        baseY: 0.34,
+        arch: 0.42,
+        rise: 0.30,
+        edgeLift: 0.25,
+        swellPeak: 1.22,
+        whipAmount: 0.76,
+      }),
+      // Execution cut: a forward calligraphic stroke.
+      cleaveGeometry(44, radius * 2.02, width * 1.34),
+    ];
+    const geo = this.geometries[0];
     this.mat = makeMat(color);
     this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.frustumCulled = false;
@@ -121,18 +182,25 @@ export class SlashTrail {
     this.t = 0;
     this.duration = 0.34;
     this.active = false;
+    this.style = 0;
   }
 
   // `mirror` flips the sweep so a combo alternates shoulders.
-  fire(position, yaw, { mirror = false, duration = 0.34, scale = 1 } = {}) {
+  fire(position, yaw, { mirror = false, duration = 0.34, scale = 1, style = 0 } = {}) {
+    this.style = Math.max(0, Math.min(2, style | 0));
+    this.mesh.geometry = this.echo.geometry = this.geometries[this.style];
     for (const m of [this.mesh, this.echo]) {
       m.position.copy(position);
       m.rotation.set(0, yaw, 0);
       m.visible = true;
     }
-    this.mesh.scale.set(mirror ? -scale : scale, mirror ? scale * 0.9 : scale, scale);
+    const verticalScale = this.style === 1 ? 0.86 : 1;
+    this.mesh.scale.set(mirror ? -scale : scale, scale * verticalScale, scale);
     this.echo.scale.copy(this.mesh.scale).multiplyScalar(0.94);
-    this.echo.scale.y *= 1.06;
+    this.echo.scale.y *= this.style === 2 ? 1.02 : 1.06;
+    if (this.style === 1) this.echo.rotateY(mirror ? 0.055 : -0.055);
+    if (this.style === 2) this.echo.translateX(0.16 * scale);
+    this.echoMat.uniforms.uColor.value.setHex(this.style === 2 ? 0x55555f : this.style === 1 ? 0x303038 : 0x191920);
     this.baseY = position.y;
     this.duration = duration;
     this.t = 0;
@@ -151,18 +219,20 @@ export class SlashTrail {
     // Head races out; tail chases and catches up as the stroke dries. The
     // tail starts later and moves softer than before — the stroke lingers,
     // which is most of what "flowy" means at this timescale.
-    const head = Math.min(1, Math.pow(k, 0.5) * 1.3);
-    const tail = Math.max(0, Math.pow(Math.max(0, k - 0.45) / 0.55, 1.25));
-    const op = 1 - Math.pow(k, 2.4);
+    const headPower = this.style === 1 ? 0.42 : this.style === 2 ? 0.34 : 0.5;
+    const head = Math.min(1, Math.pow(k, headPower) * (this.style === 2 ? 1.45 : 1.3));
+    const tailStart = this.style === 2 ? 0.58 : this.style === 1 ? 0.38 : 0.45;
+    const tail = Math.max(0, Math.pow(Math.max(0, k - tailStart) / (1 - tailStart), this.style === 1 ? 1.05 : 1.25));
+    const op = 1 - Math.pow(k, this.style === 2 ? 3.1 : 2.4);
     this.mat.uniforms.uHead.value = head;
     this.mat.uniforms.uTail.value = tail;
     this.mat.uniforms.uOpacity.value = op;
     // Echo lags a tenth behind and stays fainter.
-    this.echoMat.uniforms.uHead.value = Math.max(0, head - 0.1);
+    this.echoMat.uniforms.uHead.value = Math.max(0, head - (this.style === 1 ? 0.16 : 0.1));
     this.echoMat.uniforms.uTail.value = tail * 0.9;
-    this.echoMat.uniforms.uOpacity.value = op * 0.38;
+    this.echoMat.uniforms.uOpacity.value = op * (this.style === 2 ? 0.52 : 0.38);
     // The drying stroke lifts off the page a little, like ink losing its grip.
-    const lift = Math.pow(k, 2) * 0.3;
+    const lift = Math.pow(k, 2) * (this.style === 2 ? 0.12 : 0.3);
     this.mesh.position.y = this.baseY + lift;
     this.echo.position.y = this.baseY + lift * 1.4;
   }

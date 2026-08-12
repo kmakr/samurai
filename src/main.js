@@ -35,6 +35,7 @@ const PARRY_RECOVER = 0.26;
 const PARRY_COOLDOWN = 0.5;
 
 const FOCUS_MAX = 100;
+const FLOW_WINDOW = 5.5;
 
 // ------------------------------------------------------------------- setup
 
@@ -126,6 +127,19 @@ const state = {
   invuln: 0,
   waveBreak: 0,
   slots: 2,
+  chain: 0,
+  chainTimer: 0,
+  bestChain: 0,
+  pendingUpgrade: false,
+  choosingUpgrade: false,
+  upgrades: {
+    steelMind: 0,
+    bloodWind: 0,
+    finalStroke: 0,
+    stillWater: 0,
+    longShadow: 0,
+  },
+  dashHit: new Set(),
 };
 
 let enemies = [];
@@ -174,6 +188,97 @@ function hitstop(duration, scale = 0.08) {
 
 let whiteFlash = 0;
 function flash(v) { whiteFlash = Math.max(whiteFlash, v); }
+
+const combatCalloutEl = document.getElementById('combatCallout');
+function showCombatCallout(mark, meaning) {
+  combatCalloutEl.querySelector('.mark').textContent = mark;
+  combatCalloutEl.querySelector('.meaning').textContent = meaning;
+  combatCalloutEl.classList.remove('show');
+  void combatCalloutEl.offsetWidth;
+  combatCalloutEl.classList.add('show');
+}
+
+function makeBrushRing() {
+  const segments = 40;
+  const pos = [];
+  for (let i = 0; i < segments; i++) {
+    const a0 = i / segments * Math.PI * 2;
+    const a1 = (i + 1) / segments * Math.PI * 2;
+    const wob0 = Math.sin(i * 4.7) * 0.035 + Math.sin(i * 1.9) * 0.025;
+    const wob1 = Math.sin((i + 1) * 4.7) * 0.035 + Math.sin((i + 1) * 1.9) * 0.025;
+    const outer0 = 1 + wob0, outer1 = 1 + wob1;
+    const inner0 = 0.76 + wob0 * 0.45, inner1 = 0.76 + wob1 * 0.45;
+    const p = (a, r) => [Math.cos(a) * r, Math.sin(a) * r, 0];
+    pos.push(...p(a0, inner0), ...p(a0, outer0), ...p(a1, outer1));
+    pos.push(...p(a0, inner0), ...p(a1, outer1), ...p(a1, inner1));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return geo;
+}
+
+const parryRingGeo = makeBrushRing();
+const parryRings = [];
+function spawnParryRing(position) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(parryRingGeo, mat);
+  mesh.name = 'parry-ring';
+  mesh.position.copy(position);
+  mesh.quaternion.copy(camera.quaternion);
+  mesh.renderOrder = 8;
+  scene.add(mesh);
+  parryRings.push({ mesh, age: 0, life: 0.42 });
+}
+
+function updateParryRings(dt) {
+  for (let i = parryRings.length - 1; i >= 0; i--) {
+    const r = parryRings[i];
+    r.age += dt;
+    const k = Math.min(1, r.age / r.life);
+    r.mesh.scale.setScalar(0.7 + k * 3.8);
+    r.mesh.material.opacity = (1 - k) ** 1.7;
+    r.mesh.quaternion.copy(camera.quaternion);
+    if (k >= 1) {
+      scene.remove(r.mesh);
+      r.mesh.material.dispose();
+      parryRings.splice(i, 1);
+    }
+  }
+}
+
+function flowMultiplier() {
+  return 1 + Math.min(0.5, Math.floor(state.chain / 4) * 0.1);
+}
+
+function addFlow(amount = 1) {
+  state.chain += amount;
+  state.chainTimer = FLOW_WINDOW;
+  state.bestChain = Math.max(state.bestChain, state.chain);
+  if (state.chain === 5 || state.chain === 10 || state.chain === 20) {
+    showCombatCallout('FLOW', `CHAIN ${state.chain}`);
+    audio.taiko(105 + state.chain * 2, 0.32);
+  }
+  updateHUD();
+}
+
+function breakFlow() {
+  state.chain = 0;
+  state.chainTimer = 0;
+  updateHUD();
+}
+
+function updateFlow(dt) {
+  if (state.chain <= 0) return;
+  state.chainTimer -= dt;
+  if (state.chainTimer <= 0) breakFlow();
+}
 
 // -------------------------------------------------------------------- waves
 
@@ -254,6 +359,106 @@ function numberKanji(n) {
   return `${d[Math.floor(n / 10)]}十${n % 10 ? d[n % 10] : ''}`;
 }
 
+const UPGRADE_DEFS = [
+  {
+    id: 'steelMind', mark: 'MIND', name: 'STEEL MIND',
+    describe: (level) => `Perfect-parry timing gains ${level * 35} ms.`,
+  },
+  {
+    id: 'bloodWind', mark: 'WIND', name: 'BLOOD WIND',
+    describe: (level) => `Your dash cuts for ${16 + level * 12} damage.`,
+  },
+  {
+    id: 'finalStroke', mark: 'EDGE', name: 'FINAL STROKE',
+    describe: (level) => `The third cut deals ${level * 25}% more damage.`,
+  },
+  {
+    id: 'stillWater', mark: 'CALM', name: 'STILL WATER',
+    describe: (level) => `Taking a hit removes ${Math.max(0, 18 - level * 6)} focus.`,
+  },
+  {
+    id: 'longShadow', mark: 'REACH', name: 'LONG SHADOW',
+    describe: (level) => `Iai reaches ${level * 6} units farther and ${level * 0.6} wider.`,
+  },
+];
+
+const upgradeOverlayEl = document.getElementById('upgradeOverlay');
+const upgradeChoicesEl = document.getElementById('upgradeChoices');
+let offeredUpgrades = [];
+
+function chooseUpgradeSet() {
+  const available = UPGRADE_DEFS.filter((u) => state.upgrades[u.id] < 3);
+  const mastered = UPGRADE_DEFS.filter((u) => state.upgrades[u.id] >= 3);
+  const shuffle = (items) => {
+    const shuffled = [...items];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+  return [...shuffle(available), ...shuffle(mastered)].slice(0, 3);
+}
+
+function showUpgradeChoice() {
+  state.choosingUpgrade = true;
+  input.enabled = false;
+  offeredUpgrades = chooseUpgradeSet();
+  upgradeChoicesEl.replaceChildren();
+
+  offeredUpgrades.forEach((upgrade, index) => {
+    const current = state.upgrades[upgrade.id];
+    const next = Math.min(3, current + 1);
+    const mastered = current >= 3;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'scroll';
+    button.innerHTML = `
+      <span class="key">${index + 1}</span>
+      <span class="sigil">${upgrade.mark}</span>
+      <span class="name">${upgrade.name}</span>
+      <span class="level">${mastered ? 'MASTERED' : current ? `RANK ${current} → ${next}` : 'NEW DISCIPLINE'}</span>
+      <span class="desc">${mastered ? 'Restore 20 life and 20 focus.' : upgrade.describe(next)}</span>
+    `;
+    button.addEventListener('click', () => takeUpgrade(upgrade));
+    upgradeChoicesEl.append(button);
+  });
+
+  upgradeOverlayEl.classList.remove('hidden');
+  upgradeOverlayEl.setAttribute('aria-hidden', 'false');
+  setTimeout(() => upgradeChoicesEl.querySelector('button')?.focus(), 50);
+}
+
+function takeUpgrade(upgrade) {
+  if (!state.choosingUpgrade) return;
+  if (state.upgrades[upgrade.id] >= 3) {
+    state.hp = Math.min(PLAYER_MAX_HP, state.hp + 20);
+    state.focus = Math.min(FOCUS_MAX, state.focus + 20);
+  } else {
+    state.upgrades[upgrade.id]++;
+  }
+  state.choosingUpgrade = false;
+  state.pendingUpgrade = false;
+  state.waveBreak = 1.1;
+  input.enabled = true;
+  upgradeOverlayEl.classList.add('hidden');
+  upgradeOverlayEl.setAttribute('aria-hidden', 'true');
+  document.activeElement?.blur();
+  showCombatCallout(upgrade.name, 'DISCIPLINE LEARNED');
+  audio.taiko(92, 0.42);
+  updateHUD();
+}
+
+addEventListener('keydown', (event) => {
+  if (!state.choosingUpgrade) return;
+  const index = Number(event.key) - 1;
+  if (index >= 0 && index < offeredUpgrades.length) takeUpgrade(offeredUpgrades[index]);
+});
+
+function parryDuration() {
+  return PARRY_ACTIVE + state.upgrades.steelMind * 0.035;
+}
+
 // ------------------------------------------------------------------- combat
 
 function playerAttackHits() {
@@ -285,19 +490,29 @@ function playerAttackHits() {
     let cx = (dx / (dist || 1)) * 0.35 + tangX * (1 - overhead) + fx * (0.3 + overhead);
     let cz = (dz / (dist || 1)) * 0.35 + tangZ * (1 - overhead) + fz * (0.3 + overhead);
     const cl = Math.hypot(cx, cz) || 1;
-    damageEnemy(e, cfg.damage, cx / cl, cz / cl,
+    const finisherScale = state.comboIndex === 2
+      ? 1 + state.upgrades.finalStroke * 0.25
+      : 1;
+    damageEnemy(e, cfg.damage * finisherScale, cx / cl, cz / cl,
       state.comboIndex === 2 ? 'bisect' : 'limb');
   }
 
   if (hitAny) {
-    hitstop(state.comboIndex === 2 ? 0.12 : 0.06, 0.06);
-    shake(state.comboIndex === 2 ? 0.7 : 0.35);
+    const impactStop = [0.055, 0.075, 0.13][state.comboIndex];
+    const impactShake = [0.30, 0.43, 0.78][state.comboIndex];
+    hitstop(impactStop, state.comboIndex === 2 ? 0.04 : 0.06);
+    shake(impactShake);
     // The camera bites forward along the cut — contact should be felt in the
-    // frame, not just heard.
-    camPunch.x += fx * (0.5 + overhead * 0.4);
-    camPunch.z += fz * (0.5 + overhead * 0.4);
-    camPunch.y -= 0.16;
-    audio.hit();
+    // frame, not just heard. The two arcs kick sideways in opposite directions;
+    // the execution stroke drives straight through and down.
+    camPunch.x += fx * (0.42 + overhead * 0.52) + tangX * (state.comboIndex === 2 ? 0 : 0.20);
+    camPunch.z += fz * (0.42 + overhead * 0.52) + tangZ * (state.comboIndex === 2 ? 0 : 0.20);
+    camPunch.y -= state.comboIndex === 2 ? 0.24 : 0.12;
+    if (state.comboIndex === 2) {
+      flash(0.18);
+      ink.splashScreen(2, 0.34);
+    }
+    audio.hit(state.comboIndex);
   }
 }
 
@@ -341,7 +556,8 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   audio.kill();
 
   state.kills++;
-  state.focus = Math.min(FOCUS_MAX, state.focus + (big ? 20 : 9));
+  addFlow();
+  state.focus = Math.min(FOCUS_MAX, state.focus + (big ? 20 : 9) * flowMultiplier());
 
   // Hand the body to the physics: it keeps the pose it died in, and the blow
   // decides how much of it stays attached.
@@ -355,7 +571,8 @@ function damagePlayer(amount) {
   if (state.invuln > 0 || state.over) return;
   state.hp -= amount;
   state.invuln = 0.55;
-  state.focus = Math.max(0, state.focus - 18);
+  state.focus = Math.max(0, state.focus - Math.max(0, 18 - state.upgrades.stillWater * 6));
+  breakFlow();
   const p = player.root.position;
   ink.spray(p.x, 1.2, p.z, 10, { force: 1.0 });
   ink.pool(p.x, p.z, 0.35);
@@ -380,6 +597,26 @@ function requestSlot(e) {
 }
 function releaseSlot(e) { e.hasSlot = false; }
 
+function playerDashHits() {
+  const level = state.upgrades.bloodWind;
+  if (level <= 0) return;
+  const p = player.root.position;
+  const dir = state.dashDir;
+  for (const e of [...enemies]) {
+    if (e.dead || state.dashHit.has(e)) continue;
+    const ep = e.actor.root.position;
+    const radius = 0.9 + e.spec.height * 0.45;
+    const dx = ep.x - p.x, dz = ep.z - p.z;
+    if (dx * dx + dz * dz > radius * radius) continue;
+    state.dashHit.add(e);
+    damageEnemy(e, 16 + level * 12, dir.x, dir.z, 'limb');
+    ink.flick(ep.x, ep.z, dir.x, dir.z, 0.45);
+    hitstop(0.035, 0.18);
+    shake(0.22);
+    audio.hit();
+  }
+}
+
 // ---------------------------------------------------------------------- iai
 
 let iaiT = 0;
@@ -395,6 +632,8 @@ function tryIai() {
 
   const fx = Math.sin(state.facing), fz = Math.cos(state.facing);
   const px = player.root.position.x, pz = player.root.position.z;
+  const reach = 30 + state.upgrades.longShadow * 6;
+  const width = 4.2 + state.upgrades.longShadow * 0.6;
 
   // Everything in a long corridor ahead is cut down at once.
   for (const e of [...enemies]) {
@@ -402,7 +641,7 @@ function tryIai() {
     const dz = e.actor.root.position.z - pz;
     const along = dx * fx + dz * fz;
     const across = Math.abs(dx * fz - dz * fx);
-    if (along > -1 && along < 30 && across < 4.2) {
+    if (along > -1 && along < reach && across < width) {
       damageEnemy(e, 9999, fx, fz, 'bisect');
     }
   }
@@ -447,12 +686,13 @@ function updatePlayer(dt) {
     else if (input.take('parry') && state.parryCooldown <= 0) {
       state.action = 'parry';
       state.actionT = 0;
-      state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + PARRY_ACTIVE + PARRY_RECOVER;
+      state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + parryDuration() + PARRY_RECOVER;
     } else if (input.take('dash') && state.dashCooldown <= 0) {
       state.action = 'dash';
       state.actionT = 0;
       state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
       state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
+      state.dashHit.clear();
       audio.dash();
     } else if (input.take('attack')) {
       beginAttack();
@@ -468,6 +708,7 @@ function updatePlayer(dt) {
       state.actionT = 0;
       state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
       state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
+      state.dashHit.clear();
       audio.dash();
     }
   }
@@ -481,6 +722,7 @@ function updatePlayer(dt) {
     const s = DASH_SPEED * Math.max(0.25, k * k);
     player.root.position.x += state.dashDir.x * s * dt;
     player.root.position.z += state.dashDir.z * s * dt;
+    playerDashHits();
     // A dash drags ink off the blade across the paper.
     if (Math.random() < 0.6) {
       ink.addStain(
@@ -513,7 +755,7 @@ function updatePlayer(dt) {
   } else if (state.action === 'parry') {
     state.actionT += dt;
     speed = PLAYER_SPEED * 0.15;
-    if (state.actionT >= PARRY_STARTUP + PARRY_ACTIVE + PARRY_RECOVER) {
+    if (state.actionT >= PARRY_STARTUP + parryDuration() + PARRY_RECOVER) {
       state.action = 'idle'; state.actionT = 0;
     }
   } else if (state.action === 'hurt') {
@@ -551,7 +793,7 @@ function beginAttack(chain = false) {
   state.attackPhase = 'windup';
   state.hitThisSwing = new Set();
   state.comboTimer = COMBO_WINDOW;
-  audio.swing();
+  audio.swing(state.comboIndex);
 }
 
 function updateAttack(dt) {
@@ -570,7 +812,8 @@ function updateAttack(dt) {
       trail.fire(vTmp, state.facing, {
         mirror: state.comboIndex === 1,
         duration: cfg.active + cfg.recover * 0.8,
-        scale: state.comboIndex === 2 ? 1.25 : 1,
+        scale: state.comboIndex === 2 ? 1.28 : 1,
+        style: state.comboIndex,
       });
     }
     playerAttackHits();
@@ -637,7 +880,7 @@ function poseArms(dt) {
     }
   } else if (state.action === 'parry') {
     // Blade up, held across the body.
-    const k = THREE.MathUtils.clamp(state.actionT / (PARRY_STARTUP + PARRY_ACTIVE), 0, 1);
+    const k = THREE.MathUtils.clamp(state.actionT / (PARRY_STARTUP + parryDuration()), 0, 1);
     armX = -2.5 * Math.min(1, k * 4);
     armZ = 0.9;
     torsoY = 0.35;
@@ -676,7 +919,7 @@ function poseArms(dt) {
 
 const parryActive = () => state.action === 'parry'
   && state.actionT >= PARRY_STARTUP
-  && state.actionT < PARRY_STARTUP + PARRY_ACTIVE;
+  && state.actionT < PARRY_STARTUP + parryDuration();
 
 // -------------------------------------------------------------- enemy update
 
@@ -830,21 +1073,30 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
   if (dist > reach * 1.35) return;
 
   if (parryActive()) {
-    // Deflection: the whole point of the defensive game.
+    // A perfect read is the defensive game's peak reward. Every layer lands
+    // on the same frame: enemy recoil, blade ring, silence-to-steel audio,
+    // focus, time stop, camera punch, and the calligraphic confirmation.
     e.state = 'stagger';
     e.t = 0;
     e.stagger = 1.0;
     e.cooldown = 1.4;
     releaseSlot(e);
-    state.focus = Math.min(FOCUS_MAX, state.focus + 34);
+    addFlow();
+    state.focus = Math.min(FOCUS_MAX, state.focus + 34 * flowMultiplier());
     const pos = e.actor.root.position;
     ink.spray(pos.x, 1.4 * e.spec.height, pos.z, 6, { dirX: -nx, dirZ: -nz, force: 0.7 });
-    e.actor.root.position.x -= nx * 1.2;
-    e.actor.root.position.z -= nz * 1.2;
-    hitstop(0.13, 0.05);
-    shake(0.6);
-    flash(0.55);
-    audio.parry();
+    e.actor.root.position.x -= nx * 1.8;
+    e.actor.root.position.z -= nz * 1.8;
+    vTmp.set((pos.x + player.root.position.x) * 0.5, 1.25, (pos.z + player.root.position.z) * 0.5);
+    spawnParryRing(vTmp);
+    camPunch.x -= nx * 0.75;
+    camPunch.z -= nz * 0.75;
+    camPunch.y += 0.12;
+    hitstop(0.19, 0.035);
+    shake(0.78);
+    flash(0.82);
+    showCombatCallout('PERFECT', 'PARRY');
+    audio.perfectParry();
     updateHUD();
     return;
   }
@@ -952,12 +1204,16 @@ const hpFillEl = document.getElementById('hpFill');
 const focusFillEl = document.getElementById('focusFill');
 const statsEl = document.getElementById('stats');
 const focusWrapEl = document.getElementById('focusWrap');
+const flowEl = document.getElementById('flow');
 
 function updateHUD() {
   hpFillEl.style.transform = `scaleX(${Math.max(0, state.hp) / PLAYER_MAX_HP})`;
   focusFillEl.style.transform = `scaleX(${state.focus / FOCUS_MAX})`;
   focusWrapEl.classList.toggle('ready', state.focus >= FOCUS_MAX);
-  statsEl.textContent = `斬 ${state.kills}   波 ${state.wave}`;
+  statsEl.textContent = `KILLS ${state.kills} · WAVE ${state.wave}`;
+  flowEl.classList.toggle('active', state.chain > 1);
+  flowEl.querySelector('strong').textContent = `FLOW ×${state.chain}`;
+  flowEl.querySelector('small').textContent = `FLOW · FOCUS ×${flowMultiplier().toFixed(1)}`;
 }
 
 const overlay = document.getElementById('overlay');
@@ -973,15 +1229,16 @@ function gameOver() {
   hitstop(0.5, 0.05);
   audio.setWind(0.12);
   setTimeout(() => {
-    ovTitle.textContent = '死';
-    ovText.innerHTML = `A LIFE ENDS ON THE PAGE<br><b>${state.kills} SLAIN · WAVE ${state.wave}</b>`;
-    ovBtn.textContent = 'AGAIN 再び';
+    ovTitle.textContent = 'DEFEAT';
+    ovText.innerHTML = `A LIFE ENDS ON THE PAGE<br><b>${state.kills} SLAIN · WAVE ${state.wave} · BEST FLOW ${state.bestChain}</b>`;
+    ovBtn.textContent = 'TRY AGAIN';
     overlay.classList.remove('hidden');
     input.enabled = false;
   }, 900);
 }
 
 function beginGame() {
+  if (state.running) return;
   overlay.classList.add('hidden');
   input.enabled = true;
   audio.start();
@@ -1046,14 +1303,21 @@ function step(dt) {
   input.update(dt);
 
   if (state.running) {
-    updatePlayer(sdt);
-    updateEnemies(sdt);
+    if (!state.choosingUpgrade) {
+      updatePlayer(sdt);
+      updateEnemies(sdt);
+      updateFlow(sdt);
 
-    if (state.waveBreak > 0) {
-      state.waveBreak -= sdt;
-      if (state.waveBreak <= 0) startWave();
-    } else if (enemies.length === 0) {
-      state.waveBreak = 3.0;
+      if (state.waveBreak > 0) {
+        state.waveBreak -= sdt;
+        if (state.waveBreak <= 0) {
+          if (state.pendingUpgrade) showUpgradeChoice();
+          else startWave();
+        }
+      } else if (enemies.length === 0) {
+        state.pendingUpgrade = state.wave > 0;
+        state.waveBreak = state.pendingUpgrade ? 1.4 : 1.0;
+      }
     }
   } else if (!state.over) {
     // Idle breathing on the title screen.
@@ -1064,6 +1328,7 @@ function step(dt) {
   iaiTrail.update(sdt);
   trail.update(sdt);
   enemyTrail.update(sdt);
+  updateParryRings(dt);
   ragdolls.update(sdt);
   gibs.update(sdt, ink);
   ink.update(sdt, camera);
@@ -1078,9 +1343,10 @@ function step(dt) {
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
+  const flowK = Math.min(1, state.chain / 15);
   film.uniforms.uGrain.value = 0.05 + hurtK * 0.06;
-  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45;
-  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25;
+  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05;
+  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash;
   film.updateFilm(state.time);
@@ -1101,8 +1367,8 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
-  version: 5,
-  world,
+  version: 9,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
+  trail, enemyTrail, iaiTrail,
   get enemies() { return enemies; },
 };
