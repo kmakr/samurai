@@ -534,7 +534,13 @@ function updatePlayer(dt) {
 
   // ---- pose
   const blend = moving && speed > PLAYER_SPEED * 0.5 ? 1 : 0;
+  const prevPhase = state.phase;
   state.phase += dt * (blend ? 11 : 2.2);
+  // A footfall lands each time the gait swings through half a cycle. Tying it
+  // to the same phase that drives the legs keeps sound and animation in step.
+  if (blend && Math.floor(state.phase / Math.PI) !== Math.floor(prevPhase / Math.PI)) {
+    audio.step();
+  }
   animateLocomotion(player, state.phase, blend, state.time);
   poseArms(dt);
 }
@@ -1063,6 +1069,7 @@ function step(dt) {
   gibs.update(sdt, ink);
   ink.update(sdt, camera);
   world.update(player.root.position);
+  audio.setRustle(world.ambience.rustle);
   dust.update(sdt, camera.position);
 
   const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
@@ -1098,6 +1105,6 @@ requestAnimationFrame(frame);
 window.__samurai = {
   version: 5,
   world,
-  film, scene, camera, state, ink, ragdolls, input, player, step,
+  film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   get enemies() { return enemies; },
 };

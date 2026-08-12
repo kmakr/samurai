@@ -61,6 +61,9 @@ export function buildWorld(scene, timeUniform) {
   // Canopy materials fade when the player stands in a grove: trees never
   // move away (that reads as a bug), the player just sees through foliage.
   const canopies = [];
+  // Continuous 0..1 "how deep in bamboo am I", consumed by the audio rustle.
+  const ambience = { rustle: 0 };
+  let bambooPos = null;
 
   // Bamboo: clustered groves. A bare pole reads as scaffolding from the
   // game's steep camera, so each stalk carries leaf tufts near the top —
@@ -92,6 +95,7 @@ export function buildWorld(scene, timeUniform) {
     });
     scatters.push(bambooScatter);
     canopies.push({ scatter: bambooScatter, mats: [leafMat], near: 4.5 });
+    bambooPos = bambooScatter.pos;
   }
 
   // Pines. Stacked cones read as concentric blobs from the game's overhead
@@ -246,6 +250,18 @@ export function buildWorld(scene, timeUniform) {
     paper.position.z = Math.round(center.z / PAPER_TILE) * PAPER_TILE;
     for (const s of scatters) s.update(center);
 
+    // Wind is audible near bamboo: proximity ramps over ~14 units and stalks
+    // stack, so standing inside a grove reads louder than brushing its edge.
+    if (bambooPos) {
+      let acc = 0;
+      for (let i = 0; i < bambooPos.length; i += 2) {
+        const dx = bambooPos[i] - center.x, dz = bambooPos[i + 1] - center.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 14) acc += 1 - d / 14;
+      }
+      ambience.rustle = Math.min(1, acc / 2.5);
+    }
+
     // Ghost the foliage when the player is inside a stand of it.
     for (const c of canopies) {
       const pos = c.scatter.pos;
@@ -259,7 +275,7 @@ export function buildWorld(scene, timeUniform) {
     }
   }
 
-  return { group, update, scatters };
+  return { group, update, scatters, ambience };
 }
 
 // A pool of instances scattered in a disc that follows a moving center by

@@ -81,6 +81,50 @@ export class Audio {
     src.connect(f).connect(g).connect(this.master);
     src.start();
     this.windGain = g;
+
+    // Bamboo rustle: high, papery noise that only opens up near a grove. Two
+    // slow LFOs — one on amplitude, one on filter centre — give it the
+    // irregular hiss-and-settle of leaves rather than steady static.
+    const rSrc = this.ctx.createBufferSource();
+    rSrc.buffer = this.noiseBuf;
+    rSrc.loop = true;
+    const rF = this.ctx.createBiquadFilter();
+    rF.type = 'bandpass';
+    rF.frequency.value = 2600;
+    rF.Q.value = 0.8;
+    const rG = this.ctx.createGain();
+    rG.gain.value = 0;
+    const ampLfo = this.ctx.createOscillator();
+    ampLfo.frequency.value = 0.31;
+    const ampDepth = this.ctx.createGain();
+    ampDepth.gain.value = 0;                  // scaled with proximity in setRustle
+    ampLfo.connect(ampDepth).connect(rG.gain);
+    const pitchLfo = this.ctx.createOscillator();
+    pitchLfo.frequency.value = 0.13;
+    const pitchDepth = this.ctx.createGain();
+    pitchDepth.gain.value = 900;
+    pitchLfo.connect(pitchDepth).connect(rF.frequency);
+    ampLfo.start();
+    pitchLfo.start();
+    rSrc.connect(rF).connect(rG).connect(this.master);
+    rSrc.start();
+    this.rustleGain = rG;
+    this.rustleDepth = ampDepth;
+  }
+
+  // v in 0..1: how deep into bamboo the player stands.
+  setRustle(v) {
+    if (!this.rustleGain) return;
+    this.rustleGain.gain.setTargetAtTime(v * 0.16, this.t, 0.4);
+    this.rustleDepth.gain.setTargetAtTime(v * 0.07, this.t, 0.4);
+  }
+
+  // A footfall on packed earth: a soft low thud plus a faint dry tick, pitch
+  // wandering a little so a run never sounds like a loop.
+  step() {
+    const f = 260 + Math.random() * 90;
+    this.noise(0.09, { type: 'lowpass', freq: f, gain: 0.16, sweep: 0.5 });
+    this.noise(0.03, { freq: 1900 + Math.random() * 700, q: 2.5, gain: 0.025 });
   }
 
   swing() { this.noise(0.22, { freq: 2600, q: 1.2, gain: 0.16, sweep: 0.25 }); }

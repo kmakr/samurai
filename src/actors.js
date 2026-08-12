@@ -251,22 +251,22 @@ export function makeEnemy(type) {
   hips.position.y = 0.88;
   root.add(hips);
 
-  const torso = vpart('eTorso', boxLayers(6, 4, 7), 0.05);
+  const torso = vpart('eTorso', boxLayers(6, 4, 7), 0.20);
   torso.position.y = 0.32;
   hips.add(torso);
 
-  const shoulders = vpart('eShoulders', boxLayers(9, 4, 2), 0.03);
+  const shoulders = vpart('eShoulders', boxLayers(9, 4, 2), 0.16);
   shoulders.position.y = 0.56;
   hips.add(shoulders);
 
-  const skirt = vpart('eSkirt', taperLayers(8, 8, 4, 4, 8, 1), 0.08);
+  const skirt = vpart('eSkirt', taperLayers(8, 8, 4, 4, 8, 1), 0.22);
   skirt.position.y = -0.40;
   hips.add(skirt);
 
   const head = new THREE.Group();
   head.position.y = 0.82;
   hips.add(head);
-  const skull = vpart('eSkull', boxLayers(3, 3, 3), spec.mask ? 0.02 : 0.62);
+  const skull = vpart('eSkull', boxLayers(3, 3, 3), spec.mask ? 0.06 : 0.62);
   head.add(skull);
 
   if (spec.hat) {
@@ -294,7 +294,7 @@ export function makeEnemy(type) {
     eyes.userData.noOutline = true;
     head.add(eyes);
   } else {
-    const hair = vpart('eHair', boxLayers(4, 4, 2, 1), 0.03);
+    const hair = vpart('eHair', boxLayers(4, 4, 2, 1), 0.10);
     hair.position.y = 0.14;
     head.add(hair);
   }
@@ -302,12 +302,12 @@ export function makeEnemy(type) {
   const armL = new THREE.Group();
   armL.position.set(-0.46, 0.5, 0);
   hips.add(armL);
-  armL.add(vlimb('eArm', boxLayers(2, 2, 6), 0.05, -0.27));
+  armL.add(vlimb('eArm', boxLayers(2, 2, 6), 0.18, -0.27));
 
   const armR = new THREE.Group();
   armR.position.set(0.46, 0.5, 0);
   hips.add(armR);
-  armR.add(vlimb('eArm', boxLayers(2, 2, 6), 0.05, -0.27));
+  armR.add(vlimb('eArm', boxLayers(2, 2, 6), 0.18, -0.27));
 
   const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, false);
   katana.position.set(0, -0.52, 0.05);
@@ -318,12 +318,12 @@ export function makeEnemy(type) {
   const legL = new THREE.Group();
   legL.position.set(-0.16, -0.74, 0);
   hips.add(legL);
-  legL.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.04, -0.32));
+  legL.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.16, -0.32));
 
   const legR = new THREE.Group();
   legR.position.set(0.16, -0.74, 0);
   hips.add(legR);
-  legR.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.04, -0.32));
+  legR.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.16, -0.32));
 
   root.scale.setScalar(spec.height);
 
