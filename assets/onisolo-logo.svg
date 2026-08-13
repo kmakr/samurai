@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 516 144" role="img" aria-labelledby="title desc">
+  <title id="title">Onisolo</title>
+  <desc id="desc">The Onisolo oni ring and sword cut mark with the Onisolo wordmark.</desc>
+  <g transform="translate(4 4) scale(2)">
+    <path d="M20 17L13 6L29 13ZM44 17L51 6L35 13Z" fill="#e9e4d6"/>
+    <path d="M48 19C56 28 54.5 43 44 51C33 59 18 55 11 43C4 31 10 16 22 10C34 4 48 10 53 22" fill="none" stroke="#e9e4d6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M15 51L49 13" fill="none" stroke="#0a0a0d" stroke-width="7" stroke-linecap="square"/>
+    <path d="M17 53L51 15" fill="none" stroke="#e9e4d6" stroke-width="3.5" stroke-linecap="square"/>
+  </g>
+  <g fill="#e9e4d6" transform="translate(-48 0)">
+    <path d="M204 35H221L247 82V35H264V109H247L221 62V109H204Z"/>
+    <path d="M279 35H296V109H279Z"/>
+    <path d="M338 33C319 33 306 43 306 57C306 72 319 78 333 82C344 85 350 87 350 93C350 98 345 101 338 101C327 101 320 96 314 89L303 100C311 108 322 113 338 113C357 113 368 103 368 90C368 75 356 69 341 65C330 62 324 60 324 54C324 49 329 46 337 46C346 46 353 50 358 56L368 45C360 37 350 33 338 33Z"/>
+    <path d="M409 33C389 33 376 46 376 72S389 111 409 111S442 98 442 72S429 33 409 33ZM409 48C419 48 425 56 425 72S419 96 409 96S393 88 393 72S399 48 409 48Z"/>
+    <path d="M454 35H471V94H501V109H454Z"/>
+    <path d="M525 33C505 33 492 46 492 72S505 111 525 111S558 98 558 72S545 33 525 33ZM525 48C535 48 541 56 541 72S535 96 525 96S509 88 509 72S515 48 525 48Z"/>
+  </g>
+</svg>

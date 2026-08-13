@@ -1,4 +1,4 @@
-# ONIOSLO — THE PAGE REMEMBERS
+# ONISOLO — THE PAGE REMEMBERS
 
 A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
 every wound bleeds into the arena like ink soaking into paper.
@@ -34,9 +34,9 @@ Staging from `git archive` rather than uploading the working directory keeps
 `.git` and local editor state out of the published site.
 
 Note this is **direct upload, not Git-connected** — pushing to GitHub does not
-redeploy on its own. Connecting the repo in the Cloudflare dashboard (Workers &
-Pages → the project → Settings → Builds) enables push-to-deploy and PR previews;
-build command stays empty and output directory is `/`.
+redeploy on its own. Cloudflare does not support converting an existing Direct
+Upload project to Git integration, so production and preview deployments use
+Wrangler explicitly.
 
 ## Controls
 

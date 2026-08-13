@@ -7,6 +7,8 @@ export class Audio {
     this.master = null;
     this.noiseBuf = null;
     this.enabled = true;
+    this.rustleTarget = -1;
+    this.windTarget = -1;
   }
 
   // Must be called from a user gesture.
@@ -117,6 +119,8 @@ export class Audio {
   // v in 0..1: how deep into bamboo the player stands.
   setRustle(v) {
     if (!this.rustleGain) return;
+    if (Math.abs(v - this.rustleTarget) < 0.005) return;
+    this.rustleTarget = v;
     this.rustleGain.gain.setTargetAtTime(v * 0.16, this.t, 0.4);
     this.rustleDepth.gain.setTargetAtTime(v * 0.07, this.t, 0.4);
   }
@@ -212,6 +216,8 @@ export class Audio {
   }
 
   setWind(v) {
-    if (this.windGain) this.windGain.gain.setTargetAtTime(v, this.t, 0.5);
+    if (!this.windGain || Math.abs(v - this.windTarget) < 0.001) return;
+    this.windTarget = v;
+    this.windGain.gain.setTargetAtTime(v, this.t, 0.5);
   }
 }

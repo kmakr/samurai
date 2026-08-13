@@ -156,6 +156,15 @@ export class VoxelGibs {
     for (let i = alive.length - 1; i >= 0; i--) {
       const g = alive[i];
       g.age += dt;
+
+      // Retiring chunks must stay below the contact plane. Otherwise the next
+      // update clamps them back onto the paper before they can finish sinking.
+      if (g.rest > 1.6) {
+        g.y -= dt * 0.5;
+        if (g.y < -0.3) alive.splice(i, 1);
+        continue;
+      }
+
       g.vy -= 24 * dt;
       g.x += g.vx * dt; g.y += g.vy * dt; g.z += g.vz * dt;
       g.rx += g.wx * dt; g.rz += g.wz * dt;
@@ -170,11 +179,6 @@ export class VoxelGibs {
           g.vx = 0; g.vz = 0; g.vy = 0; g.wx *= 0.8; g.wz *= 0.8;
           g.rest += dt;
         }
-      }
-      // Rested chunks soak into the paper and free their slot.
-      if (g.rest > 1.6) {
-        g.y -= dt * 0.5;
-        if (g.y < -0.3) { alive.splice(i, 1); continue; }
       }
     }
 

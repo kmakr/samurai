@@ -14,6 +14,7 @@ import { toon } from './actors.js';
 
 const PLAYER_SPEED = 7.6;
 const PLAYER_MAX_HP = 100;
+const GAME_VERSION = new URL(import.meta.url).searchParams.get('v') || 'DEV';
 const DASH_SPEED = 24;
 const DASH_TIME = 0.20;
 const DASH_COOLDOWN = 0.42;
@@ -40,6 +41,10 @@ const FLOW_WINDOW = 5.5;
 // ------------------------------------------------------------------- setup
 
 const app = document.getElementById('app');
+const buildTagEl = document.getElementById('buildTag');
+const buildVersionEl = document.getElementById('buildVersion');
+buildVersionEl.textContent = `${GAME_VERSION}`;
+buildTagEl.setAttribute('aria-label', `Onisolo build ${GAME_VERSION}`);
 const film = new FilmRenderer(app);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05050a);
@@ -284,9 +289,6 @@ const iaiAuraRing = new THREE.Mesh(parryRingGeo, new THREE.MeshBasicMaterial({
 iaiAuraRing.rotation.x = -Math.PI * 0.5;
 iaiAuraRing.position.y = 0.05;
 iaiAura.add(iaiAuraRing);
-const iaiLight = new THREE.PointLight(0xffffff, 0, 5, 2);
-iaiLight.position.y = 1.15;
-iaiAura.add(iaiLight);
 iaiAura.visible = false;
 player.root.add(iaiAura);
 
@@ -297,7 +299,6 @@ function updateIaiAura() {
   const breath = Math.sin(state.time * 2.4);
   iaiAuraRing.scale.setScalar(2.18 + breath * 0.05);
   iaiAuraRing.material.opacity = 0.27 + breath * 0.05;
-  iaiLight.intensity = 0.72 + breath * 0.12;
 }
 
 function spawnParryRing(position) {
@@ -396,13 +397,9 @@ function spawnEnemy(type, options = {}) {
     if (o.userData.isBlade && o.material.isMeshToonMaterial) bladeMats.push(o.material);
     if (o.userData.isBladeGlow) bladeGlow = o;
   });
-  const bladeLight = new THREE.PointLight(0xffffff, 0, 4.2, 2);
-  bladeLight.position.y = 0.62;
-  actor.katana.add(bladeLight);
-
   const scale = 1 + state.wave * 0.06;
   enemies.push({
-    type, spec, actor, bladeMats, bladeGlow, bladeLight,
+    type, spec, actor, bladeMats, bladeGlow,
     rival: Boolean(options.rival),
     rivalName: options.rivalName || '',
     rivalFollowup: false,
@@ -438,7 +435,7 @@ const waveTitleEl = document.getElementById('waveTitle');
 function showWaveTitle(n) {
   const boss = n % 5 === 0;
   waveTitleEl.innerHTML = boss
-    ? `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)} — THE IRON DEMON</span>`
+    ? `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)}: THE IRON DEMON</span>`
     : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
   waveTitleEl.classList.remove('show');
   void waveTitleEl.offsetWidth; // restart the animation
@@ -1155,7 +1152,6 @@ function updateEnemyBladeTelegraph(e) {
       : strength * 0.08;
     e.bladeGlow.scale.setScalar(ready ? 1.14 + Math.sin(state.time * 30) * 0.025 : 1.08);
   }
-  e.bladeLight.intensity = ready ? 2.15 * pulse : strength * 0.18;
 }
 
 // -------------------------------------------------------------- enemy update
@@ -1444,16 +1440,16 @@ function updateCamera(dt) {
 
 // ----------------------------------------------------------------------- UI
 
-const hpArcEl = document.getElementById('hpArc');
-const hpArcFrayEl = document.getElementById('hpArcFray');
+const hpFillEl = document.getElementById('hpFill');
 const hpGaugeEl = document.getElementById('hpGauge');
+const iaiFillEl = document.getElementById('iaiFill');
+const iaiGaugeEl = document.getElementById('iaiGauge');
 const statsEl = document.getElementById('stats');
 const flowEl = document.getElementById('flow');
-const gaugesEl = document.getElementById('gauges');
+const vitalsEl = document.getElementById('vitals');
 const iaiReadyNoticeEl = document.getElementById('iaiReadyNotice');
 const iaiNoticeTitleEl = document.getElementById('iaiNoticeTitle');
 const iaiNoticeDetailEl = document.getElementById('iaiNoticeDetail');
-const hudAnchor = new THREE.Vector3();
 let iaiWasReady = false;
 let iaiNoticeTimer = 0;
 
@@ -1465,25 +1461,17 @@ function showIaiNotice(title, detail, duration = 1800) {
   iaiNoticeTimer = setTimeout(() => iaiReadyNoticeEl.classList.remove('show'), duration);
 }
 
-function updatePlayerHUDPosition() {
-  hudAnchor.copy(player.root.position);
-  hudAnchor.y += 2.55;
-  hudAnchor.project(camera);
-  const rect = film.domElement.getBoundingClientRect();
-  const x = rect.left + (hudAnchor.x * 0.5 + 0.5) * rect.width;
-  const y = rect.top + (-hudAnchor.y * 0.5 + 0.5) * rect.height;
-  gaugesEl.classList.toggle('flip', x > innerWidth - 190);
-  gaugesEl.style.left = `${Math.round(THREE.MathUtils.clamp(x, 28, innerWidth - 28))}px`;
-  gaugesEl.style.top = `${Math.round(THREE.MathUtils.clamp(y, 54, innerHeight - 30))}px`;
-}
-
 function updateHUD() {
-  gaugesEl.classList.toggle('active', state.running && !state.over);
+  vitalsEl.classList.toggle('active', state.running && !state.over);
   const hpPercent = THREE.MathUtils.clamp(state.hp / PLAYER_MAX_HP, 0, 1);
-  hpArcEl.style.strokeDashoffset = `${100 - hpPercent * 100}`;
-  hpArcFrayEl.style.strokeDashoffset = `${100 - hpPercent * 100}`;
+  hpFillEl.style.transform = `scaleX(${hpPercent})`;
   hpGaugeEl.setAttribute('aria-valuenow', `${Math.round(hpPercent * 100)}`);
+  hpGaugeEl.classList.toggle('urgent', hpPercent <= 0.35);
+  const focusPercent = THREE.MathUtils.clamp(state.focus / FOCUS_MAX, 0, 1);
+  iaiFillEl.style.transform = `scaleX(${focusPercent})`;
+  iaiGaugeEl.setAttribute('aria-valuenow', `${Math.round(focusPercent * 100)}`);
   const iaiReady = state.running && !state.over && state.focus >= FOCUS_MAX;
+  iaiGaugeEl.classList.toggle('ready', iaiReady);
   if (iaiReady && !iaiWasReady) {
     showIaiNotice('IAI READY', 'PRESS F');
   } else if (!iaiReady && iaiWasReady) {
@@ -1607,7 +1595,6 @@ function step(dt) {
   timeUniform.value = state.time;
 
   input.update(dt);
-
   if (state.running) {
     if (!state.choosingUpgrade) {
       updatePlayer(sdt);
@@ -1647,7 +1634,6 @@ function step(dt) {
   audio.setWind(bossWave ? 0.13 : 0.05);
 
   updateCamera(dt);
-  updatePlayerHUDPosition();
   updateIaiAura();
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
@@ -1676,7 +1662,7 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
-  version: 14,
+  version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
   get enemies() { return enemies; },

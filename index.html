@@ -3,7 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ONIOSLO — THE PAGE REMEMBERS</title>
+<title>ONISOLO: THE PAGE REMEMBERS</title>
+<meta name="theme-color" content="#0a0a0d" />
+<meta name="description" content="Onisolo is a monochrome browser sword game played on a living sheet of ink and paper." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Onisolo" />
+<meta property="og:description" content="A monochrome browser sword game played on a living sheet of ink and paper." />
+<meta property="og:url" content="https://onisolo.theoazriel.com/" />
+<meta property="og:image" content="https://onisolo.theoazriel.com/assets/onisolo-icon-512.png" />
+<meta name="twitter:card" content="summary" />
+<link rel="icon" href="./assets/onisolo-mark.svg" type="image/svg+xml" />
+<link rel="icon" href="./assets/onisolo-icon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="./assets/onisolo-icon-180.png" />
+<link rel="manifest" href="./site.webmanifest" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Yuji+Boku&amp;display=swap" rel="stylesheet" />
@@ -13,6 +25,9 @@
     --ink: #0a0a0d;
     --font-brush: "Yuji Boku", "Kaiti SC", "STKaiti", cursive;
     --font-ui: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --film-bar-h: 72px;
+    --film-bar-w: 0px;
+    --hud-inline: clamp(14px, 3.2vw, 48px);
   }
 
   * { box-sizing: border-box; }
@@ -59,58 +74,66 @@
     pointer-events: none;
   }
 
-  #gauges {
+  #vitals {
     position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 46px;
-    height: 46px;
-    transform: translate(-50%, calc(-100% - 10px));
-    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.85));
-    will-change: left, top;
+    left: calc(var(--film-bar-w) + var(--hud-inline));
+    bottom: 0;
+    width: clamp(150px, 20vw, 240px);
+    height: var(--film-bar-h);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
     opacity: 0;
     transition: opacity 0.16s ease;
   }
-  #gauges.active { opacity: 1; }
-
-  #hpGauge {
-    position: relative;
-    width: 46px;
-    height: 46px;
+  #vitals.active { opacity: 0.92; }
+  .vitalRow {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
   }
-  #hpGauge svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    transform: rotate(-90deg);
-  }
-  #hpGauge path {
-    fill: none;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    vector-effect: non-scaling-stroke;
-  }
-  #hpTrack {
-    stroke: rgba(10, 10, 13, 0.68);
-    stroke-width: 5px;
-    filter: drop-shadow(0 0 1px rgba(233, 228, 214, 0.75));
-  }
-  #hpArc,
-  #hpArcFray {
-    stroke: var(--paper);
-    stroke-dasharray: 100;
-    stroke-dashoffset: 0;
-    transition: stroke-dashoffset 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
-  }
-  #hpArc { stroke-width: 4.6px; }
-  #hpArcFray {
-    stroke-width: 1.4px;
+  .vitalLabel {
+    color: var(--paper);
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.18em;
     opacity: 0.72;
+  }
+  .inkMeter {
+    position: relative;
+    height: 8px;
+  }
+  .inkTrack,
+  .inkFill {
+    position: absolute;
+    inset: 0;
+    display: block;
+    clip-path: polygon(0 24%, 8% 6%, 23% 17%, 38% 0, 54% 14%, 68% 4%, 83% 18%, 96% 5%, 100% 28%, 99% 76%, 88% 95%, 73% 83%, 58% 100%, 42% 85%, 27% 97%, 11% 80%, 0 92%);
+  }
+  .inkTrack { background: rgba(233, 228, 214, 0.2); }
+  .inkFill {
+    background: var(--paper);
+    transform: scaleX(1);
+    transform-origin: 0 50%;
+    transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  #hpGauge.urgent .inkFill {
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.72));
+  }
+  #iaiGauge.ready .inkFill {
+    filter: drop-shadow(0 0 5px #fff);
+    animation: iaiMeterReady 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes iaiMeterReady {
+    from { opacity: 0.78; }
+    to { opacity: 1; }
   }
   #iaiReadyNotice {
     position: absolute;
-    left: 52px;
+    left: calc(100% + 14px);
     top: 50%;
     width: max-content;
     padding: 7px 10px 6px;
@@ -126,15 +149,6 @@
     opacity: 1;
     transform: translate(0, -50%);
   }
-  #gauges.flip #iaiReadyNotice {
-    left: auto;
-    right: 52px;
-    border-left: 0;
-    border-right: 2px solid #fff;
-    transform: translate(-7px, -50%);
-    text-align: right;
-  }
-  #gauges.flip #iaiReadyNotice.show { transform: translate(0, -50%); }
   #iaiReadyNotice strong,
   #iaiReadyNotice small { display: block; }
   #iaiReadyNotice strong {
@@ -150,21 +164,33 @@
     opacity: 0.7;
   }
 
-  #stats {
+  #combatStatus {
     position: absolute;
-    top: 3.6vh;
-    right: 3.2vw;
-    font-size: 17px;
+    top: 0;
+    right: calc(var(--film-bar-w) + var(--hud-inline));
+    height: var(--film-bar-h);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: clamp(4px, 0.75vh, 8px);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  #stats {
+    font-size: clamp(12px, 1.45vw, 17px);
     font-weight: 600;
+    line-height: 1;
     letter-spacing: 0.24em;
     opacity: 0.78;
     text-align: right;
   }
 
   #flow {
-    position: absolute;
-    top: calc(3.6vh + 32px);
-    right: 3.2vw;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
     text-align: right;
     opacity: 0;
     transform: translateX(12px);
@@ -172,17 +198,17 @@
   }
   #flow.active { opacity: 0.8; transform: translateX(0); }
   #flow strong {
-    display: block;
-    font-size: clamp(22px, 3vw, 42px);
+    display: inline;
+    font-size: clamp(17px, 2.15vw, 29px);
     font-weight: 700;
     line-height: 0.88;
     letter-spacing: 0.08em;
     font-stretch: condensed;
   }
   #flow small {
-    display: block;
-    margin-top: 5px;
-    font-size: 11px;
+    display: inline;
+    margin-top: 0;
+    font-size: clamp(8px, 0.8vw, 10px);
     font-weight: 600;
     letter-spacing: 0.28em;
     opacity: 0.72;
@@ -190,15 +216,50 @@
 
   #help {
     position: absolute;
-    right: 3.2vw;
-    bottom: 3.0vh;
-    font-size: 11px;
-    line-height: 2.1;
+    right: calc(var(--film-bar-w) + var(--hud-inline));
+    bottom: 0;
+    height: var(--film-bar-h);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: clamp(3px, 0.45vh, 5px);
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: clamp(8px, 1.3vh, 11px);
+    line-height: 1;
     letter-spacing: 0.16em;
     opacity: 0.4;
     text-align: right;
   }
+  #help span { display: block; }
   #help b { font-weight: normal; opacity: 0.95; }
+  #help .chargeHint { font-size: 0.9em; opacity: 0.8; }
+
+  #buildTag {
+    position: absolute;
+    left: calc(var(--film-bar-w) + var(--hud-inline));
+    top: 0;
+    height: var(--film-bar-h);
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    color: var(--paper);
+    font-size: clamp(8px, 1.15vh, 10px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    opacity: 0.62;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hud-compact #combatStatus { gap: 4px; }
+  .hud-compact #flow small,
+  .hud-compact #help .chargeHint { display: none; }
+  .hud-compact #help { letter-spacing: 0.10em; }
+  .hud-compact #vitals { width: min(42vw, 166px); gap: 6px; }
+  .hud-compact .vitalRow { grid-template-columns: 24px minmax(0, 1fr); gap: 7px; }
+  .hud-compact #iaiReadyNotice { display: none; }
 
   /* Wave announcement: a large kanji that strikes and fades, like a title card. */
   #waveTitle {
@@ -398,7 +459,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     #waveTitle.show, #combatCallout.show, .scroll { animation-duration: 0.01ms; }
-    .scroll, #flow, #gauges, #hpArc, #hpArcFray, #iaiReadyNotice { transition: none; }
+    .scroll, #flow, #vitals, .inkFill, #iaiReadyNotice { transition: none; }
+    #iaiGauge.ready .inkFill { animation: none; }
   }
 
   /* -------------------------------------------------------------- overlay */
@@ -418,13 +480,19 @@
   #overlay.hidden { display: none; }
 
   #ovTitle {
-    font-size: clamp(58px, 12vw, 165px);
-    line-height: 0.95;
     margin: 0;
-    letter-spacing: 0.05em;
-    font-weight: normal;
-    text-shadow: 0 0 60px rgba(0,0,0,0.9);
-    font-family: var(--font-brush);
+    font-family: var(--font-ui);
+    font-size: clamp(64px, 12vw, 150px);
+    font-weight: 700;
+    line-height: 0.9;
+    letter-spacing: 0.14em;
+    text-indent: 0.14em;
+  }
+  #ovTitle img {
+    display: block;
+    width: min(72vw, 650px);
+    height: auto;
+    filter: drop-shadow(0 0 40px rgba(0,0,0,0.9));
   }
 
   #ovSub {
@@ -488,26 +556,35 @@
 <div class="bar" id="barRight"></div>
 
 <div id="hud">
-  <div id="gauges">
-    <div id="hpGauge" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
-      <svg viewBox="0 0 46 46" aria-hidden="true">
-        <path id="hpTrack" pathLength="100" d="M23 5 C31 4 39 11 40 20 C42 29 36 39 27 41 C17 43 7 37 5 27 C3 18 9 8 18 6 C20 5 22 5 23 5"></path>
-        <path id="hpArc" pathLength="100" d="M23 5 C31 4 39 11 40 20 C42 29 36 39 27 41 C17 43 7 37 5 27 C3 18 9 8 18 6 C20 5 22 5 23 5"></path>
-        <path id="hpArcFray" pathLength="100" d="M24 3.8 C33 4.5 40.5 12 41.5 21 C42 31 35 40.5 26 42.5 C15 43 5.5 36 4 26 C3.5 16 10 7 19 4.8 C21 4.2 22.5 4 24 3.8"></path>
-      </svg>
+  <div id="vitals">
+    <div class="vitalRow">
+      <span class="vitalLabel">HP</span>
+      <div id="hpGauge" class="inkMeter" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+        <span class="inkTrack" aria-hidden="true"></span><span id="hpFill" class="inkFill" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="vitalRow">
+      <span class="vitalLabel">IAI</span>
+      <div id="iaiGauge" class="inkMeter" role="meter" aria-label="Iai charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span class="inkTrack" aria-hidden="true"></span><span id="iaiFill" class="inkFill" aria-hidden="true"></span>
+      </div>
     </div>
     <div id="iaiReadyNotice" role="status" aria-live="polite"><strong id="iaiNoticeTitle">IAI READY</strong><small id="iaiNoticeDetail">PRESS F</small></div>
   </div>
 
-  <div id="stats">KILLS 0 · WAVE 0</div>
-  <div id="flow"><strong>FLOW ×0</strong><small>FOCUS RATE</small></div>
+  <div id="combatStatus">
+    <div id="stats">KILLS 0 · WAVE 0</div>
+    <div id="flow"><strong>FLOW ×0</strong><small>FOCUS RATE</small></div>
+  </div>
 
   <div id="help">
-    <b>WASD</b> MOVE · <b>MOUSE</b> AIM<br />
-    <b>CLICK</b> CUT ×3 · <b>SHIFT</b> DASH<br />
-    <b>SPACE</b> PARRY · <b>F</b> IAI<br />
-    IAI CHARGE: KILLS + PERFECT PARRIES
+    <span><b>WASD</b> MOVE · <b>MOUSE</b> AIM</span>
+    <span><b>CLICK</b> CUT ×3 · <b>SHIFT</b> DASH</span>
+    <span><b>SPACE</b> PARRY · <b>F</b> IAI</span>
+    <span class="chargeHint">IAI CHARGE: KILLS + PERFECT PARRIES</span>
   </div>
+
+  <div id="buildTag" aria-label="Onisolo game build">ONISOLO / BUILD <span id="buildVersion">...</span></div>
 
   <div id="waveTitle"></div>
   <div id="combatCallout"><span class="mark"></span><span class="meaning"></span></div>
@@ -520,7 +597,7 @@
 </div>
 
 <div id="overlay">
-  <h1 id="ovTitle">ONIOSLO</h1>
+  <h1 id="ovTitle"><img src="./assets/onisolo-logo.svg" alt="Onisolo" /></h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
   <p id="ovText">
     A sheet of paper. A hundred blades.<br />
@@ -530,10 +607,10 @@
   <div id="controls">
     <span>WASD</span><span>move</span>
     <span>MOUSE</span><span>aim the cut</span>
-    <span>CLICK</span><span>slash — the third cut of the chain cleaves a man in two</span>
+    <span>CLICK</span><span>slash; the third cut of the chain cleaves a man in two</span>
     <span>SHIFT</span><span>dash (invulnerable)</span>
-    <span>SPACE</span><span>parry — time it against the white blade</span>
-    <span>F</span><span>iai draw — charge with kills + perfect parries</span>
+    <span>SPACE</span><span>parry; time it against the white blade</span>
+    <span>F</span><span>iai draw; charge with kills + perfect parries</span>
   </div>
 </div>
 
@@ -544,7 +621,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=14"></script>
+<script type="module" src="./src/main.js?v=30"></script>
 
 </body>
 </html>

@@ -398,6 +398,12 @@ export class RagdollSystem {
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i];
       d.age += dt;
+
+      // Once retirement starts, leave the piece below the floor. Running the
+      // ground-contact branch again would clamp it back to y0 every frame and
+      // undo the sink applied in retire(), so debris would never be removed.
+      if (d.rest > 3.0) continue;
+
       d.vel.y += GRAVITY * dt;
       d.obj.position.addScaledVector(d.vel, dt);
 
@@ -480,10 +486,13 @@ export class RagdollSystem {
 
   dispose(obj) {
     if (obj.parent) obj.parent.remove(obj);
-    // Geometry and the outline material are shared; only the per-actor toon
-    // materials belong to this corpse.
+    // Geometry and the outline shader are shared. Toon materials, blade glows,
+    // and mask eyes are created per actor and must leave with the corpse.
     obj.traverse((o) => {
-      if (o.isMesh && o.material && o.material.isMeshToonMaterial) o.material.dispose();
+      if (o.isMesh && o.material
+          && (o.material.isMeshToonMaterial || o.material.isMeshBasicMaterial)) {
+        o.material.dispose();
+      }
     });
   }
 
@@ -494,4 +503,3 @@ export class RagdollSystem {
     this.debris.length = 0;
   }
 }
-

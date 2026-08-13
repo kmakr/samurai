@@ -196,14 +196,20 @@ export class FilmRenderer {
 // scope later; the letterbox is set from index.html and just needs sizing here.
 export function applyLetterbox(ratio) {
   const bars = document.querySelectorAll('.bar');
-  // Cap the bars: on a tall or narrow window a strict 2.39:1 crop would leave a
-  // slot too thin to play in, and the HUD lives in the bars regardless.
+  // Keep enough black frame for the HUD even when the screen is wider than the
+  // film ratio. This makes the frame and HUD use the same responsive geometry.
   const maxH = innerHeight * 0.16;
   const maxW = innerWidth * 0.16;
-  const h = Math.min(maxH, Math.max(0, (innerHeight - innerWidth / ratio) / 2));
-  const w = Math.min(maxW, Math.max(0, (innerWidth - innerHeight * ratio) / 2));
+  const minHudH = Math.min(72, Math.max(52, innerHeight * 0.095));
+  const naturalH = Math.max(0, (innerHeight - innerWidth / ratio) / 2);
+  const h = Math.min(maxH, Math.max(minHudH, naturalH));
+  const framedHeight = innerHeight - h * 2;
+  const w = Math.min(maxW, Math.max(0, (innerWidth - framedHeight * ratio) / 2));
   bars[0].style.height = `${h}px`;
   bars[1].style.height = `${h}px`;
   bars[2].style.width = `${w}px`;
   bars[3].style.width = `${w}px`;
+  document.documentElement.style.setProperty('--film-bar-h', `${h}px`);
+  document.documentElement.style.setProperty('--film-bar-w', `${w}px`);
+  document.documentElement.classList.toggle('hud-compact', innerWidth < 620 || h < 58);
 }
