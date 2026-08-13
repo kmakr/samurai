@@ -148,6 +148,23 @@ function makeKatana(len = 1.15, dark = false) {
   bladeLayers.push(['XX'], [' X']);
   const blade = vpart(`blade${cells}`, bladeLayers, dark ? 0.42 : 0.95, { centerY: false });
   blade.position.y = 0.12;
+  blade.userData.isBlade = true;
+  if (dark) {
+    // A second, slightly larger blade supplies a clean aura without a bloom
+    // post-effect. Its opacity is driven by the real parry timing window.
+    const glow = new THREE.Mesh(blade.geometry, new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }));
+    glow.scale.setScalar(1.1);
+    glow.renderOrder = 7;
+    glow.userData.isBladeGlow = true;
+    glow.userData.noOutline = true;
+    blade.add(glow);
+  }
   const tsuba = vpart('tsuba', boxLayers(2, 2, 1), 0.10);
   tsuba.position.y = 0.10;
   const tsuka = vpart('tsuka', boxLayers(1, 1, 3), 0.06);

@@ -116,7 +116,7 @@ const state = {
   phase: 0,          // gait phase
   vel: new THREE.Vector3(),
   facing: 0,
-  action: 'idle',    // idle | attack | dash | parry | hurt
+  action: 'idle',    // idle | attack | dash | parry | iai | hurt
   actionT: 0,
   comboIndex: 0,
   comboTimer: 0,
@@ -223,23 +223,67 @@ function makeBrushRing() {
 
 const parryRingGeo = makeBrushRing();
 const parryRings = [];
+const impactBursts = [];
 
-const iaiAura = new THREE.Group();
-const iaiAuraRings = [0, 1].map((index) => {
+function spawnImpactBurst(position, strength = 1) {
+  const pos = [];
+  const rays = 9 + Math.floor(strength * 5);
+  for (let i = 0; i < rays; i++) {
+    const a = i / rays * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+    const half = 0.025 + Math.random() * 0.045;
+    const inner = 0.18 + Math.random() * 0.28;
+    const outer = (0.8 + Math.random() * 1.35) * strength;
+    pos.push(
+      Math.cos(a - half) * inner, 0, Math.sin(a - half) * inner,
+      Math.cos(a) * outer, 0, Math.sin(a) * outer,
+      Math.cos(a + half) * inner, 0, Math.sin(a + half) * inner,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+    color: 0x08080c,
     transparent: true,
-    opacity: 0,
+    opacity: 0.82,
     depthWrite: false,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
   });
-  const mesh = new THREE.Mesh(parryRingGeo, material);
-  mesh.rotation.x = -Math.PI * 0.5;
-  mesh.position.y = 0.05 + index * 0.012;
-  iaiAura.add(mesh);
-  return mesh;
-});
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(position.x, 0.075, position.z);
+  mesh.scale.setScalar(0.42);
+  mesh.renderOrder = 5;
+  scene.add(mesh);
+  impactBursts.push({ mesh, age: 0, life: 0.24 + strength * 0.06 });
+}
+
+function updateImpactBursts(dt) {
+  for (let i = impactBursts.length - 1; i >= 0; i--) {
+    const burst = impactBursts[i];
+    burst.age += dt;
+    const k = Math.min(1, burst.age / burst.life);
+    burst.mesh.scale.setScalar(0.42 + Math.sin(k * Math.PI * 0.72) * 0.9);
+    burst.mesh.material.opacity = (1 - k) ** 1.5 * 0.82;
+    if (k >= 1) {
+      scene.remove(burst.mesh);
+      burst.mesh.geometry.dispose();
+      burst.mesh.material.dispose();
+      impactBursts.splice(i, 1);
+    }
+  }
+}
+
+const iaiAura = new THREE.Group();
+const iaiAuraRing = new THREE.Mesh(parryRingGeo, new THREE.MeshBasicMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending,
+}));
+iaiAuraRing.rotation.x = -Math.PI * 0.5;
+iaiAuraRing.position.y = 0.05;
+iaiAura.add(iaiAuraRing);
 const iaiLight = new THREE.PointLight(0xffffff, 0, 5, 2);
 iaiLight.position.y = 1.15;
 iaiAura.add(iaiLight);
@@ -250,13 +294,10 @@ function updateIaiAura() {
   const ready = state.running && !state.over && state.focus >= FOCUS_MAX;
   iaiAura.visible = ready;
   if (!ready) return;
-  for (let i = 0; i < iaiAuraRings.length; i++) {
-    const ring = iaiAuraRings[i];
-    const phase = (state.time * 0.72 + i * 0.5) % 1;
-    ring.scale.setScalar(1.15 + phase * 2.15);
-    ring.material.opacity = Math.sin(phase * Math.PI) * 0.58;
-  }
-  iaiLight.intensity = 1.0 + Math.sin(state.time * 5.5) * 0.32;
+  const breath = Math.sin(state.time * 2.4);
+  iaiAuraRing.scale.setScalar(2.18 + breath * 0.05);
+  iaiAuraRing.material.opacity = 0.27 + breath * 0.05;
+  iaiLight.intensity = 0.72 + breath * 0.12;
 }
 
 function spawnParryRing(position) {
@@ -347,14 +388,21 @@ function spawnEnemy(type, options = {}) {
   );
   scene.add(actor.root);
 
-  // The blade brightens during a wind-up; that flash is the player's only
-  // warning, so it is worth wiring up explicitly.
+  // Only the steel and its aura take part in the timing telegraph. The hilt
+  // stays dark, which keeps the signal narrow and easy to read.
   const bladeMats = [];
-  actor.katana.traverse((o) => { if (o.isMesh && o.material.isMeshToonMaterial) bladeMats.push(o.material); });
+  let bladeGlow = null;
+  actor.katana.traverse((o) => {
+    if (o.userData.isBlade && o.material.isMeshToonMaterial) bladeMats.push(o.material);
+    if (o.userData.isBladeGlow) bladeGlow = o;
+  });
+  const bladeLight = new THREE.PointLight(0xffffff, 0, 4.2, 2);
+  bladeLight.position.y = 0.62;
+  actor.katana.add(bladeLight);
 
   const scale = 1 + state.wave * 0.06;
   enemies.push({
-    type, spec, actor, bladeMats,
+    type, spec, actor, bladeMats, bladeGlow, bladeLight,
     rival: Boolean(options.rival),
     rivalName: options.rivalName || '',
     rivalFollowup: false,
@@ -371,7 +419,6 @@ function spawnEnemy(type, options = {}) {
     circleFor: 0.5 + Math.random() * 0.7,
     lunge: new THREE.Vector3(),
     dead: false,
-    flashT: 0,
   });
 }
 
@@ -577,6 +624,8 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
   e.stagger = Math.max(e.stagger, 0.22);
   const p = e.actor.root.position;
   const h = 0.9 * e.spec.height;
+  spawnImpactBurst(p, severity === 'bisect' ? 1.35 : 0.72);
+  flash(severity === 'bisect' ? 0.28 : 0.09);
 
   if (e.hp <= 0) {
     killEnemy(e, dirX, dirZ, severity);
@@ -717,25 +766,21 @@ function rewardDashRead() {
 // ---------------------------------------------------------------------- iai
 
 let iaiT = 0;
-const iaiTrail = new SlashTrail(scene, { radius: 6.5, width: 5.0, sweep: 1.5 });
+const iaiTrail = new SlashTrail(scene, { radius: 5.2, width: 2.7, sweep: 1.2 });
+const iaiOrigin = new THREE.Vector3();
+const iaiEnd = new THREE.Vector3();
+let iaiFacing = 0;
+let iaiCutFired = false;
 
-function tryIai() {
-  if (state.focus < FOCUS_MAX || iaiT > 0 || !state.running) return;
-  state.focus = 0;
-  iaiT = 0.9;
-  state.invuln = Math.max(state.invuln, 1.0);
-  flash(1);
-  audio.iai();
-
-  const fx = Math.sin(state.facing), fz = Math.cos(state.facing);
-  const px = player.root.position.x, pz = player.root.position.z;
+function fireIaiCut() {
+  iaiCutFired = true;
+  const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
   const reach = 30 + state.upgrades.longShadow * 6;
   const width = 4.2 + state.upgrades.longShadow * 0.6;
 
-  // Everything in a long corridor ahead is cut down at once.
   for (const e of [...enemies]) {
-    const dx = e.actor.root.position.x - px;
-    const dz = e.actor.root.position.z - pz;
+    const dx = e.actor.root.position.x - iaiOrigin.x;
+    const dz = e.actor.root.position.z - iaiOrigin.z;
     const along = dx * fx + dz * fz;
     const across = Math.abs(dx * fz - dz * fx);
     if (along > -1 && along < reach && across < width) {
@@ -743,23 +788,40 @@ function tryIai() {
     }
   }
 
-  // The flash-step: the samurai finishes the cut well past where they started.
-  const dist = Math.min(9, 4 + enemies.length * 0.3);
-  player.root.position.x = px + fx * dist;
-  player.root.position.z = pz + fz * dist;
-
-  vTmp.copy(player.root.position); vTmp.y = 0.2;
-  iaiTrail.fire(vTmp, state.facing + Math.PI * 0.5, { duration: 0.75, scale: 1.4 });
+  vTmp.lerpVectors(iaiOrigin, iaiEnd, 0.45); vTmp.y = 0.2;
+  iaiTrail.fire(vTmp, iaiFacing, { duration: 0.56, scale: 1.2, style: 2 });
   ink.splashScreen(14, 1.8);
-  hitstop(0.22, 0.05);
-  shake(1.3);
+  flash(1);
+  hitstop(0.14, 0.08);
+  shake(1.1);
+  audio.iai();
+}
+
+function tryIai() {
+  if (!state.running || iaiT > 0) return;
+  if (state.focus < FOCUS_MAX) {
+    showIaiNotice('IAI NOT READY', 'CHARGE: KILLS + PERFECT PARRIES', 1500);
+    return;
+  }
+  state.focus = 0;
+  iaiT = 0.62;
+  state.invuln = Math.max(state.invuln, 0.85);
+  state.action = 'iai';
+  state.actionT = 0;
+  iaiFacing = state.facing;
+  iaiCutFired = false;
+  iaiOrigin.copy(player.root.position);
+  const dist = Math.min(9, 4 + enemies.length * 0.3);
+  iaiEnd.copy(iaiOrigin);
+  iaiEnd.x += Math.sin(iaiFacing) * dist;
+  iaiEnd.z += Math.cos(iaiFacing) * dist;
   updateHUD();
 }
 
 // ------------------------------------------------------------- player update
 
 function updatePlayer(dt) {
-  state.facing = aimYaw();
+  if (state.action !== 'iai') state.facing = aimYaw();
 
   if (state.dashCooldown > 0) state.dashCooldown -= dt;
   if (state.parryCooldown > 0) state.parryCooldown -= dt;
@@ -857,6 +919,18 @@ function updatePlayer(dt) {
     if (state.actionT >= PARRY_STARTUP + parryDuration() + PARRY_RECOVER) {
       state.action = 'idle'; state.actionT = 0;
     }
+  } else if (state.action === 'iai') {
+    state.actionT += dt;
+    state.invuln = Math.max(state.invuln, 0.08);
+    if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
+    const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
+    const moveEase = moveT * moveT * (3 - 2 * moveT);
+    player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
+    if (state.actionT >= 0.54) {
+      player.root.position.copy(iaiEnd);
+      state.action = 'idle';
+      state.actionT = 0;
+    }
   } else if (state.action === 'hurt') {
     state.actionT -= dt;
     speed = PLAYER_SPEED * 0.3;
@@ -930,6 +1004,7 @@ function poseArms(dt) {
   const a = player;
   let armX = 0, armZ = 0, torsoY = 0, torsoZ = 0;
   let katanaRoll = 0;
+  let crouch = 0;
   let smear = 0;         // 0..1, peak of the release — stretches the blade
   let twoHanded = false; // left hand joins the tsuka for the swing
   // Attack poses are written directly, not smoothed: a full swing lasts a
@@ -983,6 +1058,36 @@ function poseArms(dt) {
     armX = -2.5 * Math.min(1, k * 4);
     armZ = 0.9;
     torsoY = 0.35;
+  } else if (state.action === 'iai') {
+    const t = state.actionT;
+    snap = true;
+    if (t < 0.10) {
+      const k = t / 0.10;
+      armX = -0.15 + k * 0.75;
+      armZ = 0.25 + k * 0.9;
+      torsoY = -0.65 * k;
+      torsoZ = 0.16 * k;
+      katanaRoll = -0.5 * k;
+      crouch = 0.12 * k;
+    } else if (t < 0.26) {
+      const k = (t - 0.10) / 0.16;
+      const e = 1 - (1 - k) ** 3;
+      armX = 0.6 - e * 1.7;
+      armZ = 1.15 - e * 2.35;
+      torsoY = -0.65 + e * 1.7;
+      torsoZ = 0.16 - e * 0.3;
+      katanaRoll = -0.5 + e * 1.5;
+      crouch = 0.12 - e * 0.06;
+      smear = Math.sin(k * Math.PI) * 0.72;
+    } else {
+      const k = THREE.MathUtils.clamp((t - 0.26) / 0.28, 0, 1);
+      armX = -1.1 + k * 0.72;
+      armZ = -1.2 + k * 1.45;
+      torsoY = 1.05 - k * 0.92;
+      torsoZ = -0.14 + k * 0.14;
+      katanaRoll = 1 - k * 0.88;
+      crouch = 0.06 * (1 - k);
+    }
   } else if (state.action === 'dash') {
     armX = -0.4;
     torsoZ = 0.2;
@@ -1002,6 +1107,7 @@ function poseArms(dt) {
   a.hips.rotation.y += (torsoY - a.hips.rotation.y) * lerp;
   a.torso.rotation.z += (torsoZ - a.torso.rotation.z) * lerp;
   a.katana.rotation.z += (katanaRoll - a.katana.rotation.z) * lerp;
+  a.hips.position.y -= crouch;
 
   // Off hand: on the tsuka during a swing — both arms driving the same arc is
   // most of what makes a cut look committed — trailing loose otherwise.
@@ -1019,6 +1125,38 @@ function poseArms(dt) {
 const parryActive = () => state.action === 'parry'
   && state.actionT >= PARRY_STARTUP
   && state.actionT < PARRY_STARTUP + parryDuration();
+
+const ENEMY_STRIKE_TIME = 0.10;
+
+function updateEnemyBladeTelegraph(e) {
+  let strength = 0;
+  let ready = false;
+
+  if (e.state === 'windup') {
+    const progress = THREE.MathUtils.clamp(e.t / e.spec.windup, 0, 1);
+    const eta = e.spec.windup - e.t + ENEMY_STRIKE_TIME;
+    ready = eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
+    strength = 0.06 + progress ** 1.7 * 0.38;
+  } else if (e.state === 'strike' && !e.resolved) {
+    const eta = ENEMY_STRIKE_TIME - e.t;
+    ready = eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
+    strength = 0.3;
+  }
+
+  const pulse = ready ? 0.88 + Math.sin(state.time * 30) * 0.12 : 1;
+  if (ready) strength = 1;
+  for (const material of e.bladeMats) {
+    material.emissive.setScalar(strength * pulse);
+    material.emissiveIntensity = ready ? 2.8 : 0.9;
+  }
+  if (e.bladeGlow) {
+    e.bladeGlow.material.opacity = ready
+      ? 0.48 + Math.sin(state.time * 30) * 0.1
+      : strength * 0.08;
+    e.bladeGlow.scale.setScalar(ready ? 1.14 + Math.sin(state.time * 30) * 0.025 : 1.08);
+  }
+  e.bladeLight.intensity = ready ? 2.15 * pulse : strength * 0.18;
+}
 
 // -------------------------------------------------------------- enemy update
 
@@ -1049,11 +1187,6 @@ function updateEnemies(dt) {
 
     e.t += dt;
     if (e.cooldown > 0) e.cooldown -= dt;
-    if (e.flashT > 0) {
-      e.flashT -= dt;
-      const v = Math.max(0, e.flashT / 0.12);
-      for (const m of e.bladeMats) m.emissive.setScalar(v);
-    }
 
     let move = 0, turn = true;
 
@@ -1068,7 +1201,6 @@ function updateEnemies(dt) {
         move = e.speed;
         if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
           e.state = 'windup'; e.t = 0;
-          for (const m of e.bladeMats) m.emissive.setScalar(1);
         } else if (dist < reach * 1.6) {
           e.state = 'circle'; e.t = 0;
         }
@@ -1090,7 +1222,6 @@ function updateEnemies(dt) {
           e.circleFor = 0.5 + Math.random() * 0.7;
           if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
             e.state = 'windup';
-            for (const m of e.bladeMats) m.emissive.setScalar(1);
           } else if (dist > reach * 2.2) {
             e.state = 'approach';
           } else if (Math.random() < 0.3) {
@@ -1106,8 +1237,9 @@ function updateEnemies(dt) {
           e.state = 'strike';
           e.t = 0;
           e.lunge.set(nx, 0, nz);
-          for (const m of e.bladeMats) m.emissive.setScalar(0);
           vTmp.copy(pos); vTmp.y = 0.1;
+          spawnImpactBurst(pos, e.rival ? 1.25 : 0.62);
+          flash(e.rival ? 0.18 : 0.06);
           enemyTrail.fire(vTmp, Math.atan2(nx, nz), { duration: 0.3, scale: e.spec.height });
           audio.swing();
         }
@@ -1139,7 +1271,6 @@ function updateEnemies(dt) {
             e.state = 'windup';
             e.t = Math.max(0, e.spec.windup - 0.24);
             e.circleDir *= -1;
-            for (const m of e.bladeMats) m.emissive.setScalar(1);
           } else {
             e.rivalFollowup = false;
             releaseSlot(e);
@@ -1155,6 +1286,8 @@ function updateEnemies(dt) {
         break;
       }
     }
+
+    updateEnemyBladeTelegraph(e);
 
     if (move > 0) {
       pos.x += nx * move * dt;
@@ -1198,12 +1331,14 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     e.actor.root.position.z -= nz * 1.8;
     vTmp.set((pos.x + player.root.position.x) * 0.5, 1.25, (pos.z + player.root.position.z) * 0.5);
     spawnParryRing(vTmp);
+    spawnImpactBurst(player.root.position, e.rival ? 1.8 : 1.35);
     camPunch.x -= nx * 0.75;
     camPunch.z -= nz * 0.75;
     camPunch.y += 0.12;
     hitstop(0.19, 0.035);
     shake(0.78);
-    flash(0.82);
+    flash(1);
+    ink.splashScreen(3, 0.55);
     showCombatCallout('PERFECT', 'PARRY');
     audio.perfectParry();
     updateHUD();
@@ -1316,9 +1451,19 @@ const statsEl = document.getElementById('stats');
 const flowEl = document.getElementById('flow');
 const gaugesEl = document.getElementById('gauges');
 const iaiReadyNoticeEl = document.getElementById('iaiReadyNotice');
+const iaiNoticeTitleEl = document.getElementById('iaiNoticeTitle');
+const iaiNoticeDetailEl = document.getElementById('iaiNoticeDetail');
 const hudAnchor = new THREE.Vector3();
 let iaiWasReady = false;
 let iaiNoticeTimer = 0;
+
+function showIaiNotice(title, detail, duration = 1800) {
+  clearTimeout(iaiNoticeTimer);
+  iaiNoticeTitleEl.textContent = title;
+  iaiNoticeDetailEl.textContent = detail;
+  iaiReadyNoticeEl.classList.add('show');
+  iaiNoticeTimer = setTimeout(() => iaiReadyNoticeEl.classList.remove('show'), duration);
+}
 
 function updatePlayerHUDPosition() {
   hudAnchor.copy(player.root.position);
@@ -1340,10 +1485,8 @@ function updateHUD() {
   hpGaugeEl.setAttribute('aria-valuenow', `${Math.round(hpPercent * 100)}`);
   const iaiReady = state.running && !state.over && state.focus >= FOCUS_MAX;
   if (iaiReady && !iaiWasReady) {
-    iaiReadyNoticeEl.classList.add('show');
-    clearTimeout(iaiNoticeTimer);
-    iaiNoticeTimer = setTimeout(() => iaiReadyNoticeEl.classList.remove('show'), 1800);
-  } else if (!iaiReady) {
+    showIaiNotice('IAI READY', 'PRESS F');
+  } else if (!iaiReady && iaiWasReady) {
     clearTimeout(iaiNoticeTimer);
     iaiReadyNoticeEl.classList.remove('show');
   }
@@ -1492,6 +1635,7 @@ function step(dt) {
   trail.update(sdt);
   enemyTrail.update(sdt);
   updateParryRings(dt);
+  updateImpactBursts(dt);
   ragdolls.update(sdt);
   gibs.update(sdt, ink);
   ink.update(sdt, camera);
@@ -1532,7 +1676,7 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
-  version: 11,
+  version: 14,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
   get enemies() { return enemies; },

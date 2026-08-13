@@ -52,9 +52,13 @@ build command stays empty and output directory is `/`.
 
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
-focus charge makes white ink light pulse around the player and briefly shows
+focus charge makes one calm white ink aura breathe around the player and briefly shows
 the Iai key. One iai draw flash-steps forward and cuts down everything in a
 corridor ahead.
+
+Enemy steel starts dim during the wind-up, then blooms white only during the
+real deflect input window. Hits add a short ground burst; finishers and perfect
+parries use stronger flashes and ink.
 
 Perfect parries and kills build **Flow**. Flow breaks when the player takes a
 hit or goes too long without another success; higher Flow increases focus gain

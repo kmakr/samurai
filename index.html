@@ -496,7 +496,7 @@
         <path id="hpArcFray" pathLength="100" d="M24 3.8 C33 4.5 40.5 12 41.5 21 C42 31 35 40.5 26 42.5 C15 43 5.5 36 4 26 C3.5 16 10 7 19 4.8 C21 4.2 22.5 4 24 3.8"></path>
       </svg>
     </div>
-    <div id="iaiReadyNotice" role="status" aria-live="polite"><strong>IAI READY</strong><small>PRESS F</small></div>
+    <div id="iaiReadyNotice" role="status" aria-live="polite"><strong id="iaiNoticeTitle">IAI READY</strong><small id="iaiNoticeDetail">PRESS F</small></div>
   </div>
 
   <div id="stats">KILLS 0 · WAVE 0</div>
@@ -505,7 +505,8 @@
   <div id="help">
     <b>WASD</b> MOVE · <b>MOUSE</b> AIM<br />
     <b>CLICK</b> CUT ×3 · <b>SHIFT</b> DASH<br />
-    <b>SPACE</b> PARRY · <b>F</b> IAI
+    <b>SPACE</b> PARRY · <b>F</b> IAI<br />
+    IAI CHARGE: KILLS + PERFECT PARRIES
   </div>
 
   <div id="waveTitle"></div>
@@ -532,7 +533,7 @@
     <span>CLICK</span><span>slash — the third cut of the chain cleaves a man in two</span>
     <span>SHIFT</span><span>dash (invulnerable)</span>
     <span>SPACE</span><span>parry — time it against the white blade</span>
-    <span>F</span><span>iai draw, once focus is full</span>
+    <span>F</span><span>iai draw — charge with kills + perfect parries</span>
   </div>
 </div>
 
@@ -543,7 +544,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=11"></script>
+<script type="module" src="./src/main.js?v=14"></script>
 
 </body>
 </html>
