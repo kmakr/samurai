@@ -1310,6 +1310,7 @@ function updateCamera(dt) {
 // ----------------------------------------------------------------------- UI
 
 const hpArcEl = document.getElementById('hpArc');
+const hpArcFrayEl = document.getElementById('hpArcFray');
 const hpGaugeEl = document.getElementById('hpGauge');
 const statsEl = document.getElementById('stats');
 const flowEl = document.getElementById('flow');
@@ -1335,6 +1336,7 @@ function updateHUD() {
   gaugesEl.classList.toggle('active', state.running && !state.over);
   const hpPercent = THREE.MathUtils.clamp(state.hp / PLAYER_MAX_HP, 0, 1);
   hpArcEl.style.strokeDashoffset = `${100 - hpPercent * 100}`;
+  hpArcFrayEl.style.strokeDashoffset = `${100 - hpPercent * 100}`;
   hpGaugeEl.setAttribute('aria-valuenow', `${Math.round(hpPercent * 100)}`);
   const iaiReady = state.running && !state.over && state.focus >= FOCUS_MAX;
   if (iaiReady && !iaiWasReady) {
@@ -1530,7 +1532,7 @@ requestAnimationFrame(frame);
 // Exposed for tuning and for driving the simulation from the console:
 // `__samurai.step(1/60)`, `__samurai.film.uniforms`, `__samurai.state`.
 window.__samurai = {
-  version: 10,
+  version: 11,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
   get enemies() { return enemies; },

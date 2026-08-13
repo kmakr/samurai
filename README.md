@@ -1,4 +1,4 @@
-# SAMURAI — THE PAGE REMEMBERS
+# ONIOSLO — THE PAGE REMEMBERS
 
 A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
 every wound bleeds into the arena like ink soaking into paper.
