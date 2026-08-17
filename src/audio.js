@@ -510,12 +510,39 @@ export class Audio {
       type: 'sine', gain: heavy ? 0.4 : 0.3, to: heavy ? 34 : 44,
     });
     if (heavy) this.tone(52, 0.36, { type: 'sine', gain: 0.28, to: 28, delay: 0.02 });
-    // The tail: a short wet texture — the ink landing on the page.
-    this.noise(heavy ? 0.34 : 0.24, {
-      type: 'bandpass', freq: 430, q: 1.3, gain: heavy ? 0.24 : 0.16, sweep: 0.45, delay: 0.05,
-    });
+    // The tail: the butcher's layer.
+    this.splatter(heavy);
     // The hole: duck the score for a beat so the wind reads underneath.
     this.silenceMusic(heavy ? 0.38 : 0.14, heavy ? 0.01 : 0.05);
+  }
+
+  // Dismemberment is not one sound but a scatter: a torn rip right at the
+  // blade, then a cluster of short wet bursts staggered over the next beat as
+  // the pieces and the ink land — matching the gibs tumbling to the paper.
+  // Every burst draws its own filter centre and timing, so no two kills
+  // splatter alike.
+  splatter(heavy = false) {
+    // The tear.
+    this.noise(0.13, { type: 'bandpass', freq: 1500, q: 0.7, gain: heavy ? 0.34 : 0.26, sweep: 0.3 });
+    // The scatter.
+    const drops = heavy ? 8 : 5;
+    let at = 0.05 + Math.random() * 0.03;
+    for (let i = 0; i < drops; i++) {
+      const fade = 1 - (i / drops) * 0.6;
+      this.noise(0.03 + Math.random() * 0.035, {
+        type: 'bandpass',
+        freq: 260 + Math.random() * 520,
+        q: 1.6,
+        gain: (heavy ? 0.3 : 0.22) * fade,
+        sweep: 0.5,
+        delay: at,
+      });
+      at += 0.025 + Math.random() * 0.05;
+    }
+    // A heavy kill's largest piece lands with its own thud.
+    if (heavy) {
+      this.noise(0.12, { type: 'lowpass', freq: 320, gain: 0.3, sweep: 0.4, delay: 0.16 + Math.random() * 0.08 });
+    }
   }
 
   // Steel on steel.
