@@ -1,5 +1,7 @@
-// Procedural audio. No assets — everything is synthesised, which keeps the
-// whole game a single folder of text files.
+// Procedural audio, with one exception: the score. Every effect is still
+// synthesised, but the music prefers a recorded looping track
+// (assets/score.mp3) when it can be fetched, with the procedural engine as
+// the immediate opening bars and the fallback when the file is unreachable.
 
 export class Audio {
   constructor() {
@@ -10,6 +12,7 @@ export class Audio {
     this.rustleTarget = -1;
     this.windTarget = -1;
     this.music = null;
+    this.scoreSrc = null;
     this.musicTimer = null;
     this.musicStep = 0;
     this.musicNextTime = 0;
@@ -176,6 +179,34 @@ export class Audio {
     this.musicNextTime = this.t + 0.08;
     this.musicTimer = setInterval(() => this.scheduleMusic(), 25);
     this.scheduleMusic();
+    this.loadScore();
+  }
+
+  // Fetch and decode the recorded score, then hand the bus over to it: the
+  // procedural engine stops scheduling and the track loops gaplessly through
+  // the same color/glue chain, so setMusicIntensity's filter sweeps and
+  // silenceMusic's ducks play the recording exactly like they played the
+  // synth. On any failure the procedural score simply keeps playing.
+  loadScore() {
+    fetch('./assets/score.mp3')
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer(); })
+      .then((buf) => this.ctx.decodeAudioData(buf))
+      .then((audioBuf) => {
+        if (!this.music || this.scoreSrc) return;
+        clearInterval(this.musicTimer);
+        this.musicTimer = null;
+        const src = this.ctx.createBufferSource();
+        src.buffer = audioBuf;
+        src.loop = true;
+        // A mastered track runs much hotter than the quiet synth stems; this
+        // brings it into the same range before the shared output gain.
+        const trim = this.ctx.createGain();
+        trim.gain.value = 0.5;
+        src.connect(trim).connect(this.music.input);
+        src.start();
+        this.scoreSrc = src;
+      })
+      .catch(() => { /* keep the procedural score */ });
   }
 
   scheduleMusic() {

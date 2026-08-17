@@ -3,8 +3,11 @@
 A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
 every wound bleeds into the arena like ink soaking into paper.
 
-No build step, no dependencies to install, no art assets — every texture, sound
-and animation is generated procedurally at load.
+No build step, no dependencies to install, and almost no assets — every
+texture, sound effect and animation is generated procedurally at load. The one
+exception is the score: a looping recorded track (`assets/score.mp3`, a free
+Nujabes-type beat) played through the game's dynamic mix bus, with a fully
+procedural engine as the loading cover and offline fallback.
 
 ## Running it
 
