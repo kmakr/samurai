@@ -523,17 +523,17 @@ export class Audio {
   // splatter alike.
   splatter(heavy = false) {
     // The tear.
-    this.noise(0.13, { type: 'bandpass', freq: 1500, q: 0.7, gain: heavy ? 0.34 : 0.26, sweep: 0.3 });
+    this.noise(0.14, { type: 'bandpass', freq: 1500, q: 0.7, gain: heavy ? 0.52 : 0.4, sweep: 0.3 });
     // The scatter.
     const drops = heavy ? 8 : 5;
-    let at = 0.05 + Math.random() * 0.03;
+    let at = 0.04 + Math.random() * 0.03;
     for (let i = 0; i < drops; i++) {
       const fade = 1 - (i / drops) * 0.6;
-      this.noise(0.03 + Math.random() * 0.035, {
+      this.noise(0.035 + Math.random() * 0.04, {
         type: 'bandpass',
         freq: 260 + Math.random() * 520,
         q: 1.6,
-        gain: (heavy ? 0.3 : 0.22) * fade,
+        gain: (heavy ? 0.48 : 0.36) * fade,
         sweep: 0.5,
         delay: at,
       });
@@ -541,7 +541,7 @@ export class Audio {
     }
     // A heavy kill's largest piece lands with its own thud.
     if (heavy) {
-      this.noise(0.12, { type: 'lowpass', freq: 320, gain: 0.3, sweep: 0.4, delay: 0.16 + Math.random() * 0.08 });
+      this.noise(0.12, { type: 'lowpass', freq: 320, gain: 0.44, sweep: 0.4, delay: 0.16 + Math.random() * 0.08 });
     }
   }
 
