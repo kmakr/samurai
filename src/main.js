@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FilmRenderer, applyLetterbox, viewportSize } from './render.js';
+import { DISCIPLINE_ART, HUD_LIFE, HUD_IAI, MASTERY_SEAL, POEM_FLOURISH } from './glyphs.js';
 import { InkSystem } from './ink.js';
 import { buildWorld, ARENA, Rain } from './world.js';
 import { makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion } from './actors.js';
@@ -45,6 +46,15 @@ const buildTagEl = document.getElementById('buildTag');
 const buildVersionEl = document.getElementById('buildVersion');
 buildVersionEl.textContent = `${GAME_VERSION}`;
 buildTagEl.setAttribute('aria-label', `Onisolo build ${GAME_VERSION}`);
+
+// Brush marks on the chrome, injected from glyphs.js so every piece of ink in
+// the game has one source: a drop of ink for life, the drawn blade for iai,
+// and the trailing stroke that sits above the death poem.
+const vitalLabels = document.querySelectorAll('#vitals .vitalLabel');
+vitalLabels[0].innerHTML = `${HUD_LIFE}<span>HP</span>`;
+vitalLabels[1].innerHTML = `${HUD_IAI}<span>IAI</span>`;
+document.getElementById('ovPoem')
+  .insertAdjacentHTML('afterbegin', `<span class="poemFlourish">${POEM_FLOURISH}</span>`);
 const film = new FilmRenderer(app);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05050a);
@@ -609,9 +619,9 @@ function showUpgradeChoice() {
     button.className = 'scroll';
     button.innerHTML = `
       <span class="key">${index + 1}</span>
-      <span class="sigil">${upgrade.mark}</span>
+      <span class="sigil">${DISCIPLINE_ART[upgrade.id] || upgrade.mark}</span>
       <span class="name">${upgrade.name}</span>
-      <span class="level">${mastered ? 'MASTERED' : current ? `RANK ${current} → ${next}` : 'NEW DISCIPLINE'}</span>
+      <span class="level">${mastered ? `${MASTERY_SEAL} MASTERED` : current ? `RANK ${current} → ${next}` : 'NEW DISCIPLINE'}</span>
       <span class="desc">${mastered ? 'Restore 20 life and 20 focus.' : upgrade.describe(next)}</span>
     `;
     button.addEventListener('click', () => takeUpgrade(upgrade));

@@ -100,6 +100,9 @@
     gap: 10px;
   }
   .vitalLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: var(--paper);
     font-size: 9px;
     font-weight: 600;
@@ -107,6 +110,7 @@
     letter-spacing: 0.18em;
     opacity: 0.72;
   }
+  .vitalLabel svg { width: 12px; height: 12px; flex: none; }
   .inkMeter {
     position: relative;
     height: 8px;
@@ -425,6 +429,18 @@
     font-family: var(--font-brush);
     letter-spacing: 0.08em;
   }
+  .scroll .sigil svg {
+    width: 86px;
+    height: 86px;
+    display: block;
+    margin: 0 auto;
+  }
+  .scroll .level svg {
+    width: 12px;
+    height: 12px;
+    vertical-align: -2px;
+    margin-right: 5px;
+  }
   .scroll .name {
     display: block;
     margin-top: 20px;
@@ -458,6 +474,7 @@
     #upgradeChoices { width: min(430px, 100%); grid-template-columns: 1fr; }
     .scroll { min-height: 148px; padding: 25px 30px 22px 118px; text-align: left; }
     .scroll .sigil { position: absolute; left: 28px; top: 48px; width: 70px; margin: 0; font-size: 24px; text-align: center; }
+    .scroll .sigil svg { width: 64px; height: 64px; }
     .scroll .name { margin-top: 8px; }
     .scroll .desc { margin-top: 13px; }
   }
@@ -573,6 +590,14 @@
     opacity: 0.88;
   }
   #ovPoem[hidden] { display: none; }
+  .poemFlourish { display: block; }
+  .poemFlourish svg {
+    width: 72px;
+    height: 10px;
+    display: block;
+    margin: 0 auto 8px;
+    opacity: 0.5;
+  }
 
   /* The single drop of color in a monochrome game: a vermilion hanko, pressed
      only when the page gains a new record. Spent, not decorated with. */
@@ -930,7 +955,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=37"></script>
+<script type="module" src="./src/main.js?v=38"></script>
 
 </body>
 </html>
