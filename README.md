@@ -5,9 +5,12 @@ every wound bleeds into the arena like ink soaking into paper.
 
 No build step, no dependencies to install, and almost no assets — every
 texture, sound effect and animation is generated procedurally at load. The one
-exception is the score: a looping recorded track (`assets/score.mp3`, a free
-Nujabes-type beat) played through the game's dynamic mix bus, with a fully
-procedural engine as the loading cover and offline fallback.
+exceptions are the score — a looping recorded track (`assets/score.mp3`, a
+free Nujabes-type beat) played through the game's dynamic mix bus, with a
+fully procedural engine as the loading cover and offline fallback — and two
+recorded one-shots (`assets/sfx-slash.mp3`, `assets/sfx-clash.mp3`, generated
+with ElevenLabs) for the sword swoosh and the parry clash, rate-jittered per
+hit, with the synthesized versions as their fallback.
 
 ## Running it
 

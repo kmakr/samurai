@@ -13,6 +13,7 @@ export class Audio {
     this.windTarget = -1;
     this.music = null;
     this.scoreSrc = null;
+    this.samples = {};
     this.musicTimer = null;
     this.musicStep = 0;
     this.musicNextTime = 0;
@@ -40,6 +41,8 @@ export class Audio {
 
     this.startWind();
     this.startMusic();
+    this.loadSample('slash', './assets/sfx-slash.mp3');
+    this.loadSample('clash', './assets/sfx-clash.mp3');
   }
 
   get t() { return this.ctx.currentTime; }
@@ -207,6 +210,30 @@ export class Audio {
         this.scoreSrc = src;
       })
       .catch(() => { /* keep the procedural score */ });
+  }
+
+  // Recorded one-shots for the sounds that fire hundreds of times a run. Each
+  // call jitters playback rate so repetition never reads as a machine gun; if
+  // a sample never loads, the synthesized version keeps covering.
+  loadSample(name, url) {
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer(); })
+      .then((buf) => this.ctx.decodeAudioData(buf))
+      .then((audioBuf) => { this.samples[name] = audioBuf; })
+      .catch(() => { /* synth fallback */ });
+  }
+
+  playSample(name, { gain = 0.5, rate = 1, delay = 0 } = {}) {
+    const buf = this.samples[name];
+    if (!buf || !this.ctx) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(this.master);
+    src.start(this.t + delay);
+    return true;
   }
 
   scheduleMusic() {
@@ -424,6 +451,14 @@ export class Audio {
   }
 
   swing(style = 0) {
+    // The recorded swoosh, pitched per style: quicker for the return cut,
+    // heavier for the execution stroke — which keeps its low synth weight
+    // underneath, since the sample alone is all air and no mass.
+    const rate = (style === 1 ? 1.14 : style === 2 ? 0.85 : 1) * (0.95 + Math.random() * 0.1);
+    if (this.playSample('slash', { gain: style === 2 ? 0.7 : 0.45, rate })) {
+      if (style === 2) this.tone(118, 0.30, { type: 'triangle', gain: 0.16, to: 48 });
+      return;
+    }
     if (style === 1) {
       // Return cut: short, high, and fast.
       this.noise(0.17, { freq: 3900, q: 1.7, gain: 0.17, sweep: 0.20 });
@@ -466,6 +501,7 @@ export class Audio {
 
   // Steel on steel.
   parry() {
+    if (this.playSample('clash', { gain: 0.7, rate: 0.97 + Math.random() * 0.06 })) return;
     this.noise(0.35, { freq: 5200, q: 6, gain: 0.28, sweep: 0.5 });
     this.tone(2400, 0.3, { type: 'square', gain: 0.06, to: 1400 });
     this.tone(3600, 0.22, { type: 'sine', gain: 0.08, to: 2600 });
@@ -481,10 +517,17 @@ export class Audio {
     this.master.gain.linearRampToValueAtTime(0.08, now + 0.012);
     this.master.gain.setValueAtTime(0.08, now + 0.038);
     this.master.gain.exponentialRampToValueAtTime(0.55, now + 0.13);
-    this.noise(0.38, { freq: 5600, q: 7, gain: 0.38, sweep: 0.42, delay: 0.038 });
-    this.tone(2800, 0.34, { type: 'square', gain: 0.055, to: 1250, delay: 0.038 });
-    this.tone(4200, 0.26, { type: 'sine', gain: 0.11, to: 2400, delay: 0.038 });
-    this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
+    // The strike itself: the recorded clash, slowed a touch so it rings
+    // bigger than an ordinary parry, over the same low body tone.
+    if (this.samples.clash) {
+      this.playSample('clash', { gain: 0.95, rate: 0.87 + Math.random() * 0.05, delay: 0.038 });
+      this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
+    } else {
+      this.noise(0.38, { freq: 5600, q: 7, gain: 0.38, sweep: 0.42, delay: 0.038 });
+      this.tone(2800, 0.34, { type: 'square', gain: 0.055, to: 1250, delay: 0.038 });
+      this.tone(4200, 0.26, { type: 'sine', gain: 0.11, to: 2400, delay: 0.038 });
+      this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
+    }
   }
 
   hurt() {
