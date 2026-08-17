@@ -810,7 +810,7 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   shake(big ? 1.2 : 0.7);
   flash(big ? 0.4 : 0.18);
   gibs.burst(p.x, h, p.z, severity === 'bisect' ? 26 : 13, dirX, dirZ, big ? 1.5 : 1.0);
-  audio.kill();
+  audio.kill(severity === 'bisect' || big);
 
   state.kills++;
   if (e.rival) {

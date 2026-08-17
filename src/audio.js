@@ -494,9 +494,28 @@ export class Audio {
     });
   }
 
-  kill() {
-    this.noise(0.5, { type: 'lowpass', freq: 700, gain: 0.4, sweep: 0.15 });
-    this.tone(90, 0.45, { type: 'sine', gain: 0.3, to: 40 });
+  // A kill is three layers and a hole in the mix: a crack that says it
+  // connected, a falling mass that says it ended, and a short wet tail as the
+  // ink lands — fired into a momentary duck of the score so it never fights
+  // the music. Heavy kills (bisections, the big silhouettes) drop deeper and
+  // hold the hole open longer.
+  kill(heavy = false) {
+    // The crack: the first breath of the slash sample pitched into a snap.
+    if (!this.playSample('slash', { gain: 0.5, rate: 1.4 + Math.random() * 0.15 })) {
+      this.noise(0.035, { freq: 4200, q: 3, gain: 0.2 });
+    }
+    // The mass: the falling pitch is the finality.
+    this.noise(0.3, { type: 'lowpass', freq: 700, gain: 0.34, sweep: 0.2 });
+    this.tone(heavy ? 82 : 96, heavy ? 0.5 : 0.4, {
+      type: 'sine', gain: heavy ? 0.4 : 0.3, to: heavy ? 34 : 44,
+    });
+    if (heavy) this.tone(52, 0.36, { type: 'sine', gain: 0.28, to: 28, delay: 0.02 });
+    // The tail: a short wet texture — the ink landing on the page.
+    this.noise(heavy ? 0.34 : 0.24, {
+      type: 'bandpass', freq: 430, q: 1.3, gain: heavy ? 0.24 : 0.16, sweep: 0.45, delay: 0.05,
+    });
+    // The hole: duck the score for a beat so the wind reads underneath.
+    this.silenceMusic(heavy ? 0.38 : 0.14, heavy ? 0.01 : 0.05);
   }
 
   // Steel on steel.
