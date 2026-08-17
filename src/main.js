@@ -111,6 +111,10 @@ input.bindButton(document.getElementById('touchParry'), 'parry');
 input.bindButton(document.getElementById('touchIai'), 'focus');
 if (matchMedia('(pointer: coarse)').matches) enableTouchUI();
 addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') enableTouchUI(); });
+// Belt and suspenders for Safari: even with touch-action set, kill the
+// double-tap and pinch zoom gestures at the event level.
+document.addEventListener('dblclick', (e) => e.preventDefault());
+document.addEventListener('gesturestart', (e) => e.preventDefault());
 const audio = new Audio();
 
 // Lighting: one hard key for shape, a dim fill so blacks aren't dead, and a

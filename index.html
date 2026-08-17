@@ -47,8 +47,13 @@
     -webkit-user-select: none;
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
+    /* No browser gestures anywhere: iOS ignores user-scalable=no, and a fast
+       double tap on anything without an explicit touch-action would zoom the
+       page mid-fight. The overlays re-allow vertical panning below. */
+    touch-action: none;
   }
   body.touch { cursor: default; }
+  #overlay, #upgradeOverlay { touch-action: pan-y; }
 
   #app { position: fixed; inset: 0; }
   #app canvas { display: block; }
@@ -955,7 +960,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=45"></script>
+<script type="module" src="./src/main.js?v=46"></script>
 
 </body>
 </html>
