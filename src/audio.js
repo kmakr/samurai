@@ -9,6 +9,15 @@ export class Audio {
     this.enabled = true;
     this.rustleTarget = -1;
     this.windTarget = -1;
+    this.music = null;
+    this.musicTimer = null;
+    this.musicStep = 0;
+    this.musicNextTime = 0;
+    this.musicIntensity = 0;
+    this.musicBoss = false;
+    this.musicMixIntensity = -1;
+    this.musicMixBoss = false;
+    this.musicSilenceUntil = 0;
   }
 
   // Must be called from a user gesture.
@@ -27,6 +36,7 @@ export class Audio {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
     this.startWind();
+    this.startMusic();
   }
 
   get t() { return this.ctx.currentTime; }
@@ -123,6 +133,255 @@ export class Audio {
     this.rustleTarget = v;
     this.rustleGain.gain.setTargetAtTime(v * 0.16, this.t, 0.4);
     this.rustleDepth.gain.setTargetAtTime(v * 0.07, this.t, 0.4);
+  }
+
+  // Original dusty instrumental hip-hop. The score is scheduled ahead, so the
+  // groove stays stable when rendering work gets heavy. It has no samples and
+  // does not use a melody from an existing track.
+  startMusic() {
+    if (!this.ctx || this.musicTimer) return;
+
+    const input = this.ctx.createGain();
+    const color = this.ctx.createBiquadFilter();
+    const glue = this.ctx.createDynamicsCompressor();
+    const output = this.ctx.createGain();
+    input.gain.value = 1;
+    color.type = 'lowpass';
+    color.frequency.value = 3000;
+    color.Q.value = 0.45;
+    glue.threshold.value = -20;
+    glue.knee.value = 18;
+    glue.ratio.value = 3;
+    glue.attack.value = 0.012;
+    glue.release.value = 0.24;
+    output.gain.value = 0.22;
+    input.connect(color).connect(glue).connect(output).connect(this.master);
+
+    const vinyl = this.ctx.createBufferSource();
+    const vinylHigh = this.ctx.createBiquadFilter();
+    const vinylLow = this.ctx.createBiquadFilter();
+    const vinylGain = this.ctx.createGain();
+    vinyl.buffer = this.noiseBuf;
+    vinyl.loop = true;
+    vinylHigh.type = 'highpass';
+    vinylHigh.frequency.value = 1600;
+    vinylLow.type = 'lowpass';
+    vinylLow.frequency.value = 6800;
+    vinylGain.gain.value = 0.022;
+    vinyl.connect(vinylHigh).connect(vinylLow).connect(vinylGain).connect(input);
+    vinyl.start();
+
+    this.music = { input, color, output, vinyl };
+    this.musicStep = 0;
+    this.musicNextTime = this.t + 0.08;
+    this.musicTimer = setInterval(() => this.scheduleMusic(), 25);
+    this.scheduleMusic();
+  }
+
+  scheduleMusic() {
+    if (!this.ctx || !this.music) return;
+    if (this.musicNextTime < this.t - 0.25) this.musicNextTime = this.t + 0.05;
+    const sixteenth = 60 / 84 / 4;
+    const swing = 0.16;
+    while (this.musicNextTime < this.t + 0.16) {
+      this.scheduleMusicStep(this.musicStep, this.musicNextTime);
+      this.musicNextTime += sixteenth * (this.musicStep % 2 === 0 ? 1 + swing : 1 - swing);
+      this.musicStep++;
+    }
+  }
+
+  scheduleMusicStep(index, at) {
+    const step = index % 16;
+    const bar = Math.floor(index / 16) % 8;
+    const harmony = [
+      { notes: [52, 55, 59, 62, 66], root: 40, fifth: 47, next: 36 },
+      { notes: [48, 52, 55, 59, 66], root: 36, fifth: 43, next: 43 },
+      { notes: [55, 59, 62, 64, 69], root: 43, fifth: 50, next: 35 },
+      { notes: [47, 52, 57, 60, 66], root: 35, fifth: 42, next: 40 },
+    ];
+    const chord = harmony[bar % harmony.length];
+    const intensity = this.musicIntensity;
+
+    if (step === 0) this.musicChord(at, chord.notes, bar % 2 ? 0.82 : 1);
+    if (step === 10 && bar % 2 === 1) this.musicChord(at, chord.notes.slice(1), 0.32, 0.55);
+
+    if (step === 0) this.musicBass(at, chord.root, 0.52, 1);
+    if (step === 7) this.musicBass(at, chord.fifth, 0.30, 0.72);
+    if (step === 10) this.musicBass(at, chord.root + 12, 0.36, 0.62);
+    if (step === 14) this.musicBass(at, chord.next - 1, 0.20, 0.48);
+
+    const kickPatterns = [
+      [0, 7, 10], [0, 6, 11], [0, 7, 10, 14], [0, 5, 10],
+      [0, 7, 10], [0, 6, 9, 14], [0, 7, 11], [0, 5, 10, 15],
+    ];
+    if (kickPatterns[bar].includes(step)) this.musicKick(at, step === 0 ? 1 : 0.76);
+    if (step === 4 || step === 12) this.musicSnare(at, step === 12 ? 1 : 0.9);
+    if (intensity > 0.52 && (step === 3 || step === 11)) this.musicSnare(at, 0.22);
+    if ([2, 6, 10, 14].includes(step)) this.musicHat(at, 0.48 + (step === 14 ? 0.14 : 0));
+    if (intensity > 0.32 && step % 2 === 1) this.musicHat(at, 0.20 + intensity * 0.12);
+    if ((intensity > 0.7 || this.musicBoss) && step === 15) this.musicHat(at, 0.7, true);
+
+    const phrases = [
+      { 9: 71, 13: 74 }, { 3: 78, 11: 74 },
+      { 7: 69, 14: 71 }, { 6: 66, 15: 64 },
+      { 5: 67, 12: 71 }, { 2: 74, 10: 78 },
+      { 8: 69, 13: 67 }, { 6: 66, 14: 64 },
+    ];
+    const note = phrases[bar][step];
+    if (note) this.musicPluck(at, note, intensity > 0.68 ? 0.8 : 0.62);
+    if ((index * 17 + bar * 11) % 37 === 0) this.musicCrackle(at + 0.035);
+  }
+
+  musicKick(at, velocity) {
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(135, at);
+    o.frequency.exponentialRampToValueAtTime(46, at + 0.16);
+    g.gain.setValueAtTime(0.36 * velocity, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.27);
+    o.connect(g).connect(this.music.input);
+    o.start(at);
+    o.stop(at + 0.29);
+  }
+
+  musicSnare(at, velocity) {
+    const src = this.ctx.createBufferSource();
+    const high = this.ctx.createBiquadFilter();
+    const band = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    src.buffer = this.noiseBuf;
+    high.type = 'highpass';
+    high.frequency.value = 900;
+    band.type = 'bandpass';
+    band.frequency.value = 2100;
+    band.Q.value = 0.65;
+    g.gain.setValueAtTime(0.15 * velocity, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+    src.connect(high).connect(band).connect(g).connect(this.music.input);
+    src.start(at, (at * 0.731) % 1.6);
+    src.stop(at + 0.18);
+    this.musicTone(at, 178, 0.11, 0.065 * velocity, 'triangle');
+  }
+
+  musicHat(at, velocity, open = false) {
+    const src = this.ctx.createBufferSource();
+    const high = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    const dur = open ? 0.20 : 0.045;
+    src.buffer = this.noiseBuf;
+    high.type = 'highpass';
+    high.frequency.value = open ? 5600 : 6800;
+    g.gain.setValueAtTime(0.038 * velocity, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    src.connect(high).connect(g).connect(this.music.input);
+    src.start(at, (at * 1.137) % 1.7);
+    src.stop(at + dur + 0.02);
+  }
+
+  musicChord(at, notes, velocity, dur = 2.15) {
+    const filter = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2200 + this.musicIntensity * 1800, at);
+    filter.Q.value = 0.6;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(0.026 * velocity, at + 0.018);
+    g.gain.exponentialRampToValueAtTime(0.009 * velocity, at + 0.34);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    filter.connect(g).connect(this.music.input);
+    for (const midi of notes) {
+      const freq = 440 * 2 ** ((midi - 69) / 12);
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = freq;
+      o.detune.value = (midi % 3 - 1) * 2.4;
+      o.connect(filter);
+      o.start(at);
+      o.stop(at + dur + 0.03);
+    }
+  }
+
+  musicBass(at, midi, dur, velocity) {
+    const freq = 440 * 2 ** ((midi - 69) / 12);
+    const filter = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(520, at);
+    filter.frequency.exponentialRampToValueAtTime(190, at + dur);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(0.17 * velocity, at + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    filter.connect(g).connect(this.music.input);
+    for (const [type, level] of [['sine', 1], ['triangle', 0.32]]) {
+      const o = this.ctx.createOscillator();
+      const layer = this.ctx.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      layer.gain.value = level;
+      o.connect(layer).connect(filter);
+      o.start(at);
+      o.stop(at + dur + 0.03);
+    }
+  }
+
+  musicPluck(at, midi, velocity) {
+    const freq = 440 * 2 ** ((midi - 69) / 12);
+    this.musicTone(at, freq, 0.42, 0.055 * velocity, 'triangle');
+    this.musicTone(at, freq * 2, 0.19, 0.016 * velocity, 'sine');
+  }
+
+  musicTone(at, freq, dur, gain, type) {
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(gain, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(this.music.input);
+    o.start(at);
+    o.stop(at + dur + 0.02);
+  }
+
+  musicCrackle(at) {
+    const src = this.ctx.createBufferSource();
+    const high = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    src.buffer = this.noiseBuf;
+    high.type = 'highpass';
+    high.frequency.value = 4200;
+    g.gain.setValueAtTime(0.024, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.012);
+    src.connect(high).connect(g).connect(this.music.input);
+    src.start(at, (at * 0.413) % 1.8);
+    src.stop(at + 0.02);
+  }
+
+  setMusicIntensity(v, boss = false) {
+    this.musicIntensity = Math.max(0, Math.min(1, v));
+    this.musicBoss = boss;
+    if (!this.music || !this.ctx) return;
+    if (this.t < this.musicSilenceUntil) return;
+    if (Math.abs(this.musicIntensity - this.musicMixIntensity) < 0.025 && boss === this.musicMixBoss) return;
+    this.musicMixIntensity = this.musicIntensity;
+    this.musicMixBoss = boss;
+    const color = 2500 + this.musicIntensity * 2200 + (boss ? 700 : 0);
+    this.music.color.frequency.setTargetAtTime(color, this.t, 0.35);
+    this.music.output.gain.setTargetAtTime(0.20 + this.musicIntensity * 0.055, this.t, 0.45);
+  }
+
+  silenceMusic(duration = 0.7, floor = 0.004) {
+    if (!this.music || !this.ctx) return;
+    const now = this.t;
+    const until = now + duration;
+    this.musicSilenceUntil = Math.max(this.musicSilenceUntil, until);
+    const target = 0.20 + this.musicIntensity * 0.055;
+    const gain = this.music.output.gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    gain.linearRampToValueAtTime(floor, now + 0.045);
+    gain.setValueAtTime(floor, this.musicSilenceUntil);
+    gain.exponentialRampToValueAtTime(Math.max(0.001, target), this.musicSilenceUntil + 0.22);
   }
 
   // A footfall on packed earth: a soft low thud plus a faint dry tick, pitch

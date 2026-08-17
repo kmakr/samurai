@@ -423,6 +423,7 @@ function startWave() {
   state.wave++;
   state.slots = Math.min(4, 2 + Math.floor(state.wave / 4));
   const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
+  if (rivalName) audio.silenceMusic(0.82, 0.002);
   for (const type of waveComposition(state.wave)) {
     spawnEnemy(type, { rival: type === 'oni', rivalName });
   }
@@ -625,6 +626,7 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
   flash(severity === 'bisect' ? 0.28 : 0.09);
 
   if (e.hp <= 0) {
+    if (enemies.filter((enemy) => !enemy.dead).length === 1) audio.silenceMusic(0.72);
     killEnemy(e, dirX, dirZ, severity);
     return;
   }
@@ -801,6 +803,7 @@ function tryIai() {
     return;
   }
   state.focus = 0;
+  audio.silenceMusic(0.62, 0.001);
   iaiT = 0.62;
   state.invuln = Math.max(state.invuln, 0.85);
   state.action = 'iai';
@@ -1511,6 +1514,7 @@ function gameOver() {
   ink.splashScreen(20, 2.2);
   hitstop(0.5, 0.05);
   audio.setWind(0.12);
+  audio.setMusicIntensity(0);
   const records = loadRecords();
   const newRecords = {
     wave: Math.max(records.wave, state.wave),
@@ -1632,6 +1636,10 @@ function step(dt) {
   const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
   rain.update(sdt, player.root.position, bossWave ? 1 : 0);
   audio.setWind(bossWave ? 0.13 : 0.05);
+  const musicPressure = state.running
+    ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
+    : 0;
+  audio.setMusicIntensity(musicPressure, bossWave);
 
   updateCamera(dt);
   updateIaiAura();
