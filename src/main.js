@@ -168,6 +168,7 @@ const state = {
   bestChain: 0,
   rivalKills: 0,
   seenYari: false,
+  seenYumi: false,
   lastStandUsed: false,
   deathBy: '',
   deathInfo: null,
@@ -458,10 +459,12 @@ function waveComposition(n) {
   const hunters = n >= 2 ? Math.floor(n * 0.7) : 0;
   const yari = n >= 3 ? 1 + Math.floor((n - 3) * 0.4) : 0;
   const brutes = n >= 4 ? Math.floor((n - 2) / 3) : 0;
+  const yumi = n >= 6 ? Math.min(3, 1 + Math.floor((n - 6) / 4)) : 0;
   for (let i = 0; i < ronin; i++) list.push('ronin');
   for (let i = 0; i < hunters; i++) list.push('hunter');
   for (let i = 0; i < yari; i++) list.push('yari');
   for (let i = 0; i < brutes; i++) list.push('brute');
+  for (let i = 0; i < yumi; i++) list.push('yumi');
   if (n % 5 === 0) list.push('oni');
   return list;
 }
@@ -487,9 +490,26 @@ function spawnEnemy(type, options = {}) {
     if (o.userData.isBlade && o.material.isMeshToonMaterial) bladeMats.push(o.material);
     if (o.userData.isBladeGlow) bladeGlow = o;
   });
+  // Archers telegraph along the ground: a thin additive line from bow to the
+  // locked firing direction. One mesh per archer, shown only while aiming.
+  let aimLine = null;
+  if (spec.bow) {
+    aimLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      }),
+    );
+    aimLine.renderOrder = 6;
+    scene.add(aimLine);
+  }
+
   const scale = 1 + state.wave * 0.06;
   enemies.push({
     type, spec, actor, bladeMats, bladeGlow,
+    aimLine,
+    aimDir: new THREE.Vector3(),
     rival: Boolean(options.rival),
     rivalName: options.rivalName || '',
     grudge: Boolean(options.grudge),
@@ -528,6 +548,10 @@ function startWave() {
     state.seenYari = true;
     setTimeout(() => { if (state.running) showCombatCallout('槍', 'YARI · STRIKES FROM RANGE'); }, 1600);
   }
+  if (!state.seenYumi && composition.includes('yumi')) {
+    state.seenYumi = true;
+    setTimeout(() => { if (state.running) showCombatCallout('弓', 'YUMI · MOVE OFF THE LINE'); }, 1600);
+  }
   updateHUD();
 }
 
@@ -541,7 +565,9 @@ function showWaveTitle(n) {
     ? grudge
       ? `<span class="kanji">怨</span><span class="latin">${rivalNameForWave(n)} REMEMBERS YOU</span>`
       : `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)}: THE IRON DEMON</span>`
-    : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
+    : (n - 1) % 5 === 0
+      ? `<span class="kanji">${numberKanji(n)}</span><span class="latin">ACT ${['I', 'II', 'III', 'IV', 'V'][actIndex()]} · ${currentAct().name}</span>`
+      : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
   waveTitleEl.classList.remove('show');
   void waveTitleEl.offsetWidth; // restart the animation
   waveTitleEl.classList.add('show');
@@ -551,6 +577,22 @@ function rivalNameForWave(n) {
   const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
   return names[(Math.floor(n / 5) - 1) % names.length];
 }
+
+// Every five waves is an act: a name for the title, and a slightly different
+// print — the film hardens as the run travels toward the black page. The last
+// act holds; an endless run does not cycle back to morning.
+const ACT_DEFS = [
+  { name: 'MORNING PAPER', grain: 0, vig: 0, con: 0, rain: 0, wind: 0 },
+  { name: 'THE CROWS', grain: 0.012, vig: 0.04, con: 0.05, rain: 0, wind: 0.01 },
+  { name: 'NIGHTFALL', grain: 0.022, vig: 0.1, con: 0.1, rain: 0, wind: 0.02 },
+  { name: 'THE LONG RAIN', grain: 0.015, vig: 0.06, con: 0.06, rain: 0.55, wind: 0.05 },
+  { name: 'THE BLACK PAGE', grain: 0.03, vig: 0.14, con: 0.13, rain: 0.3, wind: 0.04 },
+];
+
+function actIndex() {
+  return Math.min(ACT_DEFS.length - 1, Math.floor(Math.max(0, state.wave - 1) / 5));
+}
+function currentAct() { return ACT_DEFS[actIndex()]; }
 
 function numberKanji(n) {
   const d = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
@@ -779,6 +821,13 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   addFlow();
   state.focus = Math.min(FOCUS_MAX, state.focus + (big ? 20 : 9) * flowMultiplier());
 
+  // A dead archer's aim line goes with it.
+  if (e.aimLine) {
+    scene.remove(e.aimLine);
+    e.aimLine.geometry.dispose();
+    e.aimLine.material.dispose();
+  }
+
   // Hand the body to the physics: it keeps the pose it died in, and the blow
   // decides how much of it stays attached.
   vCut.set(dirX, 0, dirZ);
@@ -792,7 +841,7 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
 function deathCause(source, action) {
   const who = !source ? 'THE FIELD'
     : source.rival && source.rivalName ? source.rivalName
-    : ({ ronin: 'A RONIN', hunter: 'A HUNTER', yari: 'A SPEARMAN', brute: 'A BRUTE', oni: 'THE IRON DEMON' })[source.type] || 'A STRAY BLADE';
+    : ({ ronin: 'A RONIN', hunter: 'A HUNTER', yari: 'A SPEARMAN', yumi: 'A BOWMAN', brute: 'A BRUTE', oni: 'THE IRON DEMON' })[source.type] || 'A STRAY BLADE';
   const how = ({
     attack: 'CAUGHT MID-SWING',
     dash: 'CAUGHT MID-DASH',
@@ -971,6 +1020,12 @@ function tryIai() {
 
 // ------------------------------------------------------------- player update
 
+// Idle sheathing: stand truly still with no blade near, and the samurai puts
+// the sword away. The first input draws it again with a cut of sound.
+let idleFor = 0;
+let sheathK = 0;
+let sheathed = false;
+
 function updatePlayer(dt) {
   if (state.action !== 'iai') state.facing = aimYaw();
 
@@ -981,6 +1036,21 @@ function updatePlayer(dt) {
   else state.comboIndex = 0;
 
   const moving = input.moveVector(vMove);
+
+  if (state.action === 'idle' && !moving) idleFor += dt; else idleFor = 0;
+  let calm = idleFor > 3;
+  if (calm) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const ex = e.actor.root.position.x - player.root.position.x;
+      const ez = e.actor.root.position.z - player.root.position.z;
+      if (ex * ex + ez * ez < 81) { calm = false; break; }
+    }
+  }
+  if (sheathed && !calm && sheathK > 0.5) audio.swing(1);   // the redraw
+  sheathed = calm;
+  sheathK += ((sheathed ? 1 : 0) - sheathK) * Math.min(1, dt * (sheathed ? 3 : 18));
+
   // Rotate raw WASD into the isometric frame: W is up-screen, which under a
   // 45-degree camera is the world diagonal, not the world -Z axis.
   if (moving) {
@@ -1243,9 +1313,12 @@ function poseArms(dt) {
     armX = -0.4;
     torsoZ = 0.2;
   } else {
-    // Idle guard: blade low and slightly out, breathing.
-    armX = -0.35 + Math.sin(state.time * 1.9) * 0.05;
-    armZ = 0.28;
+    // Idle guard: blade low and slightly out, breathing — or, when the field
+    // has been quiet long enough, at rest: arm dropped, blade rolled back.
+    const breath = Math.sin(state.time * 1.9) * 0.05;
+    armX = (-0.35 + breath) * (1 - sheathK) + 0.14 * sheathK;
+    armZ = 0.28 * (1 - sheathK) + 0.04 * sheathK;
+    katanaRoll = 2.3 * sheathK;
   }
 
   if (state.action === 'attack') twoHanded = true;
@@ -1342,13 +1415,21 @@ function updateEnemies(dt) {
 
     // The orbit distance must sit *inside* the range at which an attack may be
     // committed, otherwise circling enemies can never satisfy the strike test
-    // and the fight deadlocks with everyone walking in circles.
-    const orbitRange = reach * 1.0;
+    // and the fight deadlocks with everyone walking in circles. Archers orbit
+    // at their firing range instead, far outside the melee crowd.
+    const orbitRange = e.spec.bow ? e.spec.range : reach * 1.0;
     const strikeRange = reach * 1.25;
+
+    // An archer's line is invisible except while it aims or fires.
+    if (e.aimLine && e.state !== 'aim' && e.state !== 'loose') e.aimLine.material.opacity = 0;
 
     switch (e.state) {
       case 'approach': {
         move = e.speed;
+        if (e.spec.bow) {
+          if (dist < e.spec.range * 1.25) { e.state = 'circle'; e.t = 0; }
+          break;
+        }
         if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
           e.state = 'windup'; e.t = 0;
         } else if (dist < reach * 1.6) {
@@ -1370,13 +1451,75 @@ function updateEnemies(dt) {
         if (e.t > e.circleFor) {
           e.t = 0;
           e.circleFor = 0.5 + Math.random() * 0.7;
-          if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
+          if (e.spec.bow) {
+            // One arrow in the air at a time keeps the pressure legible.
+            const anyAiming = enemies.some((x) => !x.dead && x.spec.bow
+              && (x.state === 'aim' || x.state === 'loose'));
+            if (!anyAiming && e.cooldown <= 0 && dist > 4.5 && dist < e.spec.range * 1.5) {
+              e.state = 'aim';
+              e.aimDir.set(nx, 0, nz);
+            } else if (Math.random() < 0.3) {
+              e.circleDir *= -1;
+            }
+          } else if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
             e.state = 'windup';
           } else if (dist > reach * 2.2) {
             e.state = 'approach';
           } else if (Math.random() < 0.3) {
             e.circleDir *= -1;
           }
+        }
+        break;
+      }
+      case 'aim': {
+        // The draw: the line tracks the player, then locks with time to move
+        // off it. Dodging the arrow is positional, not a parry read — though a
+        // parry held on release still turns it away.
+        turn = false;
+        const k = Math.min(1, e.t / e.spec.windup);
+        const locked = k >= 0.55;
+        if (!locked) { e.aimDir.set(nx, 0, nz); turn = true; }
+        const L = 17;
+        const line = e.aimLine;
+        line.position.set(pos.x + e.aimDir.x * L / 2, 0.06, pos.z + e.aimDir.z * L / 2);
+        line.rotation.set(-Math.PI / 2, 0, Math.atan2(-e.aimDir.z, e.aimDir.x));
+        line.scale.set(L, locked ? 0.16 : 0.34, 1);
+        line.material.opacity = locked
+          ? 0.42 + Math.sin(state.time * 26) * 0.16
+          : 0.05 + k * 0.1;
+        if (e.t >= e.spec.windup) {
+          e.state = 'loose';
+          e.t = 0;
+          audio.swing(1);
+          const px = p.x - pos.x, pz = p.z - pos.z;
+          const along = px * e.aimDir.x + pz * e.aimDir.z;
+          const across = Math.abs(px * e.aimDir.z - pz * e.aimDir.x);
+          if (along > 0 && along < L && across < 0.6) {
+            if (parryActive()) {
+              // Deflected: rewarded like a read, not a perfect parry.
+              state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
+              state.focus = Math.min(FOCUS_MAX, state.focus + 12 * flowMultiplier());
+              vTmp.set(p.x, 1.2, p.z);
+              spawnParryRing(vTmp);
+              audio.parry();
+              updateHUD();
+            } else if (state.invuln <= 0) {
+              damagePlayer(e.spec.damage, e);
+            }
+          }
+        }
+        break;
+      }
+      case 'loose': {
+        // The release: the line flares to a tracer, then the archer resets.
+        turn = false;
+        const fade = Math.max(0, 1 - e.t / 0.14);
+        e.aimLine.material.opacity = fade * 0.85;
+        e.aimLine.scale.set(17, 0.1 + (1 - fade) * 0.22, 1);
+        if (e.t >= 0.3) {
+          e.state = 'circle';
+          e.t = 0;
+          e.cooldown = 2.6 + Math.random() * 1.6;
         }
         break;
       }
@@ -1538,6 +1681,14 @@ function poseEnemy(e, dt) {
     const k = Math.min(1, e.t / 0.2);
     armX = -2.6 + 3.6 * Math.pow(k, 0.4);
     torsoY = -0.5 + 0.9 * Math.pow(k, 0.5);
+  } else if (e.state === 'aim') {
+    // The draw: bow raised, body turning side-on behind it.
+    const k = Math.min(1, e.t / e.spec.windup);
+    armX = -0.3 - 1.3 * k;
+    torsoY = -0.4 * k;
+  } else if (e.state === 'loose') {
+    armX = -1.6 + Math.min(1, e.t / 0.2) * 1.2;
+    torsoY = -0.4;
   } else if (e.state === 'stagger') {
     armX = 0.5;
     torsoY = Math.sin(e.t * 30) * 0.2;
@@ -1726,12 +1877,19 @@ function renderTitleScreen() {
   ovPoem.hidden = true;
   ovSeal.classList.remove('stamp');
   ovText.innerHTML = 'A sheet of paper. A hundred blades.<br />Every wound you open bleeds into the page and stays there.';
+  const chaseLines = [];
   if (records.wave > 0) {
-    ovChase.hidden = false;
-    ovChase.innerHTML = `BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`;
-  } else {
-    ovChase.hidden = true;
+    chaseLines.push(`BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`);
   }
+  // A standing grudge fires the hook before the run starts, not five waves in.
+  const grudge = loadGrudge();
+  if (grudge) {
+    const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
+    const wave = (names.indexOf(grudge) + 1) * 5;
+    chaseLines.push(`怨 <b>${grudge}</b> WAITS AT WAVE ${wave}`);
+  }
+  ovChase.hidden = chaseLines.length === 0;
+  ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
   ovBtn.textContent = 'BEGIN';
   ovDaily.hidden = false;
@@ -1779,6 +1937,7 @@ function composeDeathPoem(record) {
     ronin: ['a straw hat’s patient answer', 'one plain cut from a plain man'],
     hunter: ['the quick one wrote faster', 'a hunter’s short reply'],
     yari: ['the spear i never saw', 'reach i did not respect'],
+    yumi: ['the arrow i heard too late', 'a string sang once, far off'],
     brute: ['the slow blade fell anyway', 'weight enough to close a book'],
     oni: who
       ? [`${who} signed the page for me`, `${who}’s answer was iron`]
@@ -1928,6 +2087,14 @@ addEventListener('keydown', (e) => {
 
 // A fresh run's title screen, and the snappy path back in after a defeat: if
 // DRAW AGAIN reloaded the page, drop straight into a new run in the same mode.
+// The installed game keeps working offline. Skipped on localhost so the dev
+// loop never fights a cache; deploy.mjs stamps the worker per build.
+if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
+  });
+}
+
 renderTitleScreen();
 try {
   const restart = sessionStorage.getItem('samurai-restart');
@@ -2030,8 +2197,9 @@ function step(dt) {
   audio.setRustle(world.ambience.rustle);
 
   const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
-  rain.update(sdt, player.root.position, bossWave ? 1 : 0);
-  audio.setWind(bossWave ? 0.13 : 0.05);
+  const act = currentAct();
+  rain.update(sdt, player.root.position, Math.max(bossWave ? 1 : 0, state.running ? act.rain : 0));
+  audio.setWind(bossWave ? 0.13 : 0.05 + (state.running ? act.wind : 0));
   const musicPressure = state.running
     ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
     : 0;
@@ -2047,9 +2215,9 @@ function step(dt) {
   // climb on real time while scaled time stands still, so the held final frame
   // visibly hardens into its last image.
   deathCrush += ((state.over ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
-  film.uniforms.uGrain.value = 0.05 + hurtK * 0.06;
-  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05 + deathCrush * 0.3;
-  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55;
+  film.uniforms.uGrain.value = 0.05 + hurtK * 0.06 + act.grain;
+  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05 + deathCrush * 0.3 + act.vig;
+  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55 + act.con;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash;
   film.updateFilm(state.time);

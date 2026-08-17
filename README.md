@@ -80,9 +80,19 @@ ranks; selecting a mastered discipline restores life and focus instead.
 
 Waves escalate by silhouette: ronin under a straw kasa, bare-headed hunters
 that close fast, then the lean **yari** spearman from wave three — a narrow,
-taller figure whose long pole strikes from what feels like safe distance. Brutes
-arrive at wave four, and every fifth wave brings a named rival with a fast
-follow-up cut. Defeating the rival restores focus and forces an execution
+taller figure whose long pole strikes from what feels like safe distance.
+Brutes arrive at wave four, the **yumi** archer at wave six — it holds its
+distance behind a tall stave and fires along a telegraphed ground line that
+tracks, then locks, leaving a beat to move off it (a held parry still turns
+the arrow) — and every fifth wave brings a named rival with a fast follow-up
+cut.
+
+Every five waves is a named act — MORNING PAPER, THE CROWS, NIGHTFALL, THE
+LONG RAIN, THE BLACK PAGE — and the print travels with them: grain, vignette
+and contrast harden act by act, and the late acts bring rain. The last act
+holds; an endless run does not cycle back to morning. Stand still long enough
+on a quiet field and the samurai sheathes the blade; the first input draws it
+again. Defeating the rival restores focus and forces an execution
 finish. A well-timed dash through an incoming strike holds Flow and grants focus.
 
 Once per run a **last stand** catches the blow that would end it: the samurai
@@ -101,6 +111,11 @@ A **Daily Trial** (button on the title screen) seeds the run from the date, so
 everyone playing a given day meets the same wave structure, spawn layout, and
 discipline scrolls — the enemy micro-timing still varies, so it plays live
 rather than on rails.
+
+The site installs as a PWA and plays offline: a service worker (`sw.js`)
+caches the versioned assets cache-first and falls back to the cached page when
+the network is gone. Its cache name carries the build version (stamped by
+`deploy.mjs`), so each deploy installs a fresh worker and drops the old cache.
 
 ## The look
 

@@ -290,6 +290,10 @@ export const ENEMY_TYPES = {
   // Yari spearman: lean and tall, with a long pole that strikes from what
   // feels like a safe distance. Read the reach, not the body.
   yari: { height: 1.14, hat: false, mask: false, hp: 30, speed: 3.15, reach: 4.6, windup: 0.6, damage: 16, value: 2, pole: true },
+  // Yumi archer: holds distance and fires along a telegraphed line. The only
+  // enemy the player must move against rather than parry. `windup` is the
+  // draw time; `range` the preferred firing distance.
+  yumi: { height: 0.95, hat: true, mask: false, hp: 22, speed: 2.6, reach: 2.0, windup: 1.15, damage: 14, value: 2, bow: true, range: 12 },
   // Slow, heavy, huge reach. Read the wind-up or pay for it.
   brute: { height: 1.35, hat: false, mask: true, hp: 90, speed: 2.0, reach: 3.4, windup: 0.82, damage: 26, value: 3 },
   // Boss.
@@ -364,10 +368,24 @@ export function makeEnemy(type) {
 
   // Enemy steel stays grey until the emissive wind-up telegraph. The player's
   // blade remains white, which makes ownership clear when figures overlap.
-  const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : spec.pole ? 2.7 : 1.1, true);
-  katana.position.set(0, spec.pole ? -0.9 : -0.52, 0.05);
-  // Same grip pitch as the player: without it the blade skewers the kasa.
-  katana.rotation.x = 1.05;
+  // The archer carries a tall yumi stave instead — its vertical line is the
+  // silhouette read at distance, the way the kasa and horns are for the others.
+  let katana;
+  if (spec.bow) {
+    katana = new THREE.Group();
+    const stave = vpart('yumiStave', boxLayers(1, 1, 14), 0.34, { centerY: false });
+    stave.position.y = -0.68;
+    const grip = vpart('yumiGrip', boxLayers(1, 1, 2), 0.10, { centerY: false });
+    grip.position.y = -0.1;
+    katana.add(stave, grip);
+    katana.position.set(0, -0.45, 0.08);
+    katana.rotation.x = 0.12;
+  } else {
+    katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : spec.pole ? 2.7 : 1.1, true);
+    katana.position.set(0, spec.pole ? -0.9 : -0.52, 0.05);
+    // Same grip pitch as the player: without it the blade skewers the kasa.
+    katana.rotation.x = 1.05;
+  }
   armR.add(katana);
 
   const legL = new THREE.Group();
