@@ -50,6 +50,13 @@ Wrangler explicitly.
 | `F` | Iai draw, once focus is full |
 | `1` / `2` / `3` | Choose a discipline between waves |
 
+On a touch device the game switches to touch controls automatically: a dynamic
+left-thumb stick for movement, and kanji buttons on the right — 斬 cut, 受
+parry, 疾 dash, 抜 iai. Without a cursor the aim model changes: mid-cut the
+blade seeks the nearest enemy, on the move the samurai faces his feet, and
+standing idle he squares up to the closest threat. The duel plays in landscape;
+portrait shows a rotate prompt.
+
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
 focus charge makes one calm white ink aura breathe around the player and briefly shows

@@ -81,6 +81,26 @@ const trail = new SlashTrail(scene, { radius: 2.7, width: 1.7, sweep: 3.0 });
 const enemyTrail = new SlashTrail(scene, { radius: 2.2, width: 1.0, sweep: 2.4, color: 0x101015 });
 
 const input = new Input(film.domElement);
+
+// Touch controls: shown once we know the device is touch-first (coarse pointer
+// at load) or the moment a real touch arrives. The stick and buttons feed the
+// same action buffers as the keyboard, so the game logic never knows.
+function enableTouchUI() {
+  if (document.body.classList.contains('touch')) return;
+  document.body.classList.add('touch');
+  input.touchActive = true;
+}
+input.bindStick(
+  document.getElementById('stickZone'),
+  document.getElementById('stickRing'),
+  document.getElementById('stickNub'),
+);
+input.bindButton(document.getElementById('touchCut'), 'attack');
+input.bindButton(document.getElementById('touchDash'), 'dash');
+input.bindButton(document.getElementById('touchParry'), 'parry');
+input.bindButton(document.getElementById('touchIai'), 'focus');
+if (matchMedia('(pointer: coarse)').matches) enableTouchUI();
+addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') enableTouchUI(); });
 const audio = new Audio();
 
 // Lighting: one hard key for shape, a dim fill so blacks aren't dead, and a
@@ -209,7 +229,32 @@ function aimPoint(out) {
   return out;
 }
 
+function nearestEnemyYaw(range) {
+  let best = null;
+  let bestD = range * range;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const dx = e.actor.root.position.x - player.root.position.x;
+    const dz = e.actor.root.position.z - player.root.position.z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = Math.atan2(dx, dz); }
+  }
+  return best;
+}
+
 function aimYaw() {
+  // Touch has no cursor, so the aim model changes: mid-cut (or with a cut
+  // queued) the blade seeks the nearest man; on the move the samurai faces
+  // his feet; standing idle he squares up to the closest threat.
+  if (input.touchActive) {
+    const target = nearestEnemyYaw(9);
+    const attacking = state.action === 'attack'
+      || input.buffers.attack > 0 || input.buffers.focus > 0;
+    if (attacking && target !== null) return target;
+    if (input.moveVector(vTmp)) return Math.atan2(vTmp.x, vTmp.z);
+    if (target !== null) return target;
+    return state.facing;
+  }
   aimPoint(vAim);
   const dx = vAim.x - player.root.position.x;
   const dz = vAim.z - player.root.position.z;
@@ -1498,7 +1543,12 @@ function poseEnemy(e, dt) {
 
 function updateCamera(dt) {
   const p = player.root.position;
-  aimPoint(vAim);
+  // Without a cursor the frame biases toward where the samurai faces.
+  if (input.touchActive) {
+    vAim.set(p.x + Math.sin(state.facing) * 4, 0, p.z + Math.cos(state.facing) * 4);
+  } else {
+    aimPoint(vAim);
+  }
   // Bias the frame toward where the player is looking, but only a little —
   // the camera should feel locked off, like a tripod, not chase the cursor.
   vTmp2.set(vAim.x - p.x, 0, vAim.z - p.z);

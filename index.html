@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <title>ONISOLO: THE PAGE REMEMBERS</title>
 <meta name="theme-color" content="#0a0a0d" />
 <meta name="description" content="Onisolo is a monochrome browser sword game played on a living sheet of ink and paper." />
@@ -43,7 +45,10 @@
     cursor: crosshair;
     user-select: none;
     -webkit-user-select: none;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
+  body.touch { cursor: default; }
 
   #app { position: fixed; inset: 0; }
   #app canvas { display: block; }
@@ -688,6 +693,114 @@
   }
   #ovShare:hover { background: rgba(233, 228, 214, 0.12); }
   #ovShare[hidden] { display: none; }
+
+  /* ------------------------------------------------------------- touch UI */
+  /* Hidden until the device proves it is touch-first; the JS stamps `touch`
+     on <body> from a coarse-pointer query or the first real touch. */
+  #touchUI { display: none; }
+  body.touch #touchUI { display: block; }
+  body.touch #help, body.touch #controls { display: none; }
+  #touchControls { display: none; }
+  body.touch #touchControls {
+    display: block;
+    margin-top: 24px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    opacity: 0.55;
+  }
+  #touchControls b { font-weight: 400; opacity: 1; }
+
+  #stickZone {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 55%;
+    height: 100%;
+    z-index: 8;
+    touch-action: none;
+  }
+  #stickRing {
+    position: fixed;
+    width: 104px;
+    height: 104px;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(233, 228, 214, 0.4);
+    border-radius: 50%;
+    z-index: 9;
+    pointer-events: none;
+    display: none;
+  }
+  #stickRing.on { display: block; }
+  #stickNub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 42px;
+    height: 42px;
+    transform: translate(-50%, -50%);
+    background: rgba(233, 228, 214, 0.8);
+    border-radius: 50%;
+  }
+
+  #touchButtons {
+    position: fixed;
+    right: calc(14px + env(safe-area-inset-right, 0px));
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 9;
+    width: 190px;
+    height: 190px;
+  }
+  #touchButtons button {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    font-family: inherit;
+    color: var(--paper);
+    background: rgba(10, 10, 13, 0.35);
+    border: 1px solid rgba(233, 228, 214, 0.5);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    padding: 0;
+  }
+  #touchButtons button .k { font-size: 26px; line-height: 1; }
+  #touchButtons button .l { font-size: 8px; letter-spacing: 0.22em; text-indent: 0.22em; opacity: 0.7; }
+  #touchButtons button.pressed { background: var(--paper); color: #0a0a0d; }
+  /* The cut is the thumb's home; parry sits inside its reach; dash and iai
+     ride above them. */
+  #touchCut { right: 0; bottom: 44px; width: 84px; height: 84px; }
+  #touchParry { right: 92px; bottom: 12px; width: 68px; height: 68px; }
+  #touchDash { right: 22px; bottom: 136px; width: 56px; height: 56px; }
+  #touchDash .k { font-size: 20px; }
+  #touchParry .k { font-size: 22px; }
+  #touchIai { right: 106px; bottom: 106px; width: 50px; height: 50px; }
+  #touchIai .k { font-size: 18px; }
+
+  /* A 2.39:1 duel does not fit a portrait phone. */
+  #rotateHint { display: none; }
+  @media (orientation: portrait) {
+    body.touch #rotateHint {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: rgba(5, 5, 7, 0.94);
+      letter-spacing: 0.3em;
+      text-indent: 0.3em;
+      font-size: 13px;
+    }
+    body.touch #rotateHint .mark { font-size: 54px; opacity: 0.85; }
+    body.touch #rotateHint small { font-size: 10px; opacity: 0.55; letter-spacing: 0.2em; }
+  }
 </style>
 </head>
 <body>
@@ -741,6 +854,23 @@
   <div id="upgradeChoices"></div>
 </div>
 
+<div id="touchUI" aria-hidden="true">
+  <div id="stickZone"></div>
+  <div id="stickRing"><div id="stickNub"></div></div>
+  <div id="touchButtons">
+    <button id="touchIai" type="button"><span class="k">抜</span><span class="l">IAI</span></button>
+    <button id="touchDash" type="button"><span class="k">疾</span><span class="l">DASH</span></button>
+    <button id="touchParry" type="button"><span class="k">受</span><span class="l">PARRY</span></button>
+    <button id="touchCut" type="button"><span class="k">斬</span><span class="l">CUT</span></button>
+  </div>
+</div>
+
+<div id="rotateHint">
+  <div class="mark">頁</div>
+  <div>ROTATE THE PAGE</div>
+  <small>the duel plays in landscape</small>
+</div>
+
 <div id="overlay">
   <h1 id="ovTitle"><img src="./assets/onisolo-logo.svg" alt="Onisolo" /></h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
@@ -765,6 +895,9 @@
     <span>SPACE</span><span>parry; time it against the white blade</span>
     <span>F</span><span>iai draw; charge with kills + perfect parries</span>
   </div>
+  <div id="touchControls">
+    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>抜</b> IAI
+  </div>
 </div>
 
 <script type="importmap">
@@ -774,7 +907,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=33"></script>
+<script type="module" src="./src/main.js?v=34"></script>
 
 </body>
 </html>
