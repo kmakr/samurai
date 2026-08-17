@@ -140,6 +140,7 @@ const state = {
   seenYari: false,
   lastStandUsed: false,
   deathBy: '',
+  deathInfo: null,
   escapeCharges: 0,
   pendingUpgrade: false,
   choosingUpgrade: false,
@@ -227,6 +228,7 @@ function hitstop(duration, scale = 0.08) {
 }
 
 let whiteFlash = 0;
+let deathCrush = 0;
 function flash(v) { whiteFlash = Math.max(whiteFlash, v); }
 
 const combatCalloutEl = document.getElementById('combatCallout');
@@ -784,6 +786,11 @@ function damagePlayer(amount, source = null) {
   updateHUD();
   if (state.hp <= 0) {
     state.deathBy = deathCause(source, actionAtHit);
+    state.deathInfo = {
+      type: source ? source.type : '',
+      rival: (source && source.rival && source.rivalName) || '',
+      action: actionAtHit,
+    };
     gameOver();
   }
 }
@@ -1571,6 +1578,9 @@ const ovSub = document.getElementById('ovSub');
 const ovText = document.getElementById('ovText');
 const ovBtn = document.getElementById('ovBtn');
 const ovCause = document.getElementById('ovCause');
+const ovPoem = document.getElementById('ovPoem');
+const ovPoemText = document.getElementById('ovPoemText');
+const ovSeal = document.getElementById('ovSeal');
 const ovChase = document.getElementById('ovChase');
 const ovDaily = document.getElementById('ovDaily');
 const ovShare = document.getElementById('ovShare');
@@ -1626,6 +1636,8 @@ function renderTitleScreen() {
   ovTitle.innerHTML = TITLE_LOGO;
   ovSub.textContent = 'THE PAGE REMEMBERS';
   ovCause.hidden = true;
+  ovPoem.hidden = true;
+  ovSeal.classList.remove('stamp');
   ovText.innerHTML = 'A sheet of paper. A hundred blades.<br />Every wound you open bleeds into the page and stays there.';
   if (records.wave > 0) {
     ovChase.hidden = false;
@@ -1639,11 +1651,84 @@ function renderTitleScreen() {
   ovShare.hidden = true;
 }
 
+// ----------------------------------------------------------- the death poem
+// Samurai wrote jisei — a last poem, left where they fell. This one is
+// composed from the run's actual facts and seeded by them, so a given death
+// always writes the same three lines: the poem belongs to that death, not to
+// a dice roll. Deterministic, quiet, no cleverness at runtime.
+
+function numberWord(n) {
+  const words = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+    'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen', 'twenty'];
+  return n <= 20 ? words[n] : String(n);
+}
+
+function composeDeathPoem(record) {
+  const info = state.deathInfo || { type: '', rival: '', action: '' };
+  const w = state.wave;
+  const seed = dateSeed(`${w}|${state.kills}|${state.perfectParries}|${info.type}|${info.action}`);
+  const rng = mulberry32(seed);
+  const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+
+  // Line one: the span of the run.
+  const spans = w <= 2 ? [
+    'the brush barely wet',
+    'two strokes, then stillness',
+    'ink still loose on the bristles',
+  ] : w <= 9 ? [
+    `${numberWord(w)} waves of ink`,
+    `${numberWord(w)} waves, each darker`,
+    `the page took ${numberWord(w)} waves from me`,
+  ] : [
+    `${numberWord(w)} waves deep, the paper heavy`,
+    `${numberWord(w)} waves — the page near black`,
+    `${numberWord(w)} waves of careful cutting`,
+  ];
+
+  // Line two: the death itself, in the killer's shape.
+  const who = info.rival ? info.rival.toLowerCase() : '';
+  const deaths = {
+    ronin: ['a straw hat’s patient answer', 'one plain cut from a plain man'],
+    hunter: ['the quick one wrote faster', 'a hunter’s short reply'],
+    yari: ['the spear i never saw', 'reach i did not respect'],
+    brute: ['the slow blade fell anyway', 'weight enough to close a book'],
+    oni: who
+      ? [`${who} signed the page for me`, `${who}’s answer was iron`]
+      : ['the iron demon signed his name', 'horns against a paper sky'],
+  }[info.type] || ['no blade — only my own haste', 'the field itself grew teeth'];
+  const caught = {
+    dash: 'caught between two footfalls',
+    attack: 'my own cut left the door open',
+    parry: 'a breath behind the steel',
+    iai: 'cut down mid-draw, sword half-born',
+  }[info.action];
+  if (caught) deaths.push(caught);
+
+  // Line three: what the page keeps.
+  const closings = [];
+  if (record) closings.push('furthest yet — dry it, turn the sheet', 'a new high-water mark of ink');
+  if (state.perfectParries >= 8) closings.push('steel rang like temple bells, then rain');
+  if (state.kills >= 30) closings.push('so much ink, and none of it mine to keep');
+  if (state.bestChain >= 8) closings.push('the flow broke where the paper folds');
+  closings.push(
+    'the ink dries lighter, never gone',
+    'the page remembers what i forgot',
+    'wind over paper, then stillness',
+  );
+
+  return [pick(spans), pick(deaths), pick(closings)];
+}
+
+let lastPoem = null;
+
 function buildShareText() {
   const tag = run.daily ? `Daily · ${run.dateStr}` : todayStamp();
+  const poem = lastPoem ? [``, ...lastPoem.map((l) => `  ${l}`), ``] : [];
   return [
     'ONISOLO — THE PAGE REMEMBERS',
     tag,
+    ...poem,
     `Wave ${state.wave} · ${state.kills} kills · ${state.perfectParries} perfect parries · best flow ${state.bestChain}`,
     'https://samurai.theoazriel.com',
   ].join('\n');
@@ -1666,9 +1751,13 @@ function gameOver() {
   state.running = false;
   updateHUD();
   ink.splashScreen(20, 2.2);
-  hitstop(0.5, 0.05);
+  // The print ends rather than fading: the final frame holds near-frozen for a
+  // long beat — grain, weave and flicker all stop with it — while the music is
+  // pulled out and only the wind is left. The overlay waits for the silence.
+  hitstop(1.1, 0.02);
   audio.setWind(0.12);
   audio.setMusicIntensity(0);
+  audio.silenceMusic(1.3, 0.001);
   const records = loadRecords();      // previous bests, before this run folds in
   const prevBestWave = records.wave;
   const newRecords = {
@@ -1695,11 +1784,19 @@ function gameOver() {
     chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST — WAVE <b>${prevBestWave}</b>`;
   }
 
+  lastPoem = composeDeathPoem(record);
+
   setTimeout(() => {
     ovTitle.textContent = 'DEFEAT';
     ovSub.textContent = record ? 'A NEW RECORD' : run.daily ? `DAILY · ${run.dateStr}` : 'DEATH ON THE PAGE';
     ovCause.hidden = false;
     ovCause.textContent = state.deathBy || 'CUT DOWN';
+    ovPoem.hidden = false;
+    ovPoemText.innerHTML = lastPoem.join('<br />');
+    // The vermilion seal is pressed only on a record — the game's single drop
+    // of color, spent when the page gains a new mark.
+    ovSeal.classList.remove('stamp');
+    if (record) { void ovSeal.offsetWidth; ovSeal.classList.add('stamp'); }
     ovText.innerHTML = `WAVE ${state.wave} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
     ovChase.hidden = false;
     ovChase.innerHTML = chase;
@@ -1710,7 +1807,7 @@ function gameOver() {
     ovShare.textContent = 'COPY RESULT';
     overlay.classList.remove('hidden');
     input.enabled = false;
-  }, 420);
+  }, 1200);
 }
 
 function beginGame(opts = {}) {
@@ -1850,9 +1947,13 @@ function step(dt) {
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
   const flowK = Math.min(1, state.chain / 15);
+  // On death the print is crushed rather than faded: contrast and vignette
+  // climb on real time while scaled time stands still, so the held final frame
+  // visibly hardens into its last image.
+  deathCrush += ((state.over ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
   film.uniforms.uGrain.value = 0.05 + hurtK * 0.06;
-  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05;
-  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10;
+  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05 + deathCrush * 0.3;
+  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash;
   film.updateFilm(state.time);

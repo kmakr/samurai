@@ -461,6 +461,7 @@
     #waveTitle.show, #combatCallout.show, .scroll { animation-duration: 0.01ms; }
     .scroll, #flow, #vitals, .inkFill, #iaiReadyNotice { transition: none; }
     #iaiGauge.ready .inkFill { animation: none; }
+    #ovSeal.stamp { animation-duration: 0.01ms; animation-delay: 0s; }
   }
 
   /* -------------------------------------------------------------- overlay */
@@ -553,6 +554,59 @@
     opacity: 0.9;
   }
   #ovCause[hidden] { display: none; }
+
+  /* The death poem: the one place the game drops its capitals and speaks in a
+     voice instead of a label. */
+  #ovPoem {
+    position: relative;
+    margin-top: 18px;
+    font-size: clamp(12px, 1.3vw, 14px);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0.13em;
+    line-height: 2.1;
+    opacity: 0.88;
+  }
+  #ovPoem[hidden] { display: none; }
+
+  /* The single drop of color in a monochrome game: a vermilion hanko, pressed
+     only when the page gains a new record. Spent, not decorated with. */
+  #ovSeal {
+    position: absolute;
+    top: -16px;
+    right: -66px;
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #c53a28;
+    color: var(--paper);
+    font-size: 27px;
+    font-style: normal;
+    line-height: 1;
+    clip-path: polygon(4% 9%, 95% 2%, 100% 90%, 8% 98%);
+    transform: rotate(-8deg);
+    opacity: 0;
+    pointer-events: none;
+  }
+  #ovSeal.stamp { animation: sealStamp 0.42s cubic-bezier(0.5, 1.6, 0.4, 1) 0.7s forwards; }
+  @keyframes sealStamp {
+    0% { opacity: 0; transform: scale(1.8) rotate(-17deg); }
+    55% { opacity: 1; transform: scale(0.9) rotate(-6deg); }
+    100% { opacity: 0.92; transform: scale(1) rotate(-8deg); }
+  }
+
+  /* A thin vermilion edge marks the daily trial — the same red, spent small. */
+  #ovDaily::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 12px;
+    background: #c53a28;
+    vertical-align: 1px;
+  }
 
   #ovChase {
     margin-top: 10px;
@@ -691,6 +745,7 @@
   <h1 id="ovTitle"><img src="./assets/onisolo-logo.svg" alt="Onisolo" /></h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
   <div id="ovCause" hidden></div>
+  <div id="ovPoem" hidden><span id="ovPoemText"></span><span id="ovSeal" aria-label="record seal">極</span></div>
   <p id="ovText">
     A sheet of paper. A hundred blades.<br />
     Every wound you open bleeds into the page and stays there.
@@ -719,7 +774,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=31"></script>
+<script type="module" src="./src/main.js?v=32"></script>
 
 </body>
 </html>
