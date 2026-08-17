@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FilmRenderer, applyLetterbox } from './render.js';
+import { FilmRenderer, applyLetterbox, viewportSize } from './render.js';
 import { InkSystem } from './ink.js';
 import { buildWorld, ARENA, Rain } from './world.js';
 import { makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion } from './actors.js';
@@ -221,7 +221,7 @@ const pointer = new THREE.Vector2();
 // ------------------------------------------------------------------- aiming
 
 function aimPoint(out) {
-  pointer.set((input.mouse.x / innerWidth) * 2 - 1, -(input.mouse.y / innerHeight) * 2 + 1);
+  pointer.set((input.mouse.x / sizedW) * 2 - 1, -(input.mouse.y / sizedH) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
   if (!raycaster.ray.intersectPlane(groundPlane, out)) {
     out.copy(player.root.position).add(vTmp.set(0, 0, -1));
@@ -1951,13 +1951,18 @@ function onResize() {
 
 // Reconcile every frame rather than trusting the resize event alone. A resize
 // that fires while the page is hidden reports 0x0, and nothing guarantees a
-// second event when it comes back — which would leave the canvas stuck.
+// second event when it comes back — which would leave the canvas stuck. On
+// phones this same loop absorbs rotation: the browser reports dimensions late
+// and in several steps, and the frame after they settle repairs the layout.
 function checkResize() {
-  if (innerWidth < 1 || innerHeight < 1) return;
-  if (innerWidth !== sizedW || innerHeight !== sizedH) onResize();
+  const { w, h } = viewportSize();
+  if (w < 2 || h < 2) return;
+  if (w !== sizedW || h !== sizedH) onResize();
 }
 
 addEventListener('resize', onResize);
+addEventListener('orientationchange', () => setTimeout(onResize, 120));
+if (window.visualViewport) visualViewport.addEventListener('resize', onResize);
 onResize();
 
 // ------------------------------------------------------------------ the loop

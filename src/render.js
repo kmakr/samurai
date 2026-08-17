@@ -161,7 +161,7 @@ export class FilmRenderer {
   resize() {
     // A backgrounded or collapsed tab reports zero, which would leave the
     // render target at 0x0 and break the next frame.
-    const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+    const { w, h } = viewportSize();
     const dpr = this.renderer.getPixelRatio();
     this.renderer.setSize(w, h);
     this.target.setSize(Math.floor(w * dpr), Math.floor(h * dpr));
@@ -192,24 +192,38 @@ export class FilmRenderer {
   }
 }
 
+// The size everything renders and frames against. `clientWidth/Height` is the
+// layout viewport that `position: fixed; inset: 0` elements actually span —
+// unlike innerWidth/Height, which on mobile browsers can include space behind
+// the URL bar after a rotation, leaving the canvas taller than what is visible
+// and the bottom HUD under the chrome.
+export function viewportSize() {
+  const el = document.documentElement;
+  return {
+    w: Math.max(1, el.clientWidth || innerWidth),
+    h: Math.max(1, el.clientHeight || innerHeight),
+  };
+}
+
 // Academy-era framing. Kurosawa shot 1.37:1 through Seven Samurai and moved to
 // scope later; the letterbox is set from index.html and just needs sizing here.
 export function applyLetterbox(ratio) {
   const bars = document.querySelectorAll('.bar');
+  const { w: vw, h: vh } = viewportSize();
   // Keep enough black frame for the HUD even when the screen is wider than the
   // film ratio. This makes the frame and HUD use the same responsive geometry.
-  const maxH = innerHeight * 0.16;
-  const maxW = innerWidth * 0.16;
-  const minHudH = Math.min(72, Math.max(52, innerHeight * 0.095));
-  const naturalH = Math.max(0, (innerHeight - innerWidth / ratio) / 2);
+  const maxH = vh * 0.16;
+  const maxW = vw * 0.16;
+  const minHudH = Math.min(72, Math.max(52, vh * 0.095));
+  const naturalH = Math.max(0, (vh - vw / ratio) / 2);
   const h = Math.min(maxH, Math.max(minHudH, naturalH));
-  const framedHeight = innerHeight - h * 2;
-  const w = Math.min(maxW, Math.max(0, (innerWidth - framedHeight * ratio) / 2));
+  const framedHeight = vh - h * 2;
+  const w = Math.min(maxW, Math.max(0, (vw - framedHeight * ratio) / 2));
   bars[0].style.height = `${h}px`;
   bars[1].style.height = `${h}px`;
   bars[2].style.width = `${w}px`;
   bars[3].style.width = `${w}px`;
   document.documentElement.style.setProperty('--film-bar-h', `${h}px`);
   document.documentElement.style.setProperty('--film-bar-w', `${w}px`);
-  document.documentElement.classList.toggle('hud-compact', innerWidth < 620 || h < 58);
+  document.documentElement.classList.toggle('hud-compact', vw < 620 || h < 58);
 }
