@@ -37,7 +37,7 @@ for (const file of readdirSync(join(stage, 'src'))) {
 // The service worker's cache name carries the build, so each deploy installs a
 // fresh worker and clears the previous build's cache on activation.
 const swPath = join(stage, 'sw.js');
-writeFileSync(swPath, readFileSync(swPath, 'utf8').replace('__BUILD__', version));
+writeFileSync(swPath, readFileSync(swPath, 'utf8').replaceAll('__BUILD__', version));
 
 execSync(`npx wrangler pages deploy "${stage}" --project-name=samurai --branch=master`, { stdio: 'inherit' });
 rmSync(stage, { recursive: true, force: true });
