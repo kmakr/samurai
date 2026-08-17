@@ -22,16 +22,20 @@ Then open <http://localhost:5173>.
 Hosted on Cloudflare Pages — project `samurai`, live at
 <https://samurai.theoazriel.com> (also <https://samurai-exp.pages.dev>).
 
-There is no build step, so deploys are a direct upload of the repo contents:
+There is no build step; a deploy is one command:
 
 ```bash
-git archive HEAD | tar -x -C /tmp/samurai-deploy
-rm -rf /tmp/samurai-deploy/.claude
-npx wrangler pages deploy /tmp/samurai-deploy --project-name=samurai --branch=master
+node deploy.mjs
 ```
 
-Staging from `git archive` rather than uploading the working directory keeps
-`.git` and local editor state out of the published site.
+The script stages a clean copy of HEAD (keeping `.git` and editor state out of
+the published site) and stamps every relative module import with the build
+version from `index.html` — the same rewrite `dev-server.mjs` applies with its
+boot timestamp. This matters: Pages serves `/src/*.js` with a four-hour browser
+cache, so an unstamped deploy can pair a fresh `main.js?v=N` with a stale
+cached sibling module and crash on import. `_headers` additionally marks
+everything `no-cache` (revalidate via etag) so future deploys propagate
+immediately once old cache entries age out.
 
 Note this is **direct upload, not Git-connected** — pushing to GitHub does not
 redeploy on its own. Cloudflare does not support converting an existing Direct
