@@ -543,6 +543,97 @@
   }
   #controls span:nth-child(odd) { text-align: right; opacity: 0.75; }
   #controls span:nth-child(even) { text-align: left; }
+
+  #ovCause {
+    margin-top: 14px;
+    font-size: clamp(11px, 1.3vw, 15px);
+    letter-spacing: 0.26em;
+    text-indent: 0.26em;
+    color: var(--paper);
+    opacity: 0.9;
+  }
+  #ovCause[hidden] { display: none; }
+
+  #ovChase {
+    margin-top: 10px;
+    font-size: clamp(10px, 1.1vw, 13px);
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    opacity: 0.62;
+  }
+  #ovChase b { opacity: 0.95; font-weight: 700; }
+  #ovChase[hidden] { display: none; }
+
+  /* The page's memory: one dried ink stroke per past run, height scaled to how
+     far that run reached. The most recent stroke stays darkest. */
+  #ledger {
+    margin-top: 20px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    height: 34px;
+    max-width: min(80vw, 560px);
+    flex-wrap: wrap;
+    overflow: hidden;
+  }
+  #ledger i {
+    display: block;
+    width: 3px;
+    background: var(--paper);
+    border-radius: 1px;
+    opacity: 0.22;
+    transform: rotate(var(--tilt, 0deg));
+    transform-origin: 50% 100%;
+  }
+  #ledger i.best { opacity: 0.85; width: 4px; }
+  #ledger i.latest { opacity: 0.7; }
+
+  #ovButtons {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #ovDaily {
+    position: relative;
+    z-index: 2;
+    margin-top: 26px;
+    padding: 13px 30px;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0.34em;
+    text-indent: 0.34em;
+    color: var(--paper);
+    background: transparent;
+    border: 1px solid rgba(233, 228, 214, 0.4);
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+  }
+  #ovDaily:hover { background: rgba(233, 228, 214, 0.12); border-color: var(--paper); }
+  #ovDaily.armed { background: var(--paper); color: #0a0a0d; border-color: var(--paper); }
+  #ovDaily[hidden] { display: none; }
+
+  #ovShare {
+    margin-top: 16px;
+    padding: 9px 26px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    text-indent: 0.32em;
+    color: var(--paper);
+    background: transparent;
+    border: 1px solid rgba(233, 228, 214, 0.35);
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+    transition: background 0.2s, color 0.2s;
+  }
+  #ovShare:hover { background: rgba(233, 228, 214, 0.12); }
+  #ovShare[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -599,11 +690,18 @@
 <div id="overlay">
   <h1 id="ovTitle"><img src="./assets/onisolo-logo.svg" alt="Onisolo" /></h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
+  <div id="ovCause" hidden></div>
   <p id="ovText">
     A sheet of paper. A hundred blades.<br />
     Every wound you open bleeds into the page and stays there.
   </p>
-  <button id="ovBtn" type="button">BEGIN</button>
+  <div id="ovChase" hidden></div>
+  <div id="ledger" aria-hidden="true"></div>
+  <div id="ovButtons">
+    <button id="ovBtn" type="button">BEGIN</button>
+    <button id="ovDaily" type="button">DAILY TRIAL</button>
+  </div>
+  <button id="ovShare" type="button" hidden>COPY RESULT</button>
   <div id="controls">
     <span>WASD</span><span>move</span>
     <span>MOUSE</span><span>aim the cut</span>
@@ -621,7 +719,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=30"></script>
+<script type="module" src="./src/main.js?v=31"></script>
 
 </body>
 </html>

@@ -67,11 +67,29 @@ scrolls pause the fight and offer a run upgrade: parry timing, dash damage,
 combo-finisher damage, focus retention, or iai reach. Each discipline has three
 ranks; selecting a mastered discipline restores life and focus instead.
 
-Every fifth wave brings a named rival with a fast follow-up cut. Defeating the
-rival restores focus and forces an execution finish. A well-timed dash through
-an incoming strike holds Flow and grants focus. Falling Leaf is an additional
-discipline that can prevent one fatal hit. Defeat appears quickly and records
-wave, kills, perfect parries, and best Flow in local browser storage.
+Waves escalate by silhouette: ronin under a straw kasa, bare-headed hunters
+that close fast, then the lean **yari** spearman from wave three — a narrow,
+taller figure whose long pole strikes from what feels like safe distance. Brutes
+arrive at wave four, and every fifth wave brings a named rival with a fast
+follow-up cut. Defeating the rival restores focus and forces an execution
+finish. A well-timed dash through an incoming strike holds Flow and grants focus.
+
+Once per run a **last stand** catches the blow that would end it: the samurai
+survives at a sliver of life inside a long beat of slow motion, turning a sudden
+death into a near miss. Falling Leaf is an additional discipline that layers
+extra escapes on top.
+
+Defeat names the death — who struck and what the samurai was caught doing — and
+measures the run against your best (how many waves short, or a new record). The
+page remembers across runs: every past run leaves a dried ink stroke in a ledger
+on the title and defeat screens, scaled to how far it reached. Bests, kills,
+perfect parries, and best Flow persist in local browser storage, and a defeat
+can be copied as a shareable result card.
+
+A **Daily Trial** (button on the title screen) seeds the run from the date, so
+everyone playing a given day meets the same wave structure, spawn layout, and
+discipline scrolls — the enemy micro-timing still varies, so it plays live
+rather than on rails.
 
 ## The look
 

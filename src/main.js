@@ -137,6 +137,9 @@ const state = {
   chainTimer: 0,
   bestChain: 0,
   rivalKills: 0,
+  seenYari: false,
+  lastStandUsed: false,
+  deathBy: '',
   escapeCharges: 0,
   pendingUpgrade: false,
   choosingUpgrade: false,
@@ -152,6 +155,34 @@ const state = {
 };
 
 let enemies = [];
+
+// Daily run: a date-seeded PRNG shapes the run — spawn layout and the
+// discipline scrolls offered — so everyone playing the day's trial meets the
+// same structure. Cosmetic randomness (particles, shake, AI micro-timing)
+// stays on Math.random, so runs still feel alive rather than on rails.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function dateSeed(dateStr) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < dateStr.length; i++) {
+    h ^= dateStr.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+function todayStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+const run = { daily: false, dateStr: '', rng: Math.random };
 
 // Reusable scratch vectors — the update loop allocates nothing.
 const vMove = new THREE.Vector3();
@@ -366,11 +397,13 @@ function updateFlow(dt) {
 
 function waveComposition(n) {
   const list = [];
-  const ronin = 2 + Math.floor(n * 0.9);
+  const ronin = 2 + Math.floor(n * 0.8);
   const hunters = n >= 2 ? Math.floor(n * 0.7) : 0;
+  const yari = n >= 3 ? 1 + Math.floor((n - 3) * 0.4) : 0;
   const brutes = n >= 4 ? Math.floor((n - 2) / 3) : 0;
   for (let i = 0; i < ronin; i++) list.push('ronin');
   for (let i = 0; i < hunters; i++) list.push('hunter');
+  for (let i = 0; i < yari; i++) list.push('yari');
   for (let i = 0; i < brutes; i++) list.push('brute');
   if (n % 5 === 0) list.push('oni');
   return list;
@@ -378,8 +411,8 @@ function waveComposition(n) {
 
 function spawnEnemy(type, options = {}) {
   const spec = ENEMY_TYPES[type];
-  const a = Math.random() * Math.PI * 2;
-  const r = 13 + Math.random() * 6;
+  const a = run.rng() * Math.PI * 2;
+  const r = 13 + run.rng() * 6;
   const actor = makeEnemy(type);
   actor.baseHipY = actor.hips.position.y;
   actor.root.position.set(
@@ -424,11 +457,18 @@ function startWave() {
   state.slots = Math.min(4, 2 + Math.floor(state.wave / 4));
   const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
   if (rivalName) audio.silenceMusic(0.82, 0.002);
-  for (const type of waveComposition(state.wave)) {
+  const composition = waveComposition(state.wave);
+  for (const type of composition) {
     spawnEnemy(type, { rival: type === 'oni', rivalName });
   }
   audio.taiko(state.wave % 5 === 0 ? 58 : 82, 0.55);
   showWaveTitle(state.wave);
+  // The spearman gets a name the first time it walks on — a new silhouette is
+  // worth a beat of attention.
+  if (!state.seenYari && composition.includes('yari')) {
+    state.seenYari = true;
+    setTimeout(() => { if (state.running) showCombatCallout('槍', 'YARI · STRIKES FROM RANGE'); }, 1600);
+  }
   updateHUD();
 }
 
@@ -492,7 +532,7 @@ function chooseUpgradeSet() {
   const shuffle = (items) => {
     const shuffled = [...items];
     for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(run.rng() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
@@ -678,8 +718,24 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   updateHUD();
 }
 
-function damagePlayer(amount) {
+// How to name a death on the defeat scroll: who struck, and what the samurai
+// was caught doing. A death the player can explain is a death they retry.
+function deathCause(source, action) {
+  const who = !source ? 'THE FIELD'
+    : source.rival && source.rivalName ? source.rivalName
+    : ({ ronin: 'A RONIN', hunter: 'A HUNTER', yari: 'A SPEARMAN', brute: 'A BRUTE', oni: 'THE IRON DEMON' })[source.type] || 'A STRAY BLADE';
+  const how = ({
+    attack: 'CAUGHT MID-SWING',
+    dash: 'CAUGHT MID-DASH',
+    parry: 'A BREATH TOO SLOW ON THE PARRY',
+    iai: 'CAUGHT MID-DRAW',
+  })[action] || 'CAUGHT FLAT-FOOTED';
+  return `CUT DOWN BY ${who} · ${how}`;
+}
+
+function damagePlayer(amount, source = null) {
   if (state.invuln > 0 || state.over) return;
+  const actionAtHit = state.action;
   if (amount >= state.hp && state.escapeCharges > 0) {
     state.escapeCharges--;
     state.hp = 1;
@@ -690,6 +746,24 @@ function damagePlayer(amount) {
     hitstop(0.22, 0.035);
     shake(1.1);
     showCombatCallout('FALLING LEAF', 'DEATH ESCAPED');
+    audio.perfectParry();
+    updateHUD();
+    return;
+  }
+  // Last stand: once per run, the blow that would end it is survived instead in
+  // a long beat of slow motion. A sudden death becomes a near-miss the player
+  // fights on from — the moment that turns a loss into "one more round".
+  if (amount >= state.hp && !state.lastStandUsed) {
+    state.lastStandUsed = true;
+    state.hp = 1;
+    state.invuln = 1.5;
+    breakFlow();
+    hitstop(1.15, 0.3);
+    flash(1);
+    ink.splashScreen(14, 1.7);
+    shake(1.0);
+    audio.silenceMusic(1.2, 0.001);
+    showCombatCallout('一命', 'LAST STAND');
     audio.perfectParry();
     updateHUD();
     return;
@@ -708,7 +782,10 @@ function damagePlayer(amount) {
   state.action = 'hurt';
   state.actionT = 0.26;
   updateHUD();
-  if (state.hp <= 0) gameOver();
+  if (state.hp <= 0) {
+    state.deathBy = deathCause(source, actionAtHit);
+    gameOver();
+  }
 }
 
 // Attack slots keep the fight legible: only a couple of enemies may commit at
@@ -1345,7 +1422,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
   }
 
   if (state.invuln > 0) return;
-  damagePlayer(e.spec.damage);
+  damagePlayer(e.spec.damage, e);
 }
 
 // Push overlapping enemies apart so a crowd stays legible instead of merging
@@ -1493,6 +1570,12 @@ const ovTitle = document.getElementById('ovTitle');
 const ovSub = document.getElementById('ovSub');
 const ovText = document.getElementById('ovText');
 const ovBtn = document.getElementById('ovBtn');
+const ovCause = document.getElementById('ovCause');
+const ovChase = document.getElementById('ovChase');
+const ovDaily = document.getElementById('ovDaily');
+const ovShare = document.getElementById('ovShare');
+const ledgerEl = document.getElementById('ledger');
+const TITLE_LOGO = ovTitle.innerHTML;
 
 function loadRecords() {
   try {
@@ -1506,6 +1589,77 @@ function saveRecords(records) {
   try { localStorage.setItem('samurai-records', JSON.stringify(records)); } catch { /* Private storage can fail. */ }
 }
 
+// The page's memory across runs: one entry per death, most recent last.
+function loadLedger() {
+  try { return JSON.parse(localStorage.getItem('samurai-ledger') || '[]'); } catch { return []; }
+}
+function pushLedger(entry) {
+  const list = loadLedger();
+  list.push(entry);
+  // Keep only what the strip can meaningfully show.
+  const trimmed = list.slice(-48);
+  try { localStorage.setItem('samurai-ledger', JSON.stringify(trimmed)); } catch { /* ignore */ }
+  return trimmed;
+}
+
+// Render past runs as dried ink strokes — height scaled to how far each run
+// reached, the best run darkest, the most recent one picked out. Every run
+// literally adds a mark, so the page fills as you play.
+function renderLedger(list) {
+  ledgerEl.replaceChildren();
+  if (!list.length) return;
+  const bestWave = list.reduce((m, e) => Math.max(m, e.wave || 0), 0);
+  list.forEach((e, i) => {
+    const stroke = document.createElement('i');
+    const h = 6 + Math.min(1, (e.wave || 0) / 40) * 26;
+    stroke.style.height = `${h}px`;
+    stroke.style.setProperty('--tilt', `${((i * 37) % 11) - 5}deg`);
+    if ((e.wave || 0) === bestWave && bestWave > 0) stroke.classList.add('best');
+    if (i === list.length - 1) stroke.classList.add('latest');
+    ledgerEl.append(stroke);
+  });
+}
+
+function renderTitleScreen() {
+  const records = loadRecords();
+  const ledger = loadLedger();
+  ovTitle.innerHTML = TITLE_LOGO;
+  ovSub.textContent = 'THE PAGE REMEMBERS';
+  ovCause.hidden = true;
+  ovText.innerHTML = 'A sheet of paper. A hundred blades.<br />Every wound you open bleeds into the page and stays there.';
+  if (records.wave > 0) {
+    ovChase.hidden = false;
+    ovChase.innerHTML = `BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`;
+  } else {
+    ovChase.hidden = true;
+  }
+  renderLedger(ledger);
+  ovBtn.textContent = 'BEGIN';
+  ovDaily.hidden = false;
+  ovShare.hidden = true;
+}
+
+function buildShareText() {
+  const tag = run.daily ? `Daily · ${run.dateStr}` : todayStamp();
+  return [
+    'ONISOLO — THE PAGE REMEMBERS',
+    tag,
+    `Wave ${state.wave} · ${state.kills} kills · ${state.perfectParries} perfect parries · best flow ${state.bestChain}`,
+    'https://samurai.theoazriel.com',
+  ].join('\n');
+}
+
+async function copyResult() {
+  const text = buildShareText();
+  try {
+    await navigator.clipboard.writeText(text);
+    ovShare.textContent = 'COPIED';
+  } catch {
+    ovShare.textContent = 'COPY FAILED';
+  }
+  setTimeout(() => { ovShare.textContent = 'COPY RESULT'; }, 1600);
+}
+
 function gameOver() {
   if (state.over) return;
   state.over = true;
@@ -1515,7 +1669,8 @@ function gameOver() {
   hitstop(0.5, 0.05);
   audio.setWind(0.12);
   audio.setMusicIntensity(0);
-  const records = loadRecords();
+  const records = loadRecords();      // previous bests, before this run folds in
+  const prevBestWave = records.wave;
   const newRecords = {
     wave: Math.max(records.wave, state.wave),
     kills: Math.max(records.kills, state.kills),
@@ -1523,33 +1678,81 @@ function gameOver() {
     flow: Math.max(records.flow, state.bestChain),
   };
   saveRecords(newRecords);
+  const ledger = pushLedger({
+    wave: state.wave, kills: state.kills, parries: state.perfectParries,
+    flow: state.bestChain, daily: run.daily, date: todayStamp(),
+  });
   const record = state.wave > records.wave || state.kills > records.kills
     || state.perfectParries > records.parries || state.bestChain > records.flow;
+
+  // The chase line: the single strongest reason to draw again.
+  let chase;
+  if (state.wave > prevBestWave) chase = `NEW BEST — WAVE <b>${state.wave}</b>`;
+  else if (prevBestWave === 0) chase = 'FIRST BLOOD ON THE PAGE';
+  else if (state.wave === prevBestWave) chase = `YOU MATCHED YOUR BEST — WAVE <b>${prevBestWave}</b>`;
+  else {
+    const short = prevBestWave - state.wave;
+    chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST — WAVE <b>${prevBestWave}</b>`;
+  }
+
   setTimeout(() => {
     ovTitle.textContent = 'DEFEAT';
-    ovSub.textContent = record ? 'NEW PERSONAL RECORD' : 'DRAW AGAIN';
+    ovSub.textContent = record ? 'A NEW RECORD' : run.daily ? `DAILY · ${run.dateStr}` : 'DEATH ON THE PAGE';
+    ovCause.hidden = false;
+    ovCause.textContent = state.deathBy || 'CUT DOWN';
     ovText.innerHTML = `WAVE ${state.wave} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
+    ovChase.hidden = false;
+    ovChase.innerHTML = chase;
+    renderLedger(ledger);
     ovBtn.textContent = 'DRAW AGAIN';
+    ovDaily.hidden = true;
+    ovShare.hidden = false;
+    ovShare.textContent = 'COPY RESULT';
     overlay.classList.remove('hidden');
     input.enabled = false;
   }, 420);
 }
 
-function beginGame() {
+function beginGame(opts = {}) {
   if (state.running) return;
+  run.daily = Boolean(opts.daily);
+  run.dateStr = todayStamp();
+  run.rng = run.daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
   overlay.classList.add('hidden');
   input.enabled = true;
   audio.start();
-  if (state.over) { location.reload(); return; }
+  if (state.over) {
+    try { sessionStorage.setItem('samurai-restart', run.daily ? 'daily' : 'normal'); } catch { /* ignore */ }
+    location.reload();
+    return;
+  }
   state.running = true;
   state.waveBreak = 1.2;
   updateHUD();
 }
 
-ovBtn.addEventListener('click', beginGame);
+ovBtn.addEventListener('click', () => beginGame());
+ovDaily.addEventListener('click', () => beginGame({ daily: true }));
+ovShare.addEventListener('click', copyResult);
 addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && !state.running) beginGame();
 });
+
+// A fresh run's title screen, and the snappy path back in after a defeat: if
+// DRAW AGAIN reloaded the page, drop straight into a new run in the same mode.
+renderTitleScreen();
+try {
+  const restart = sessionStorage.getItem('samurai-restart');
+  if (restart) {
+    sessionStorage.removeItem('samurai-restart');
+    beginGame({ daily: restart === 'daily' });
+    // A reload-driven restart has no user gesture, so the audio context comes
+    // up suspended. Resume it on the first input so the run isn't silent.
+    const resume = () => audio.start();
+    addEventListener('pointerdown', resume, { once: true });
+    addEventListener('keydown', resume, { once: true });
+  }
+} catch { /* ignore */ }
 
 // ------------------------------------------------------------------ resizing
 
@@ -1673,5 +1876,6 @@ window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
+  beginGame, startWave, spawnEnemy, gameOver, damagePlayer,
   get enemies() { return enemies; },
 };

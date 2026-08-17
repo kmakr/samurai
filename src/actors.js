@@ -287,6 +287,9 @@ export const ENEMY_TYPES = {
   ronin: { height: 1.0, hat: true, mask: false, hp: 34, speed: 3.0, reach: 2.5, windup: 0.52, damage: 12, value: 1 },
   // Faster, bare-headed, closes hard.
   hunter: { height: 0.94, hat: false, mask: false, hp: 26, speed: 4.2, reach: 2.3, windup: 0.36, damage: 10, value: 1 },
+  // Yari spearman: lean and tall, with a long pole that strikes from what
+  // feels like a safe distance. Read the reach, not the body.
+  yari: { height: 1.14, hat: false, mask: false, hp: 30, speed: 3.15, reach: 4.6, windup: 0.6, damage: 16, value: 2, pole: true },
   // Slow, heavy, huge reach. Read the wind-up or pay for it.
   brute: { height: 1.35, hat: false, mask: true, hp: 90, speed: 2.0, reach: 3.4, windup: 0.82, damage: 26, value: 3 },
   // Boss.
@@ -361,8 +364,8 @@ export function makeEnemy(type) {
 
   // Enemy steel stays grey until the emissive wind-up telegraph. The player's
   // blade remains white, which makes ownership clear when figures overlap.
-  const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : 1.1, true);
-  katana.position.set(0, -0.52, 0.05);
+  const katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : spec.pole ? 2.7 : 1.1, true);
+  katana.position.set(0, spec.pole ? -0.9 : -0.52, 0.05);
   // Same grip pitch as the player: without it the blade skewers the kasa.
   katana.rotation.x = 1.05;
   armR.add(katana);
@@ -377,7 +380,10 @@ export function makeEnemy(type) {
   hips.add(legR);
   legR.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.16, -0.32));
 
-  root.scale.setScalar(spec.height);
+  // The yari reads as a leaner, taller figure — a narrow silhouette against
+  // the wide kasa and the horned bulk of the mask enemies.
+  if (spec.pole) root.scale.set(spec.height * 0.82, spec.height * 1.12, spec.height * 0.82);
+  else root.scale.setScalar(spec.height);
 
   return { root, hips, head, torso, shoulders, skirt, armL, armR, legL, legR, katana };
 }
