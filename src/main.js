@@ -437,6 +437,7 @@ function spawnEnemy(type, options = {}) {
     type, spec, actor, bladeMats, bladeGlow,
     rival: Boolean(options.rival),
     rivalName: options.rivalName || '',
+    grudge: Boolean(options.grudge),
     rivalFollowup: false,
     hp: spec.hp * scale,
     maxHp: spec.hp * scale,
@@ -459,9 +460,10 @@ function startWave() {
   state.slots = Math.min(4, 2 + Math.floor(state.wave / 4));
   const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
   if (rivalName) audio.silenceMusic(0.82, 0.002);
+  const grudge = Boolean(rivalName) && loadGrudge() === rivalName;
   const composition = waveComposition(state.wave);
   for (const type of composition) {
-    spawnEnemy(type, { rival: type === 'oni', rivalName });
+    spawnEnemy(type, { rival: type === 'oni', rivalName, grudge: type === 'oni' && grudge });
   }
   audio.taiko(state.wave % 5 === 0 ? 58 : 82, 0.55);
   showWaveTitle(state.wave);
@@ -477,8 +479,13 @@ function startWave() {
 const waveTitleEl = document.getElementById('waveTitle');
 function showWaveTitle(n) {
   const boss = n % 5 === 0;
+  // A remembering rival trades the demon's 鬼 for 怨 — the grudge — and the
+  // introduction stops being about the rival and starts being about you.
+  const grudge = boss && loadGrudge() === rivalNameForWave(n);
   waveTitleEl.innerHTML = boss
-    ? `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)}: THE IRON DEMON</span>`
+    ? grudge
+      ? `<span class="kanji">怨</span><span class="latin">${rivalNameForWave(n)} REMEMBERS YOU</span>`
+      : `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)}: THE IRON DEMON</span>`
     : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
   waveTitleEl.classList.remove('show');
   void waveTitleEl.offsetWidth; // restart the animation
@@ -706,7 +713,12 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
   if (e.rival) {
     state.rivalKills++;
     state.focus = FOCUS_MAX;
-    showCombatCallout(e.rivalName, 'RIVAL DEFEATED · FOCUS RESTORED');
+    if (e.grudge) {
+      clearGrudge();
+      showCombatCallout(e.rivalName, 'THE GRUDGE IS SETTLED · FOCUS RESTORED');
+    } else {
+      showCombatCallout(e.rivalName, 'RIVAL DEFEATED · FOCUS RESTORED');
+    }
     audio.taiko(48, 0.72);
   }
   addFlow();
@@ -1352,12 +1364,14 @@ function updateEnemies(dt) {
           if (e.rival && !e.rivalFollowup && dist < reach * 1.8) {
             e.rivalFollowup = true;
             e.state = 'windup';
-            e.t = Math.max(0, e.spec.windup - 0.24);
+            // A grudge shortens the pause before the follow-up: the rival that
+            // remembers you presses where a first meeting would breathe.
+            e.t = Math.max(0, e.spec.windup - (e.grudge ? 0.32 : 0.24));
             e.circleDir *= -1;
           } else {
             e.rivalFollowup = false;
             releaseSlot(e);
-            e.cooldown = e.rival ? 0.55 : 0.8 + Math.random() * 1.6;
+            e.cooldown = e.rival ? (e.grudge ? 0.4 : 0.55) : 0.8 + Math.random() * 1.6;
             e.state = dist > reach * 1.6 ? 'approach' : 'circle';
             e.t = 0;
           }
@@ -1599,6 +1613,19 @@ function saveRecords(records) {
   try { localStorage.setItem('samurai-records', JSON.stringify(records)); } catch { /* Private storage can fail. */ }
 }
 
+// The grudge: when a named rival kills the samurai, the page remembers the
+// debt across runs. The next time that name walks on, its introduction — and
+// its temper — are different, until the debt is settled with its death.
+function loadGrudge() {
+  try { return localStorage.getItem('samurai-grudge') || ''; } catch { return ''; }
+}
+function saveGrudge(name) {
+  try { localStorage.setItem('samurai-grudge', name); } catch { /* ignore */ }
+}
+function clearGrudge() {
+  try { localStorage.removeItem('samurai-grudge'); } catch { /* ignore */ }
+}
+
 // The page's memory across runs: one entry per death, most recent last.
 function loadLedger() {
   try { return JSON.parse(localStorage.getItem('samurai-ledger') || '[]'); } catch { return []; }
@@ -1704,6 +1731,7 @@ function composeDeathPoem(record) {
     iai: 'cut down mid-draw, sword half-born',
   }[info.action];
   if (caught) deaths.push(caught);
+  if (who && loadGrudge() === info.rival) deaths.push(`twice now, ${who}`);
 
   // Line three: what the page keeps.
   const closings = [];
@@ -1784,7 +1812,10 @@ function gameOver() {
     chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST — WAVE <b>${prevBestWave}</b>`;
   }
 
+  // Compose the poem before recording the new grudge, so a repeat killing by
+  // the same rival can read as one ("twice now") — then the debt is written.
   lastPoem = composeDeathPoem(record);
+  if (state.deathInfo && state.deathInfo.rival) saveGrudge(state.deathInfo.rival);
 
   setTimeout(() => {
     ovTitle.textContent = 'DEFEAT';
@@ -1977,6 +2008,6 @@ window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
-  beginGame, startWave, spawnEnemy, gameOver, damagePlayer,
+  beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
   get enemies() { return enemies; },
 };
