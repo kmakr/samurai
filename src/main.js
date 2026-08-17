@@ -287,6 +287,12 @@ let whiteFlash = 0;
 let deathCrush = 0;
 function flash(v) { whiteFlash = Math.max(whiteFlash, v); }
 
+// The parry's flash frame: the whole print inverts for a few frames. It runs
+// on real time, so it stays visible through the parry's hitstop instead of
+// being frozen away with everything else.
+let invertT = 0;
+function parryFlash() { invertT = 0.09; }
+
 const combatCalloutEl = document.getElementById('combatCallout');
 function showCombatCallout(mark, meaning) {
   combatCalloutEl.querySelector('.mark').textContent = mark;
@@ -1496,11 +1502,17 @@ function updateEnemies(dt) {
           const across = Math.abs(px * e.aimDir.z - pz * e.aimDir.x);
           if (along > 0 && along < L && across < 0.6) {
             if (parryActive()) {
-              // Deflected: rewarded like a read, not a perfect parry.
+              // Deflected: rewarded like a read, not a perfect parry — but it
+              // must LOOK like a win, so it gets the flash frame too.
               state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
               state.focus = Math.min(FOCUS_MAX, state.focus + 12 * flowMultiplier());
               vTmp.set(p.x, 1.2, p.z);
               spawnParryRing(vTmp);
+              parryFlash();
+              flash(0.7);
+              hitstop(0.1, 0.1);
+              shake(0.5);
+              showCombatCallout('返', 'ARROW TURNED');
               audio.parry();
               updateHUD();
             } else if (state.invuln <= 0) {
@@ -1626,6 +1638,8 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     e.actor.root.position.z -= nz * 1.8;
     vTmp.set((pos.x + player.root.position.x) * 0.5, 1.25, (pos.z + player.root.position.z) * 0.5);
     spawnParryRing(vTmp);
+    vTmp.y += 0.34;
+    spawnParryRing(vTmp);
     spawnImpactBurst(player.root.position, e.rival ? 1.8 : 1.35);
     camPunch.x -= nx * 0.75;
     camPunch.z -= nz * 0.75;
@@ -1633,6 +1647,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     hitstop(0.19, 0.035);
     shake(0.78);
     flash(1);
+    parryFlash();
     ink.splashScreen(3, 0.55);
     showCombatCallout('PERFECT', 'PARRY');
     audio.perfectParry();
@@ -2220,6 +2235,8 @@ function step(dt) {
   film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55 + act.con;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash;
+  invertT = Math.max(0, invertT - dt);
+  film.uniforms.uInvert.value = invertT > 0 ? 1 : 0;
   film.updateFilm(state.time);
 
   film.render(scene, camera);

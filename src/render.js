@@ -14,6 +14,7 @@ const FILM_FRAG = /* glsl */`
   uniform float uFlicker;
   uniform vec2  uWeave;
   uniform float uWhite;
+  uniform float uInvert;
   uniform float uContrast;
   uniform float uLift;
   uniform float uVignette;
@@ -91,6 +92,8 @@ const FILM_FRAG = /* glsl */`
     l *= 1.0 - uVignette * dot(d, d) * 1.7;
 
     l = mix(clamp(l, 0.0, 1.0), 1.0, uWhite);
+    // A flash frame: the print inverts for a few frames on a perfect parry.
+    l = mix(l, 1.0 - l, uInvert);
     gl_FragColor = vec4(vec3(l), 1.0);
     #include <colorspace_fragment>
   }
@@ -132,6 +135,7 @@ export class FilmRenderer {
       uFlicker: { value: 1 },
       uWeave: { value: new THREE.Vector2() },
       uWhite: { value: 0 },
+      uInvert: { value: 0 },
       uContrast: { value: 1.42 },
       uLift: { value: 0.015 },
       uVignette: { value: 0.35 },
