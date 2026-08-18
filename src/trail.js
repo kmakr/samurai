@@ -183,11 +183,13 @@ export class SlashTrail {
     this.duration = 0.34;
     this.active = false;
     this.style = 0;
+    this.energy = 0;
   }
 
   // `mirror` flips the sweep so a combo alternates shoulders.
-  fire(position, yaw, { mirror = false, duration = 0.34, scale = 1, style = 0 } = {}) {
+  fire(position, yaw, { mirror = false, duration = 0.34, scale = 1, style = 0, energy = 0 } = {}) {
     this.style = Math.max(0, Math.min(2, style | 0));
+    this.energy = Math.max(0, Math.min(3, energy | 0));
     this.mesh.geometry = this.echo.geometry = this.geometries[this.style];
     for (const m of [this.mesh, this.echo]) {
       m.position.copy(position);
@@ -200,7 +202,9 @@ export class SlashTrail {
     this.echo.scale.y *= this.style === 2 ? 1.02 : 1.06;
     if (this.style === 1) this.echo.rotateY(mirror ? 0.055 : -0.055);
     if (this.style === 2) this.echo.translateX(0.16 * scale);
-    this.echoMat.uniforms.uColor.value.setHex(this.style === 2 ? 0x55555f : this.style === 1 ? 0x303038 : 0x191920);
+    const baseEcho = this.style === 2 ? 0x55555f : this.style === 1 ? 0x303038 : 0x191920;
+    const flowEcho = [baseEcho, 0x555560, 0x777782, 0xa0a0aa][this.energy];
+    this.echoMat.uniforms.uColor.value.setHex(flowEcho);
     this.baseY = position.y;
     this.duration = duration;
     this.t = 0;
@@ -230,7 +234,7 @@ export class SlashTrail {
     // Echo lags a tenth behind and stays fainter.
     this.echoMat.uniforms.uHead.value = Math.max(0, head - (this.style === 1 ? 0.16 : 0.1));
     this.echoMat.uniforms.uTail.value = tail * 0.9;
-    this.echoMat.uniforms.uOpacity.value = op * (this.style === 2 ? 0.52 : 0.38);
+    this.echoMat.uniforms.uOpacity.value = op * (this.style === 2 ? 0.52 : 0.38) * (1 + this.energy * 0.28);
     // The drying stroke lifts off the page a little, like ink losing its grip.
     const lift = Math.pow(k, 2) * (this.style === 2 ? 0.12 : 0.3);
     this.mesh.position.y = this.baseY + lift;

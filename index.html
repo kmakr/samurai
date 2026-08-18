@@ -30,6 +30,9 @@
     --font-ui: "Goudy Old Style", "Sorts Mill Goudy", Garamond, Georgia, serif;
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --paper-edge: polygon(0 4%, 22% 1%, 58% 3%, 82% 0, 100% 5%, 99% 96%, 72% 100%, 36% 98%, 0 100%);
+    --control-tracking: 0.18em;
+    --control-border: rgba(233, 228, 214, 0.4);
     --film-bar-h: 72px;
     --film-bar-w: 0px;
     --hud-inline: clamp(14px, 3.2vw, 48px);
@@ -91,37 +94,46 @@
     position: absolute;
     left: calc(var(--film-bar-w) + var(--hud-inline));
     bottom: 0;
-    width: clamp(150px, 20vw, 240px);
+    width: clamp(190px, 23vw, 286px);
     height: var(--film-bar-h);
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 8px;
+    gap: 7px;
     opacity: 0;
     transition: opacity 0.16s ease;
   }
   #vitals.active { opacity: 0.92; }
   .vitalRow {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 38px minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
+    gap: 9px;
   }
   .vitalLabel {
-    display: inline-flex;
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 21px;
     align-items: center;
-    gap: 6px;
     color: var(--paper);
-    font-size: 9px;
+    font-size: 7px;
     font-weight: 600;
     line-height: 1;
-    letter-spacing: 0.18em;
-    opacity: 0.72;
+    letter-spacing: 0.12em;
+    opacity: 0.82;
   }
-  .vitalLabel svg { width: 12px; height: 12px; flex: none; }
+  .vitalLabel svg { width: 20px; height: 20px; }
+  .vitalLabel span {
+    position: absolute;
+    left: 26px;
+    top: 7px;
+    opacity: 0.62;
+  }
   .inkMeter {
     position: relative;
-    height: 8px;
+    height: 10px;
   }
   .inkTrack,
   .inkFill {
@@ -187,48 +199,234 @@
     right: calc(var(--film-bar-w) + var(--hud-inline));
     height: var(--film-bar-h);
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     justify-content: center;
-    gap: clamp(4px, 0.75vh, 8px);
+    gap: clamp(10px, 1.6vw, 24px);
     overflow: hidden;
     white-space: nowrap;
   }
 
   #stats {
-    font-size: clamp(12px, 1.45vw, 17px);
-    font-weight: 600;
+    display: contents;
+  }
+  .statSeal {
+    display: grid;
+    grid-template-columns: 27px auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 8px;
+    min-width: 70px;
+    height: min(52px, calc(var(--film-bar-h) - 10px));
+    color: var(--paper);
+    opacity: 0.76;
+  }
+  #escapeStat[hidden] { display: none; }
+  .statMark {
+    position: relative;
+    grid-row: 1 / 3;
+    width: 27px;
+    height: 27px;
+  }
+  .waveMark {
+    border: 1px solid rgba(233,228,214,0.78);
+    border-right-color: transparent;
+    border-radius: 48% 56% 51% 44%;
+    transform: rotate(-18deg);
+  }
+  .waveMark::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 4px;
+    width: 6px;
+    height: 2px;
+    background: var(--paper);
+    transform: rotate(23deg);
+  }
+  .killMark i {
+    position: absolute;
+    top: 4px;
+    width: 1px;
+    height: 19px;
+    background: var(--paper);
+    transform: rotate(var(--cut, -7deg));
+  }
+  .killMark i:nth-child(1) { left: 4px; }
+  .killMark i:nth-child(2) { left: 10px; --cut: 5deg; }
+  .killMark i:nth-child(3) { left: 16px; --cut: -3deg; }
+  .killMark::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    top: 13px;
+    width: 24px;
+    height: 1px;
+    background: var(--paper);
+    transform: rotate(-18deg);
+  }
+  .escapeMark {
+    display: grid;
+    place-items: center;
+    color: var(--seal);
+    border: 1px solid currentColor;
+    transform: rotate(-5deg);
+    font-size: 15px;
+  }
+  .statValue {
+    align-self: end;
+    font-size: clamp(20px, 2.1vw, 29px);
+    line-height: 0.78;
+    font-variant-numeric: tabular-nums;
+  }
+  .statLabel {
+    align-self: start;
+    margin-top: 4px;
+    font-size: 8px;
     line-height: 1;
-    letter-spacing: 0.24em;
-    opacity: 0.78;
-    text-align: right;
+    letter-spacing: 0.18em;
+    opacity: 0.58;
   }
 
   #flow {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: clamp(210px, 18vw, 240px);
+    height: var(--film-bar-h);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    color: var(--paper);
+    opacity: 0.62;
+    transform: translateX(-50%);
+    transition: opacity 0.18s ease, filter 0.18s ease;
+  }
+  #flow.active {
+    opacity: 1;
+    filter: drop-shadow(0 0 7px rgba(255,255,255,0.22));
+  }
+  .flowHeader {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .flowWord {
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.30em;
+    opacity: 0.72;
+  }
+  #flowValue {
+    font-size: clamp(21px, 2vw, 28px);
+    font-weight: 700;
+    line-height: 0.8;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .flowGauge {
+    position: relative;
+    width: 100%;
+    height: 11px;
+    overflow: hidden;
+    background: rgba(233,228,214,0.10);
+    border: 1px solid rgba(233,228,214,0.34);
+    clip-path: polygon(2% 0, 100% 0, 97% 100%, 0 100%);
+  }
+  .flowGhost,
+  .flowCharge {
+    position: absolute;
+    inset: 1px;
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    will-change: transform;
+  }
+  .flowGhost { background: rgba(233,228,214,0.26); }
+  .flowCharge {
+    background: linear-gradient(90deg, rgba(233,228,214,0.76), #fff 78%, #fff);
+    filter: drop-shadow(3px 0 4px rgba(255,255,255,0.75));
+  }
+  .flowCharge::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 38%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.92), transparent);
+    opacity: 0;
+    transform: translateX(-120%);
+  }
+  #flow.active .flowCharge::after {
+    opacity: 0.55;
+    animation: flowScan 1.2s linear infinite;
+  }
+  #flow.boosted .flowCharge {
+    background: linear-gradient(90deg, var(--paper), #fff 70%, var(--seal));
+    filter: drop-shadow(3px 0 5px rgba(185,54,37,0.68));
+  }
+  #flow.tier-1 .flowGauge {
+    border-color: rgba(233,228,214,0.64);
+    filter: drop-shadow(0 0 3px rgba(255,255,255,0.22));
+  }
+  #flow.tier-2 .flowGauge {
+    border-color: rgba(233,228,214,0.86);
+    filter: drop-shadow(0 0 5px rgba(255,255,255,0.34));
+  }
+  #flow.tier-3 .flowGauge {
+    border-color: rgba(185,54,37,0.94);
+    filter: drop-shadow(0 0 7px rgba(185,54,37,0.52));
+  }
+  #flow.tier-2 .flowWord,
+  #flow.tier-3 .flowWord { color: #fff; opacity: 0.94; }
+  #flow.tier-3 #flowValue { color: #fff; text-shadow: 0 0 8px rgba(185,54,37,0.85); }
+  #flow.expiring .flowCharge {
+    animation: flowExpiry 180ms steps(2, end) infinite;
+  }
+  .flowTicks {
+    position: absolute;
+    inset: 1px;
+    z-index: 2;
+    background: repeating-linear-gradient(90deg, transparent 0, transparent calc(20% - 1px), rgba(10,10,13,0.55) calc(20% - 1px), rgba(10,10,13,0.55) 20%);
+    pointer-events: none;
+  }
+  .flowPulse {
+    position: absolute;
+    z-index: 3;
+    left: 0;
+    top: -3px;
+    width: 100%;
+    height: 15px;
+    background: linear-gradient(90deg, transparent 5%, rgba(255,255,255,0.95) 72%, transparent 100%);
+    opacity: 0;
+    transform: scaleX(0.25);
+    transform-origin: 0 50%;
+    pointer-events: none;
+  }
+  #focusRate {
+    width: 100%;
     display: flex;
     align-items: baseline;
-    gap: 12px;
-    text-align: right;
-    opacity: 0;
-    transform: translateX(12px);
-    transition: opacity 0.18s ease, transform 0.18s ease;
+    justify-content: flex-end;
+    gap: 7px;
+    line-height: 1;
   }
-  #flow.active { opacity: 0.8; transform: translateX(0); }
-  #flow strong {
-    display: inline;
-    font-size: clamp(17px, 2.15vw, 29px);
-    font-weight: 700;
-    line-height: 0.88;
-    letter-spacing: 0.08em;
-    font-stretch: condensed;
+  #focusRate span {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    opacity: 0.82;
   }
-  #flow small {
-    display: inline;
-    margin-top: 0;
-    font-size: clamp(8px, 0.8vw, 10px);
-    font-weight: 600;
-    letter-spacing: 0.28em;
-    opacity: 0.72;
+  #focusRate strong {
+    font-size: 19px;
+    letter-spacing: 0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  #flow.boosted #focusRate strong { color: #fff; text-shadow: 0 0 7px rgba(185,54,37,0.9); }
+  @keyframes flowScan {
+    to { transform: translateX(330%); }
+  }
+  @keyframes flowExpiry {
+    50% { opacity: 0.42; }
   }
 
   #help {
@@ -236,22 +434,50 @@
     right: calc(var(--film-bar-w) + var(--hud-inline));
     bottom: 0;
     height: var(--film-bar-h);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    width: clamp(390px, 39vw, 510px);
+    display: grid;
+    grid-template-columns: repeat(6, minmax(48px, 1fr));
+    align-items: center;
     justify-content: center;
-    gap: clamp(3px, 0.45vh, 5px);
+    gap: 7px;
     overflow: hidden;
     white-space: nowrap;
-    font-size: clamp(8px, 1.3vh, 11px);
+    opacity: 0.58;
+    text-align: center;
+  }
+  .controlCue {
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .controlCue kbd {
+    min-width: 32px;
+    padding: 4px 5px 3px;
+    color: var(--paper);
+    background: rgba(233,228,214,0.045);
+    border: 1px solid rgba(233,228,214,0.36);
+    font-family: var(--font-ui);
+    font-size: clamp(8px, 0.82vw, 10px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    box-shadow: inset 0 -2px 0 rgba(233,228,214,0.08);
+  }
+  .controlCue > span {
+    font-size: 7px;
     line-height: 1;
     letter-spacing: 0.16em;
-    opacity: 0.4;
-    text-align: right;
+    opacity: 0.72;
   }
-  #help span { display: block; }
-  #help b { font-weight: normal; opacity: 0.95; }
-  #help .chargeHint { font-size: 0.9em; opacity: 0.8; }
+  .controlCue small {
+    display: block;
+    margin-top: 2px;
+    font-size: 6px;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    opacity: 0.48;
+  }
 
   #buildTag {
     position: absolute;
@@ -270,12 +496,31 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .hud-compact #combatStatus { gap: 4px; }
-  .hud-compact #flow small,
-  .hud-compact #help .chargeHint { display: none; }
-  .hud-compact #help { letter-spacing: 0.10em; }
-  .hud-compact #vitals { width: min(42vw, 166px); gap: 6px; }
-  .hud-compact .vitalRow { grid-template-columns: 24px minmax(0, 1fr); gap: 7px; }
+  .hud-compact #combatStatus { gap: 8px; }
+  .hud-compact .statSeal { grid-template-columns: 20px auto; column-gap: 5px; min-width: 52px; }
+  .hud-compact .statMark { width: 20px; height: 20px; }
+  .hud-compact .statValue { font-size: 18px; }
+  .hud-compact .killMark i { top: 2px; height: 15px; }
+  .hud-compact .killMark i:nth-child(3) { left: 15px; }
+  .hud-compact .killMark::after { width: 19px; top: 10px; }
+  .hud-compact #flow { width: 150px; gap: 2px; }
+  .hud-compact .flowWord { font-size: 7px; }
+  .hud-compact #flowValue { font-size: 17px; }
+  .hud-compact .flowGauge { height: 8px; }
+  .hud-compact #focusRate { gap: 4px; }
+  .hud-compact #focusRate span { font-size: 7px; }
+  .hud-compact #focusRate strong { font-size: 13px; }
+  .hud-compact #help { width: min(39vw, 270px); grid-template-columns: repeat(3, 1fr); gap: 3px 5px; }
+  .hud-compact .controlCue { gap: 2px; }
+  .hud-compact .controlCue kbd { padding: 2px 4px; font-size: 7px; }
+  .hud-compact .controlCue > span { font-size: 6px; }
+  .hud-compact .controlCue small { display: none; }
+  .hud-compact #vitals { width: min(37vw, 180px); gap: 4px; }
+  .hud-compact .vitalRow { grid-template-columns: 28px minmax(0, 1fr); gap: 5px; }
+  .hud-compact .vitalLabel { width: 26px; height: 16px; }
+  .hud-compact .vitalLabel svg { width: 15px; height: 15px; }
+  .hud-compact .vitalLabel span { display: none; }
+  .hud-compact .inkMeter { height: 7px; }
   .hud-compact #iaiReadyNotice { display: none; }
 
   /* Wave announcement: a large kanji that strikes and fades, like a title card. */
@@ -373,7 +618,7 @@
     bottom: -1px;
     width: 52px;
     background: var(--paper);
-    clip-path: polygon(0 5%, 92% 0, 100% 18%, 94% 94%, 8% 100%, 0 83%);
+    clip-path: var(--paper-edge);
   }
   #boonNotice .sigil {
     position: absolute;
@@ -451,8 +696,8 @@
   #upgradePrompt {
     margin: 0 0 clamp(20px, 4vh, 42px);
     font-size: 10px;
-    letter-spacing: 0.62em;
-    text-indent: 0.62em;
+    letter-spacing: var(--control-tracking);
+    text-indent: 0;
     opacity: 0.62;
   }
   #upgradeChoices {
@@ -473,12 +718,12 @@
     font-family: inherit;
     text-align: center;
     cursor: pointer;
-    clip-path: polygon(2% 0, 48% 1.4%, 98% 0.4%, 100% 8%, 98% 48%, 100% 94%, 95% 100%, 50% 98.5%, 4% 100%, 0 92%, 2% 48%, 0 7%);
+    clip-path: var(--paper-edge);
     box-shadow: 0 24px 55px rgba(0,0,0,0.42);
     transform: translateY(18px) rotate(var(--tilt, 0deg));
     opacity: 0;
     animation: unroll 0.55s cubic-bezier(0.2,0.8,0.2,1) forwards;
-    transition: filter 0.16s ease, margin 0.16s ease;
+    transition: filter 0.16s ease;
   }
   .scroll:nth-child(1) { --tilt: -1.4deg; animation-delay: 0.03s; }
   .scroll:nth-child(2) { --tilt: 0.6deg; animation-delay: 0.11s; }
@@ -495,8 +740,10 @@
   }
   .scroll::before { top: 18px; }
   .scroll::after { bottom: 18px; }
-  .scroll:hover { filter: brightness(1.12); margin-top: -7px; margin-bottom: 7px; }
-  .scroll:focus-visible { outline: 3px solid #fff; outline-offset: 7px; }
+  .scroll:focus-visible {
+    outline: none;
+    filter: brightness(1.08) drop-shadow(0 0 6px rgba(255,255,255,0.88));
+  }
   .scroll .key {
     position: absolute;
     top: 24px;
@@ -532,8 +779,8 @@
     display: block;
     margin-top: 20px;
     font-size: 13px;
-    letter-spacing: 0.34em;
-    text-indent: 0.34em;
+    letter-spacing: var(--control-tracking);
+    text-indent: 0;
   }
   .scroll .level {
     display: block;
@@ -542,7 +789,7 @@
     font-family: var(--font-ui);
     font-size: 9px;
     line-height: 1.2;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.16em;
     opacity: 0.48;
   }
   .scroll .desc {
@@ -571,6 +818,8 @@
   @media (prefers-reduced-motion: reduce) {
     #waveTitle.show, #combatCallout.show, #boonNotice.show, #damageFlash.show, .scroll { animation-duration: 0.01ms; }
     .scroll, #flow, #vitals, .inkFill, #iaiReadyNotice { transition: none; }
+    #flow.active .flowCharge::after { animation: none; opacity: 0.18; transform: translateX(120%); }
+    #flow.expiring .flowCharge { animation: none; opacity: 0.72; }
     #iaiGauge.ready .inkFill { animation: none; }
     #ovSeal.stamp { animation-duration: 0.01ms; animation-delay: 0s; }
   }
@@ -590,7 +839,10 @@
       radial-gradient(ellipse at 50% 44%, rgba(35,32,27,0.52) 0%, rgba(0,0,0,0.96) 72%);
     text-align: center;
     pointer-events: none;
+    overflow-y: auto;
+    scrollbar-width: none;
   }
+  #overlay::-webkit-scrollbar { display: none; }
   #overlay.hidden { display: none; }
   #overlay::after {
     content: "";
@@ -662,8 +914,9 @@
     z-index: 2;
     display: block;
     margin-top: -18px;
+    line-height: 1.05;
     white-space: nowrap;
-    filter: drop-shadow(0 0 40px rgba(0,0,0,0.9));
+    overflow: visible;
   }
   #ovTitle .brandSeal {
     position: absolute;
@@ -710,8 +963,8 @@
   }
   @keyframes eyeOpen { to { opacity: 0.92; transform: rotate(var(--eye-angle)) scaleY(1); } }
   @keyframes titleCut {
-    from { opacity: 0; transform: translateX(-10px); clip-path: inset(0 100% 0 0); }
-    to { opacity: 1; transform: translateX(0); clip-path: inset(0); }
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
   }
   @keyframes brandStamp {
     from { opacity: 0; transform: rotate(-12deg) scale(0.94); }
@@ -763,20 +1016,25 @@
   #ovBtn {
     position: relative;
     z-index: 2;
-    margin-top: 26px;
-    padding: 13px 46px;
+    width: 100%;
+    min-height: 52px;
+    padding: 11px 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-family: inherit;
-    font-size: 16px;
-    letter-spacing: 0.30em;
-    text-indent: 0.30em;
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: var(--control-tracking);
+    text-indent: 0;
     color: #0a0a0d;
     background: var(--paper);
     border: 0;
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
-    clip-path: polygon(0 14%, 1% 2%, 82% 0, 100% 16%, 98% 96%, 16% 100%, 0.2% 82%);
-    transition: background 160ms ease, transform 160ms var(--ease-out);
+    clip-path: var(--paper-edge);
+    transition: background 160ms ease, filter 160ms ease, transform 160ms var(--ease-out);
   }
   #ovBtn::after {
     content: "";
@@ -795,8 +1053,8 @@
     transition: transform 140ms var(--ease-out);
   }
   #ovBtn:focus-visible, #ovDaily:focus-visible, #ovShare:focus-visible {
-    outline: 2px solid #fff;
-    outline-offset: 5px;
+    outline: none;
+    filter: brightness(1.08) drop-shadow(0 0 6px rgba(255,255,255,0.88));
   }
 
   #controls {
@@ -874,17 +1132,6 @@
     100% { opacity: 0.92; transform: scale(1) rotate(-8deg); }
   }
 
-  /* A thin vermilion edge marks the daily trial — the same red, spent small. */
-  #ovDaily::before {
-    content: '';
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 12px;
-    background: #c53a28;
-    vertical-align: 1px;
-  }
-
   #ovChase {
     margin-top: 10px;
     font-size: clamp(10px, 1.1vw, 13px);
@@ -921,53 +1168,76 @@
   #ledger i.latest { opacity: 0.7; }
 
   #ovButtons {
-    display: flex;
+    width: min(88vw, 760px);
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
+    align-items: stretch;
+  }
+  #ovButtons:has(#ovDaily[hidden]) {
+    width: min(88vw, 360px);
+    grid-template-columns: minmax(0, 1fr);
   }
   #ovDaily {
     position: relative;
     z-index: 2;
-    margin-top: 26px;
-    padding: 13px 30px;
+    width: 100%;
+    min-height: 52px;
+    padding: 11px 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-family: inherit;
-    font-size: 12px;
-    letter-spacing: 0.34em;
-    text-indent: 0.34em;
-    color: var(--paper);
-    background: transparent;
-    border: 1px solid rgba(233, 228, 214, 0.4);
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: var(--control-tracking);
+    text-indent: 0;
+    color: #0a0a0d;
+    background: var(--paper);
+    border: 0;
+    box-shadow: none;
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
-    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    clip-path: var(--paper-edge);
+    transition: background 0.2s, color 0.2s, filter 0.16s ease;
   }
-  #ovDaily.armed { background: var(--paper); color: #0a0a0d; border-color: var(--paper); }
   #ovDaily[hidden] { display: none; }
 
   #ovShare {
+    position: relative;
     margin-top: 16px;
     padding: 9px 26px;
     font-family: inherit;
     font-size: 11px;
-    letter-spacing: 0.32em;
-    text-indent: 0.32em;
+    letter-spacing: var(--control-tracking);
+    text-indent: 0;
     color: var(--paper);
     background: transparent;
-    border: 1px solid rgba(233, 228, 214, 0.35);
+    border: 0;
+    box-shadow: none;
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
-    transition: background 0.2s, color 0.2s;
+    clip-path: var(--paper-edge);
+    transition: background 0.2s, color 0.2s, filter 0.16s ease;
   }
   #ovShare[hidden] { display: none; }
 
+  #ovShare::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px solid var(--control-border);
+    pointer-events: none;
+    transition: border-color 0.2s;
+  }
   @media (hover: hover) and (pointer: fine) {
-    #ovBtn:hover { background: #fff; transform: scale(1.03); }
-    #ovDaily:hover { background: rgba(233, 228, 214, 0.12); border-color: var(--paper); }
-    #ovShare:hover { background: rgba(233, 228, 214, 0.12); }
+    #ovBtn:hover, #ovDaily:hover { background: #fff; filter: brightness(1.08); }
+    #ovShare:hover { background: rgba(233, 228, 214, 0.12); filter: brightness(1.08); }
+    #ovShare:hover::after { border-color: var(--paper); }
+    .scroll:hover { filter: brightness(1.08); }
   }
 
   /* ------------------------------------------------------------- touch UI */
@@ -1045,7 +1315,7 @@
     padding: 0;
   }
   #touchButtons button .k { font-size: 26px; line-height: 1; }
-  #touchButtons button .l { font-size: 8px; letter-spacing: 0.22em; text-indent: 0.22em; opacity: 0.7; }
+  #touchButtons button .l { font-size: 8px; letter-spacing: 0.16em; text-indent: 0; opacity: 0.7; }
   #touchButtons button.pressed { background: var(--paper); color: #0a0a0d; }
   /* The cut is the thumb's home; parry sits inside its reach; dash and iai
      ride above them. */
@@ -1060,6 +1330,18 @@
   /* Short landscape screens (phones on their side): the scroll must fit a
      ~340pt-tall frame, so everything on it compacts — the logo scales by
      height instead of width, and the keyboard hints give way. */
+  @media (max-height: 860px), (max-width: 900px) {
+    #overlay { padding: 16px; }
+    #ovTitle { font-size: clamp(38px, 7vh, 58px); }
+    #ovTitle .maskStage { width: auto; height: min(22vh, 180px); }
+    #ovTitle img { width: auto; height: 100%; max-height: 100%; }
+    #ovTitle .wordmark { margin-top: -14px; }
+    #ovSub { margin-top: 3px; }
+    #ovText { margin-top: 11px; padding-top: 11px; line-height: 1.5; }
+    #ovButtons { margin-top: 18px; gap: 10px; }
+    #controls { margin-top: 17px; gap: 5px 8px; padding-block: 8px; }
+    #ledger { margin-top: 12px; height: 25px; }
+  }
   @media (max-height: 520px) {
     #overlay { padding: 10px 16px; overflow-y: auto; }
     #ovTitle { font-size: clamp(34px, 8vh, 52px); }
@@ -1073,10 +1355,18 @@
     #ovSeal { width: 38px; height: 38px; font-size: 22px; right: -50px; top: -10px; }
     #ovChase { margin-top: 6px; }
     #ledger { margin-top: 10px; height: 24px; }
-    #ovBtn, #ovDaily { margin-top: 12px; padding: 10px 28px; }
+    #ovButtons { margin-top: 12px; }
+    #ovBtn, #ovDaily { min-height: 44px; padding: 9px 24px; }
     #ovShare { margin-top: 8px; padding: 7px 20px; }
     #controls { display: none; }
     #touchControls { margin-top: 10px; font-size: 9.5px; }
+  }
+
+  @media (max-width: 620px) {
+    #ovButtons {
+      width: min(88vw, 360px);
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   /* While a scroll is up, the combat thumbs are noise. */
@@ -1132,16 +1422,47 @@
     <div id="iaiReadyNotice" role="status" aria-live="polite"><strong id="iaiNoticeTitle">IAI READY</strong><small id="iaiNoticeDetail">PRESS F</small></div>
   </div>
 
-  <div id="combatStatus">
-    <div id="stats">KILLS 0 · WAVE 0</div>
-    <div id="flow"><strong>FLOW ×0</strong><small>FOCUS RATE</small></div>
+  <div id="combatStatus" aria-label="Wave 0, 0 kills">
+    <div id="stats">
+      <div class="statSeal" aria-hidden="true">
+        <span class="statMark killMark"><i></i><i></i><i></i></span>
+        <strong id="killsValue" class="statValue">0</strong>
+        <span class="statLabel">KILLS</span>
+      </div>
+      <div class="statSeal" aria-hidden="true">
+        <span class="statMark waveMark"></span>
+        <strong id="waveValue" class="statValue">0</strong>
+        <span class="statLabel">WAVE</span>
+      </div>
+      <div id="escapeStat" class="statSeal" aria-hidden="true" hidden>
+        <span class="statMark escapeMark">×</span>
+        <strong id="escapeValue" class="statValue">0</strong>
+        <span class="statLabel">ESCAPE</span>
+      </div>
+    </div>
   </div>
 
-  <div id="help">
-    <span><b>WASD</b> MOVE · <b>MOUSE</b> AIM</span>
-    <span><b>CLICK</b> CUT ×3 · <b>SHIFT</b> DASH</span>
-    <span><b>SPACE</b> PARRY · <b>F</b> IAI</span>
-    <span class="chargeHint">IAI CHARGE: KILLS + PERFECT PARRIES</span>
+  <div id="flow" aria-label="Flow 0, focus rate 1.0">
+    <span class="flowHeader">
+      <span class="flowWord">FLOW</span>
+      <strong id="flowValue">×0</strong>
+    </span>
+    <span class="flowGauge" aria-hidden="true">
+      <span id="flowGhost" class="flowGhost"></span>
+      <span id="flowCharge" class="flowCharge"></span>
+      <span class="flowTicks"></span>
+      <span id="flowPulse" class="flowPulse"></span>
+    </span>
+    <span id="focusRate"><span>FOCUS</span><strong id="focusRateValue">×1.0</strong></span>
+  </div>
+
+  <div id="help" aria-label="Controls">
+    <span class="controlCue"><kbd>WASD</kbd><span>MOVE</span></span>
+    <span class="controlCue"><kbd>MOUSE</kbd><span>AIM</span></span>
+    <span class="controlCue"><kbd>LMB</kbd><span>CUT</span></span>
+    <span class="controlCue"><kbd>SHIFT</kbd><span>DASH</span></span>
+    <span class="controlCue"><kbd>SPACE</kbd><span>PARRY</span></span>
+    <span class="controlCue"><kbd>F</kbd><span>IAI<small>KILLS + PARRY</small></span></span>
   </div>
 
   <div id="buildTag" aria-label="Onisolo game build">ONISOLO / BUILD <span id="buildVersion">...</span></div>
@@ -1222,7 +1543,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=48"></script>
+<script type="module" src="./src/main.js?v=57"></script>
 
 </body>
 </html>

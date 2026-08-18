@@ -19,6 +19,7 @@ export class Audio {
     this.musicNextTime = 0;
     this.musicIntensity = 0;
     this.musicBoss = false;
+    this.musicFlowTier = 0;
     this.musicMixIntensity = -1;
     this.musicMixBoss = false;
     this.musicSilenceUntil = 0;
@@ -278,6 +279,11 @@ export class Audio {
     if ([2, 6, 10, 14].includes(step)) this.musicHat(at, 0.48 + (step === 14 ? 0.14 : 0));
     if (intensity > 0.32 && step % 2 === 1) this.musicHat(at, 0.20 + intensity * 0.12);
     if ((intensity > 0.7 || this.musicBoss) && step === 15) this.musicHat(at, 0.7, true);
+    // Flow adds percussion without starting another music loop. Tier 2 fills
+    // the off-beats; tier 3 adds two dry ghost snares before the bar turns.
+    if (this.musicFlowTier >= 2 && (step === 1 || step === 9)) this.musicHat(at, 0.34);
+    if (this.musicFlowTier >= 3 && (step === 5 || step === 13)) this.musicHat(at, 0.42);
+    if (this.musicFlowTier >= 3 && (step === 6 || step === 14)) this.musicSnare(at, 0.18);
 
     const phrases = [
       { 9: 71, 13: 74 }, { 3: 78, 11: 74 },
@@ -426,6 +432,10 @@ export class Audio {
     const color = 2500 + this.musicIntensity * 2200 + (boss ? 700 : 0);
     this.music.color.frequency.setTargetAtTime(color, this.t, 0.35);
     this.music.output.gain.setTargetAtTime(0.20 + this.musicIntensity * 0.055, this.t, 0.45);
+  }
+
+  setFlowTier(tier = 0) {
+    this.musicFlowTier = Math.max(0, Math.min(3, tier | 0));
   }
 
   silenceMusic(duration = 0.7, floor = 0.004) {
@@ -594,6 +604,25 @@ export class Audio {
   ready() {
     this.tone(660, 0.18, { type: 'sine', gain: 0.075, to: 880 });
     this.tone(990, 0.28, { type: 'sine', gain: 0.055, to: 1320, delay: 0.08 });
+  }
+
+  flowTier(tier) {
+    const n = Math.max(1, Math.min(3, tier | 0));
+    this.taiko([0, 92, 70, 52][n], 0.34 + n * 0.08);
+    this.tone([0, 392, 523, 659][n], 0.18, {
+      type: 'triangle', gain: 0.055 + n * 0.018, to: [0, 523, 698, 988][n], delay: 0.035,
+    });
+    if (n === 3) this.noise(0.12, { freq: 5200, q: 3.8, gain: 0.16, sweep: 0.48, delay: 0.04 });
+  }
+
+  flowWarning() {
+    this.tone(176, 0.09, { type: 'square', gain: 0.045, to: 132 });
+    this.noise(0.035, { type: 'lowpass', freq: 720, gain: 0.08, sweep: 0.5 });
+  }
+
+  flowBreak() {
+    this.noise(0.06, { freq: 2600, q: 4.2, gain: 0.11, sweep: 0.32 });
+    this.tone(124, 0.14, { type: 'triangle', gain: 0.055, to: 62, delay: 0.015 });
   }
 
   boon() {

@@ -141,6 +141,35 @@ player.baseHipY = player.hips.position.y;
 player.root.position.set(0, 0, 6);
 scene.add(player.root);
 
+// Zenith Flow gives the player a thin white edge. Each shell is attached to
+// its source mesh, so it inherits the combat pose without a second animation
+// pass. The shells stay hidden outside tier 3 and add no normal-frame draws.
+const flowOutlineMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0,
+  side: THREE.BackSide,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+const flowOutlineMeshes = [];
+const flowOutlineSources = [];
+player.root.traverse((object) => {
+  if (object.isMesh && !object.userData.isBladeGlow) flowOutlineSources.push(object);
+});
+for (const source of flowOutlineSources) {
+  const shell = new THREE.Mesh(source.geometry, flowOutlineMaterial);
+  shell.scale.setScalar(1.055);
+  shell.castShadow = false;
+  shell.receiveShadow = false;
+  shell.renderOrder = 8;
+  shell.visible = false;
+  shell.userData.isFlowOutline = true;
+  source.add(shell);
+  flowOutlineMeshes.push(shell);
+}
+let flowOutlineOpacity = 0;
+
 const state = {
   running: false,
   over: false,
@@ -418,6 +447,15 @@ function updateIaiAura() {
   iaiAuraRing.material.opacity = 0.27 + breath * 0.05;
 }
 
+function updateFlowOutline(dt) {
+  const zenith = state.running && !state.over && getFlowTier() === 3;
+  const target = zenith ? 0.24 + Math.sin(state.time * 5.2) * 0.045 : 0;
+  flowOutlineOpacity += (target - flowOutlineOpacity) * (1 - Math.exp(-12 * dt));
+  flowOutlineMaterial.opacity = Math.max(0, flowOutlineOpacity);
+  const visible = flowOutlineOpacity > 0.006;
+  for (const shell of flowOutlineMeshes) shell.visible = visible;
+}
+
 function spawnParryRing(position) {
   const mat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -456,27 +494,58 @@ function flowMultiplier() {
   return 1 + Math.min(0.5, Math.floor(state.chain / 4) * 0.1);
 }
 
+function getFlowTier(chain = state.chain) {
+  if (chain >= 12) return 3;
+  if (chain >= 8) return 2;
+  if (chain >= 4) return 1;
+  return 0;
+}
+
+let flowWarningPlayed = false;
+
 function addFlow(amount = 1) {
+  const previousTier = getFlowTier();
   state.chain += amount;
   state.chainTimer = FLOW_WINDOW;
+  flowWarningPlayed = false;
   state.bestChain = Math.max(state.bestChain, state.chain);
-  if (state.chain === 5 || state.chain === 10 || state.chain === 20) {
-    showCombatCallout('FLOW', `CHAIN ${state.chain}`);
-    audio.taiko(105 + state.chain * 2, 0.32);
+  const nextTier = getFlowTier();
+  audio.setFlowTier(nextTier);
+  if (nextTier > previousTier) {
+    audio.flowTier(nextTier);
+    if (nextTier === 3) {
+      flash(0.42);
+      shake(0.62);
+    }
   }
   updateHUD();
 }
 
 function breakFlow() {
+  if (state.chain > 0) audio.flowBreak();
   state.chain = 0;
   state.chainTimer = 0;
+  flowWarningPlayed = false;
+  audio.setFlowTier(0);
   updateHUD();
 }
 
 function updateFlow(dt) {
-  if (state.chain <= 0) return;
-  state.chainTimer -= dt;
-  if (state.chainTimer <= 0) breakFlow();
+  if (state.chain > 0) {
+    state.chainTimer -= dt;
+    if (state.chainTimer <= 0) breakFlow();
+  }
+  const target = state.chain > 0 ? THREE.MathUtils.clamp(state.chainTimer / FLOW_WINDOW, 0, 1) : 0;
+  if (target > 0.8) flowWarningPlayed = false;
+  if (state.chain > 0 && target <= 0.24 && !flowWarningPlayed) {
+    flowWarningPlayed = true;
+    audio.flowWarning();
+  }
+  flowEl.classList.toggle('expiring', state.chain > 0 && target <= 0.24);
+  flowChargeEl.style.transform = `scaleX(${target})`;
+  const followSpeed = target > flowGhostLevel ? 18 : 3.2;
+  flowGhostLevel += (target - flowGhostLevel) * Math.min(1, dt * followSpeed);
+  flowGhostEl.style.transform = `scaleX(${flowGhostLevel})`;
 }
 
 // -------------------------------------------------------------------- waves
@@ -777,8 +846,9 @@ function playerAttackHits() {
   }
 
   if (hitAny) {
-    const impactStop = [0.055, 0.075, 0.13][state.comboIndex];
-    const impactShake = [0.30, 0.43, 0.78][state.comboIndex];
+    const zenithFinisher = getFlowTier() === 3 && state.comboIndex === 2;
+    const impactStop = [0.055, 0.075, 0.13][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
+    const impactShake = [0.30, 0.43, 0.78][state.comboIndex] * (zenithFinisher ? 1.28 : 1);
     hitstop(impactStop, state.comboIndex === 2 ? 0.04 : 0.06);
     shake(impactShake);
     // The camera bites forward along the cut — contact should be felt in the
@@ -788,8 +858,9 @@ function playerAttackHits() {
     camPunch.z += fz * (0.42 + overhead * 0.52) + tangZ * (state.comboIndex === 2 ? 0 : 0.20);
     camPunch.y -= state.comboIndex === 2 ? 0.24 : 0.12;
     if (state.comboIndex === 2) {
-      flash(0.18);
-      ink.splashScreen(2, 0.34);
+      flash(zenithFinisher ? 0.36 : 0.18);
+      ink.splashScreen(zenithFinisher ? 4 : 2, zenithFinisher ? 0.52 : 0.34);
+      if (zenithFinisher) audio.taiko(62, 0.34);
     }
     audio.hit(state.comboIndex);
   }
@@ -797,7 +868,8 @@ function playerAttackHits() {
 
 function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
   e.hp -= amount;
-  e.stagger = Math.max(e.stagger, 0.22);
+  const tier = getFlowTier();
+  e.stagger = Math.max(e.stagger, 0.22 + tier * 0.035);
   const p = e.actor.root.position;
   const h = 0.9 * e.spec.height;
   spawnImpactBurst(p, severity === 'bisect' ? 1.35 : 0.72);
@@ -812,8 +884,9 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
   // A wound throws ink in the direction of the cut.
   ink.spray(p.x, h, p.z, 9, { dirX, dirZ, force: 1.2, up: 0.6 });
   ink.flick(p.x, p.z, dirX, dirZ, 0.55);
-  e.actor.root.position.x += dirX * 0.35;
-  e.actor.root.position.z += dirZ * 0.35;
+  const reaction = 0.35 * (1 + tier * 0.12);
+  e.actor.root.position.x += dirX * reaction;
+  e.actor.root.position.z += dirZ * reaction;
   if (e.hasSlot) { releaseSlot(e); }
   e.state = 'stagger';
   e.t = 0;
@@ -1237,11 +1310,14 @@ function updateAttack(dt) {
       // The trail belongs to the cut itself. Firing it at wind-up start (as
       // before) painted the stroke while the sword was still drawn back.
       vTmp.copy(player.root.position); vTmp.y = 0.1;
+      const tier = getFlowTier();
+      const baseScale = state.comboIndex === 2 ? 1.28 : 1;
       trail.fire(vTmp, state.facing, {
         mirror: state.comboIndex === 1,
-        duration: cfg.active + cfg.recover * 0.8,
-        scale: state.comboIndex === 2 ? 1.28 : 1,
+        duration: cfg.active + cfg.recover * 0.8 + tier * 0.018,
+        scale: baseScale * (1 + tier * 0.06),
         style: state.comboIndex,
+        energy: tier,
       });
     }
     playerAttackHits();
@@ -1799,14 +1875,25 @@ const hpFillEl = document.getElementById('hpFill');
 const hpGaugeEl = document.getElementById('hpGauge');
 const iaiFillEl = document.getElementById('iaiFill');
 const iaiGaugeEl = document.getElementById('iaiGauge');
-const statsEl = document.getElementById('stats');
+const combatStatusEl = document.getElementById('combatStatus');
+const killsValueEl = document.getElementById('killsValue');
+const waveValueEl = document.getElementById('waveValue');
+const escapeStatEl = document.getElementById('escapeStat');
+const escapeValueEl = document.getElementById('escapeValue');
 const flowEl = document.getElementById('flow');
+const flowValueEl = document.getElementById('flowValue');
+const focusRateValueEl = document.getElementById('focusRateValue');
+const flowChargeEl = document.getElementById('flowCharge');
+const flowGhostEl = document.getElementById('flowGhost');
+const flowPulseEl = document.getElementById('flowPulse');
 const vitalsEl = document.getElementById('vitals');
 const iaiReadyNoticeEl = document.getElementById('iaiReadyNotice');
 const iaiNoticeTitleEl = document.getElementById('iaiNoticeTitle');
 const iaiNoticeDetailEl = document.getElementById('iaiNoticeDetail');
 let iaiWasReady = false;
 let iaiNoticeTimer = 0;
+let shownFlowChain = 0;
+let flowGhostLevel = 0;
 
 function showIaiNotice(title, detail, duration = 1800) {
   clearTimeout(iaiNoticeTimer);
@@ -1835,10 +1922,50 @@ function updateHUD() {
     iaiReadyNoticeEl.classList.remove('show');
   }
   iaiWasReady = iaiReady;
-  statsEl.textContent = `KILLS ${state.kills} · WAVE ${state.wave}${state.escapeCharges ? ` · ESCAPE ${state.escapeCharges}` : ''}`;
-  flowEl.classList.toggle('active', state.chain > 1);
-  flowEl.querySelector('strong').textContent = `FLOW ×${state.chain}`;
-  flowEl.querySelector('small').textContent = `FLOW · FOCUS ×${flowMultiplier().toFixed(1)}`;
+  killsValueEl.textContent = `${state.kills}`;
+  waveValueEl.textContent = `${state.wave}`;
+  escapeStatEl.hidden = !state.escapeCharges;
+  escapeValueEl.textContent = `${state.escapeCharges}`;
+  combatStatusEl.setAttribute('aria-label', `Wave ${state.wave}, ${state.kills} kills${state.escapeCharges ? `, ${state.escapeCharges} escapes` : ''}`);
+  flowEl.classList.toggle('active', state.chain > 0);
+  const tier = getFlowTier();
+  for (let level = 1; level <= 3; level++) flowEl.classList.toggle(`tier-${level}`, tier === level);
+  audio.setFlowTier(tier);
+  const focusRate = flowMultiplier().toFixed(1);
+  flowEl.classList.toggle('boosted', Number(focusRate) > 1);
+  const previousShownTier = getFlowTier(shownFlowChain);
+  if (state.chain > shownFlowChain) {
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    flowPulseEl.getAnimations().forEach((animation) => animation.cancel());
+    flowPulseEl.animate(
+      reducedMotion
+        ? [{ opacity: 0.72 }, { opacity: 0 }]
+        : [
+            { opacity: 0, transform: 'scaleX(0.25)' },
+            { opacity: 0.9, transform: 'scaleX(1)' },
+            { opacity: 0, transform: 'scaleX(1.2)' },
+          ],
+      { duration: reducedMotion ? 120 : 180, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
+    );
+    if (tier > previousShownTier) {
+      focusRateValueEl.getAnimations().forEach((animation) => animation.cancel());
+      focusRateValueEl.animate(
+        reducedMotion
+          ? [{ opacity: 0.45 }, { opacity: 1 }]
+          : [
+              { opacity: 0.55, transform: 'scale(0.94)' },
+              { opacity: 1, transform: 'scale(1.08)' },
+              { opacity: 1, transform: 'scale(1)' },
+            ],
+        { duration: reducedMotion ? 120 : 180, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
+      );
+    }
+  }
+  shownFlowChain = state.chain;
+  flowValueEl.textContent = `×${state.chain}`;
+  focusRateValueEl.textContent = `×${focusRate}`;
+  if (state.chain > 0) flowChargeEl.style.transform = `scaleX(${THREE.MathUtils.clamp(state.chainTimer / FLOW_WINDOW, 0, 1)})`;
+  flowEl.setAttribute('aria-label', `Flow ${state.chain}, focus rate ${focusRate}`);
 }
 
 const overlay = document.getElementById('overlay');
@@ -1920,7 +2047,7 @@ function renderTitleScreen() {
   ovCause.hidden = true;
   ovPoem.hidden = true;
   ovSeal.classList.remove('stamp');
-  ovText.innerHTML = 'A sheet of paper. A hundred blades.<br />Every wound you open bleeds into the page and stays there.';
+  ovText.innerHTML = 'One blade against a page that remembers every wound.<br />Read the white steel. Break the line. Leave only ink.';
   const chaseLines = [];
   if (records.wave > 0) {
     chaseLines.push(`BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`);
@@ -1930,12 +2057,12 @@ function renderTitleScreen() {
   if (grudge) {
     const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
     const wave = (names.indexOf(grudge) + 1) * 5;
-    chaseLines.push(`怨 <b>${grudge}</b> WAITS AT WAVE ${wave}`);
+    chaseLines.push(`GRUDGE · <b>${grudge}</b> WAITS AT WAVE ${wave}`);
   }
   ovChase.hidden = chaseLines.length === 0;
   ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
-  ovBtn.textContent = 'BEGIN';
+  ovBtn.textContent = 'DRAW THE BLADE';
   ovDaily.hidden = false;
   ovShare.hidden = true;
 }
@@ -2269,6 +2396,7 @@ function step(dt) {
 
   updateCamera(dt);
   updateIaiAura();
+  updateFlowOutline(dt);
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
@@ -2305,6 +2433,7 @@ window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
+  getFlowTier, addFlow, breakFlow,
   beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
   get enemies() { return enemies; },
 };
