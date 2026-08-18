@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">Onisolo mark</title>
-  <desc id="desc">An ink circle with two oni horns and one diagonal sword cut.</desc>
-  <rect width="64" height="64" rx="8" fill="#e9e4d6"/>
-  <path d="M20 17L13 6L29 13ZM44 17L51 6L35 13Z" fill="#0a0a0d"/>
-  <path d="M48 19C56 28 54.5 43 44 51C33 59 18 55 11 43C4 31 10 16 22 10C34 4 48 10 53 22" fill="none" stroke="#0a0a0d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M15 51L49 13" fill="none" stroke="#e9e4d6" stroke-width="7" stroke-linecap="square"/>
-  <path d="M17 53L51 15" fill="none" stroke="#0a0a0d" stroke-width="3.5" stroke-linecap="square"/>
-</svg>

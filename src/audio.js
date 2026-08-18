@@ -576,9 +576,41 @@ export class Audio {
     }
   }
 
-  hurt() {
-    this.noise(0.3, { type: 'lowpass', freq: 500, gain: 0.35, sweep: 0.4 });
-    this.tone(70, 0.3, { type: 'sawtooth', gain: 0.14, to: 40 });
+  hurt(danger = 0.5) {
+    const weight = 0.75 + Math.max(0, Math.min(1, danger)) * 0.35;
+    this.silenceMusic(0.22, 0.028);
+    this.noise(0.055, { freq: 4600, q: 2.8, gain: 0.24 * weight, sweep: 0.28 });
+    this.noise(0.34, { type: 'lowpass', freq: 620, gain: 0.48 * weight, sweep: 0.22 });
+    this.tone(92, 0.34, { type: 'sawtooth', gain: 0.2 * weight, to: 38 });
+    this.tone(49, 0.42, { type: 'sine', gain: 0.34 * weight, to: 27 });
+    if (danger > 0.62) this.tone(1780, 0.48, { type: 'sine', gain: 0.045, to: 1180, delay: 0.035 });
+  }
+
+  denied() {
+    this.noise(0.045, { type: 'lowpass', freq: 760, gain: 0.16, sweep: 0.55 });
+    this.tone(118, 0.11, { type: 'square', gain: 0.05, to: 82, delay: 0.025 });
+  }
+
+  ready() {
+    this.tone(660, 0.18, { type: 'sine', gain: 0.075, to: 880 });
+    this.tone(990, 0.28, { type: 'sine', gain: 0.055, to: 1320, delay: 0.08 });
+  }
+
+  boon() {
+    this.noise(0.12, { freq: 2500, q: 0.7, gain: 0.16, sweep: 0.46 });
+    this.tone(196, 0.44, { type: 'sine', gain: 0.16, to: 98 });
+    this.tone(523, 0.36, { type: 'triangle', gain: 0.09, to: 784, delay: 0.07 });
+    this.tone(784, 0.48, { type: 'sine', gain: 0.065, to: 1047, delay: 0.16 });
+  }
+
+  begin() {
+    this.noise(0.32, { freq: 2100, q: 1.1, gain: 0.13, sweep: 0.2 });
+    this.tone(82, 0.48, { type: 'sine', gain: 0.2, to: 41, delay: 0.04 });
+  }
+
+  defeat() {
+    this.tone(73, 0.9, { type: 'sine', gain: 0.28, to: 31, delay: 0.08 });
+    this.noise(0.55, { type: 'lowpass', freq: 420, gain: 0.2, sweep: 0.18, delay: 0.1 });
   }
 
   dash() { this.noise(0.28, { freq: 900, q: 0.8, gain: 0.12, sweep: 0.4 }); }

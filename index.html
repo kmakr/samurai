@@ -14,19 +14,22 @@
 <meta property="og:url" content="https://onisolo.theoazriel.com/" />
 <meta property="og:image" content="https://onisolo.theoazriel.com/assets/onisolo-icon-512.png" />
 <meta name="twitter:card" content="summary" />
-<link rel="icon" href="./assets/onisolo-mark.svg" type="image/svg+xml" />
+<link rel="icon" href="./assets/onisolo-mark-mini.svg" type="image/svg+xml" />
 <link rel="icon" href="./assets/onisolo-icon-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="./assets/onisolo-icon-180.png" />
 <link rel="manifest" href="./site.webmanifest" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Yuji+Boku&amp;display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Sorts+Mill+Goudy:ital@0;1&amp;family=Yuji+Boku&amp;display=swap" rel="stylesheet" />
 <style>
   :root {
     --paper: #e9e4d6;
     --ink: #0a0a0d;
-    --font-brush: "Yuji Boku", "Kaiti SC", "STKaiti", cursive;
-    --font-ui: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --seal: #b93625;
+    --font-brush: "Goudy Old Style", "Sorts Mill Goudy", "Yuji Boku", "Kaiti SC", "STKaiti", serif;
+    --font-ui: "Goudy Old Style", "Sorts Mill Goudy", Garamond, Georgia, serif;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
     --film-bar-h: 72px;
     --film-bar-w: 0px;
     --hud-inline: clamp(14px, 3.2vw, 48px);
@@ -41,7 +44,7 @@
     background: #000;
     color: var(--paper);
     font-family: var(--font-ui);
-    font-synthesis: none;
+    font-synthesis: weight style;
     cursor: crosshair;
     user-select: none;
     -webkit-user-select: none;
@@ -345,6 +348,83 @@
     100% { opacity: 0; transform: translate(-50%, -56%) scale(1.03) rotate(-1deg); }
   }
 
+  /* A selected discipline stays on the page long enough to be read. */
+  #boonNotice {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--film-bar-h) + clamp(18px, 4vh, 52px));
+    width: min(440px, calc(100vw - 48px));
+    padding: 15px 22px 15px 70px;
+    color: var(--paper);
+    background: linear-gradient(90deg, rgba(233,228,214,0.10), transparent 32%), rgba(7,7,9,0.92);
+    border-top: 1px solid rgba(233,228,214,0.34);
+    border-bottom: 1px solid rgba(233,228,214,0.16);
+    opacity: 0;
+    transform: translate(-50%, 18px);
+    visibility: hidden;
+    text-align: left;
+    filter: drop-shadow(0 12px 18px rgba(0,0,0,0.42));
+  }
+  #boonNotice::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: -1px;
+    bottom: -1px;
+    width: 52px;
+    background: var(--paper);
+    clip-path: polygon(0 5%, 92% 0, 100% 18%, 94% 94%, 8% 100%, 0 83%);
+  }
+  #boonNotice .sigil {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    color: var(--ink);
+    transform: translateY(-50%);
+  }
+  #boonNotice .sigil svg { display: block; width: 100%; height: 100%; }
+  #boonNotice .eyebrow, #boonNotice .name, #boonNotice .effect { display: block; }
+  #boonNotice .eyebrow { font-size: 10px; letter-spacing: 0.28em; opacity: 0.58; }
+  #boonNotice .name {
+    margin-top: 3px;
+    font-size: clamp(18px, 2.3vw, 26px);
+    line-height: 1;
+    letter-spacing: 0.16em;
+  }
+  #boonNotice .effect {
+    margin-top: 7px;
+    font-size: 12px;
+    line-height: 1.35;
+    letter-spacing: 0.05em;
+    opacity: 0.78;
+  }
+  #boonNotice.show { visibility: visible; animation: boonRead 4.4s ease-out forwards; }
+  @keyframes boonRead {
+    0% { opacity: 0; transform: translate(-50%, 18px) scale(0.96); }
+    8%, 78% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -8px) scale(1); }
+  }
+
+  #damageFlash {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    pointer-events: none;
+    opacity: 0;
+    background:
+      radial-gradient(ellipse at center, transparent 34%, rgba(0,0,0,0.08) 48%, rgba(0,0,0,0.88) 100%),
+      linear-gradient(101deg, transparent 47%, rgba(255,255,255,0.72) 49%, transparent 51%);
+    mix-blend-mode: normal;
+  }
+  #damageFlash.show { animation: damageInk 0.46s ease-out forwards; }
+  @keyframes damageInk {
+    0% { opacity: 0.95; filter: blur(0); }
+    28% { opacity: 0.72; }
+    100% { opacity: 0; filter: blur(5px); }
+  }
+
   /* ------------------------------------------------------ wave discipline */
 
   #upgradeOverlay {
@@ -421,7 +501,9 @@
     position: absolute;
     top: 24px;
     right: 18px;
-    font: 10px/1 Arial, sans-serif;
+    font-family: var(--font-ui);
+    font-size: 10px;
+    line-height: 1;
     letter-spacing: 0.16em;
     opacity: 0.42;
   }
@@ -457,7 +539,9 @@
     display: block;
     margin-top: 8px;
     min-height: 1em;
-    font: 9px/1.2 Arial, sans-serif;
+    font-family: var(--font-ui);
+    font-size: 9px;
+    line-height: 1.2;
     letter-spacing: 0.22em;
     opacity: 0.48;
   }
@@ -485,7 +569,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    #waveTitle.show, #combatCallout.show, .scroll { animation-duration: 0.01ms; }
+    #waveTitle.show, #combatCallout.show, #boonNotice.show, #damageFlash.show, .scroll { animation-duration: 0.01ms; }
     .scroll, #flow, #vitals, .inkFill, #iaiReadyNotice { transition: none; }
     #iaiGauge.ready .inkFill { animation: none; }
     #ovSeal.stamp { animation-duration: 0.01ms; animation-delay: 0s; }
@@ -501,43 +585,179 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: radial-gradient(ellipse at center, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.93) 75%);
+    background:
+      linear-gradient(104deg, transparent 48.9%, rgba(233,228,214,0.035) 49%, transparent 50.5%),
+      radial-gradient(ellipse at 50% 44%, rgba(35,32,27,0.52) 0%, rgba(0,0,0,0.96) 72%);
     text-align: center;
     pointer-events: none;
   }
   #overlay.hidden { display: none; }
+  #overlay::after {
+    content: "";
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: 66%;
+    height: 3px;
+    background: var(--paper);
+    opacity: 0;
+    transform: scaleX(0);
+    pointer-events: none;
+  }
+  #overlay.leaving::after { animation: openingCut 220ms var(--ease-in-out) forwards; }
+  #overlay.leaving > :not(#ovTitle) { animation: clearPage 160ms var(--ease-out) forwards; }
+  #overlay.leaving #ovTitle { animation: clearPage 190ms var(--ease-out) forwards; }
+  @keyframes openingCut {
+    0% { opacity: 0; transform: scaleX(0); }
+    28% { opacity: 1; transform: scaleX(0.18); }
+    100% { opacity: 0; transform: scaleX(1); }
+  }
+  @keyframes clearPage { to { opacity: 0; transform: translateY(-6px); } }
+  body:has(#overlay:not(.hidden)) #hud { opacity: 0; }
+  #overlay.intro::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 7%;
+    bottom: 8%;
+    width: clamp(130px, 17vw, 240px);
+    transform: translateX(-50%) rotate(3deg);
+    background: radial-gradient(ellipse, rgba(233,228,214,0.055), transparent 68%);
+    filter: blur(14px);
+    pointer-events: none;
+  }
 
   #ovTitle {
+    position: relative;
     margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     font-family: var(--font-ui);
-    font-size: clamp(64px, 12vw, 150px);
-    font-weight: 700;
+    font-size: clamp(44px, 6vw, 72px);
+    font-weight: 400;
     line-height: 0.9;
-    letter-spacing: 0.14em;
-    text-indent: 0.14em;
+    letter-spacing: 0.17em;
+    text-indent: 0.17em;
+  }
+  #ovTitle .maskStage {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: clamp(150px, 17vw, 225px);
+    max-height: 27vh;
   }
   #ovTitle img {
     display: block;
-    width: min(72vw, 650px);
+    width: 100%;
+    max-height: 27vh;
     height: auto;
+    object-fit: contain;
+    filter:
+      invert(92%) sepia(11%) saturate(260%) hue-rotate(355deg) brightness(103%) contrast(91%)
+      drop-shadow(0 13px 20px rgba(0,0,0,0.72));
+  }
+  #ovTitle .wordmark {
+    position: relative;
+    z-index: 2;
+    display: block;
+    margin-top: -18px;
+    white-space: nowrap;
     filter: drop-shadow(0 0 40px rgba(0,0,0,0.9));
+  }
+  #ovTitle .brandSeal {
+    position: absolute;
+    z-index: 3;
+    right: -22px;
+    bottom: 1px;
+    width: 26px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    color: var(--paper);
+    background: var(--seal);
+    font-size: 16px;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: 0;
+    text-indent: 0;
+    clip-path: polygon(5% 7%, 94% 0, 100% 89%, 9% 100%, 0 82%);
+    transform: rotate(-7deg);
+  }
+  #ovTitle .eye {
+    position: absolute;
+    z-index: 2;
+    height: 4px;
+    background: #fff;
+    opacity: 0;
+    filter: drop-shadow(0 0 7px #fff);
+    clip-path: polygon(0 24%, 100% 0, 86% 100%, 8% 76%);
+  }
+  #ovTitle .eye.left { left: 39%; top: 56.5%; width: 13%; transform: rotate(8deg) scaleY(0.1); }
+  #ovTitle .eye.right { left: 61%; top: 56%; width: 9%; transform: rotate(-9deg) scaleY(0.1); }
+
+  #overlay.intro #ovTitle .maskStage { animation: maskBleed 620ms var(--ease-out) both; }
+  #overlay.intro #ovTitle .eye { animation: eyeOpen 160ms var(--ease-out) 430ms both; }
+  #overlay.intro #ovTitle .wordmark { animation: titleCut 260ms var(--ease-out) 390ms both; }
+  #overlay.intro #ovTitle .brandSeal { animation: brandStamp 180ms var(--ease-out) 570ms both; }
+  #overlay.intro #ovSub { animation: introRise 220ms var(--ease-out) 500ms both; }
+  #overlay.intro #ovText { animation: introRise 220ms var(--ease-out) 570ms both; }
+  #overlay.intro #ovButtons { animation: introRise 220ms var(--ease-out) 640ms both; }
+  #overlay.intro #controls, #overlay.intro #touchControls { animation: introRise 220ms var(--ease-out) 700ms both; }
+  @keyframes maskBleed {
+    from { opacity: 0; transform: translateY(-10px) scale(0.94); clip-path: inset(48% 14% 48% 14%); }
+    to { opacity: 1; transform: translateY(0) scale(1); clip-path: inset(0); }
+  }
+  @keyframes eyeOpen { to { opacity: 0.92; transform: rotate(var(--eye-angle)) scaleY(1); } }
+  @keyframes titleCut {
+    from { opacity: 0; transform: translateX(-10px); clip-path: inset(0 100% 0 0); }
+    to { opacity: 1; transform: translateX(0); clip-path: inset(0); }
+  }
+  @keyframes brandStamp {
+    from { opacity: 0; transform: rotate(-12deg) scale(0.94); }
+    to { opacity: 1; transform: rotate(-7deg) scale(1); }
+  }
+  @keyframes introRise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: var(--intro-opacity, 1); transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #overlay.intro #ovTitle .maskStage,
+    #overlay.intro #ovTitle .eye,
+    #overlay.intro #ovTitle .wordmark,
+    #overlay.intro #ovTitle .brandSeal,
+    #overlay.intro #ovSub,
+    #overlay.intro #ovText,
+    #overlay.intro #ovButtons,
+    #overlay.intro #controls,
+    #overlay.intro #touchControls {
+      animation-duration: 180ms;
+      animation-delay: 0s;
+      transform: none;
+      clip-path: none;
+    }
+    #overlay.leaving::after { animation: none; }
   }
 
   #ovSub {
+    --intro-opacity: 0.6;
     font-size: clamp(9px, 1vw, 13px);
     letter-spacing: clamp(0.32em, 0.9vw, 0.75em);
     opacity: 0.6;
-    margin-top: 4px;
+    margin-top: 7px;
     text-indent: clamp(0.32em, 0.9vw, 0.75em);
   }
 
   #ovText {
-    margin: 20px 0 0;
-    font-size: 14px;
-    letter-spacing: 0.24em;
-    line-height: 2;
-    opacity: 0.78;
-    max-width: 34em;
+    --intro-opacity: 0.72;
+    margin: 18px 0 0;
+    padding-top: 17px;
+    font-size: clamp(12px, 1.25vw, 15px);
+    letter-spacing: 0.08em;
+    line-height: 1.65;
+    opacity: 0.72;
+    max-width: 36em;
+    border-top: 1px solid rgba(233,228,214,0.18);
   }
 
   #ovBtn {
@@ -546,31 +766,53 @@
     margin-top: 26px;
     padding: 13px 46px;
     font-family: inherit;
-    font-size: 14px;
-    letter-spacing: 0.42em;
-    text-indent: 0.42em;
+    font-size: 16px;
+    letter-spacing: 0.30em;
+    text-indent: 0.30em;
     color: #0a0a0d;
     background: var(--paper);
     border: 0;
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
-    clip-path: polygon(0 14%, 1% 2%, 99.4% 0, 100% 52%, 99% 98%, 1.4% 100%, 0.2% 62%);
-    transition: background 0.2s, transform 0.2s;
+    clip-path: polygon(0 14%, 1% 2%, 82% 0, 100% 16%, 98% 96%, 16% 100%, 0.2% 82%);
+    transition: background 160ms ease, transform 160ms var(--ease-out);
   }
-  #ovBtn:hover { background: #fff; transform: scale(1.03); }
+  #ovBtn::after {
+    content: "";
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: 50%;
+    height: 2px;
+    background: var(--ink);
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  #overlay.leaving #ovBtn::after {
+    opacity: 1;
+    transform: scaleX(1);
+    transition: transform 140ms var(--ease-out);
+  }
+  #ovBtn:focus-visible, #ovDaily:focus-visible, #ovShare:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 5px;
+  }
 
   #controls {
     margin-top: 26px;
     display: grid;
-    grid-template-columns: auto auto;
-    gap: 7px 22px;
-    font-size: 12px;
-    letter-spacing: 0.18em;
-    opacity: 0.5;
+    grid-template-columns: repeat(4, auto);
+    gap: 7px 10px;
+    padding: 11px 15px 9px;
+    font-size: 11px;
+    letter-spacing: 0.10em;
+    opacity: 0.52;
+    border-top: 1px solid rgba(233,228,214,0.14);
+    border-bottom: 1px solid rgba(233,228,214,0.08);
   }
-  #controls span:nth-child(odd) { text-align: right; opacity: 0.75; }
-  #controls span:nth-child(even) { text-align: left; }
+  #controls span:nth-child(odd) { text-align: right; opacity: 0.9; color: #fff; }
+  #controls span:nth-child(even) { text-align: left; margin-right: 10px; }
 
   #ovCause {
     margin-top: 14px;
@@ -702,7 +944,6 @@
     touch-action: manipulation;
     transition: background 0.2s, color 0.2s, border-color 0.2s;
   }
-  #ovDaily:hover { background: rgba(233, 228, 214, 0.12); border-color: var(--paper); }
   #ovDaily.armed { background: var(--paper); color: #0a0a0d; border-color: var(--paper); }
   #ovDaily[hidden] { display: none; }
 
@@ -721,8 +962,13 @@
     touch-action: manipulation;
     transition: background 0.2s, color 0.2s;
   }
-  #ovShare:hover { background: rgba(233, 228, 214, 0.12); }
   #ovShare[hidden] { display: none; }
+
+  @media (hover: hover) and (pointer: fine) {
+    #ovBtn:hover { background: #fff; transform: scale(1.03); }
+    #ovDaily:hover { background: rgba(233, 228, 214, 0.12); border-color: var(--paper); }
+    #ovShare:hover { background: rgba(233, 228, 214, 0.12); }
+  }
 
   /* ------------------------------------------------------------- touch UI */
   /* Hidden until the device proves it is touch-first; the JS stamps `touch`
@@ -816,8 +1062,10 @@
      height instead of width, and the keyboard hints give way. */
   @media (max-height: 520px) {
     #overlay { padding: 10px 16px; overflow-y: auto; }
-    #ovTitle { font-size: clamp(40px, 9vh, 64px); }
-    #ovTitle img { width: auto; height: 25vh; }
+    #ovTitle { font-size: clamp(34px, 8vh, 52px); }
+    #ovTitle .maskStage { width: auto; height: 24vh; }
+    #ovTitle img { width: auto; height: 24vh; }
+    #ovTitle .wordmark { margin-top: -12px; }
     #ovSub { margin-top: 2px; }
     #ovText { margin: 8px 0 0; font-size: 11px; line-height: 1.7; }
     #ovCause { margin-top: 8px; }
@@ -860,6 +1108,7 @@
 
 <div id="app"></div>
 <canvas id="inkOverlay"></canvas>
+<div id="damageFlash" aria-hidden="true"></div>
 
 <div class="bar" id="barTop"></div>
 <div class="bar" id="barBottom"></div>
@@ -899,6 +1148,12 @@
 
   <div id="waveTitle"></div>
   <div id="combatCallout"><span class="mark"></span><span class="meaning"></span></div>
+  <div id="boonNotice" role="status" aria-live="polite">
+    <span class="sigil" aria-hidden="true"></span>
+    <span class="eyebrow"></span>
+    <strong class="name"></strong>
+    <span class="effect"></span>
+  </div>
 </div>
 
 <div id="upgradeOverlay" class="hidden" aria-hidden="true" aria-labelledby="upgradeHeading">
@@ -924,29 +1179,36 @@
   <small>the duel plays in landscape</small>
 </div>
 
-<div id="overlay">
-  <h1 id="ovTitle"><img src="./assets/onisolo-logo.svg" alt="Onisolo" /></h1>
+<div id="overlay" class="intro">
+  <h1 id="ovTitle">
+    <span class="maskStage" aria-hidden="true">
+      <img src="./assets/onisolo-oni-v2.png" alt="" />
+      <i class="eye left" style="--eye-angle: 8deg"></i>
+      <i class="eye right" style="--eye-angle: -9deg"></i>
+    </span>
+    <span class="wordmark">ONISOLO</span><i class="brandSeal" aria-hidden="true">O</i>
+  </h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
   <div id="ovCause" hidden></div>
   <div id="ovPoem" hidden><span id="ovPoemText"></span><span id="ovSeal" aria-label="record seal">極</span></div>
   <p id="ovText">
-    A sheet of paper. A hundred blades.<br />
-    Every wound you open bleeds into the page and stays there.
+    One blade against a page that remembers every wound.<br />
+    Read the white steel. Break the line. Leave only ink.
   </p>
   <div id="ovChase" hidden></div>
   <div id="ledger" aria-hidden="true"></div>
   <div id="ovButtons">
-    <button id="ovBtn" type="button">BEGIN</button>
+    <button id="ovBtn" type="button">DRAW THE BLADE</button>
     <button id="ovDaily" type="button">DAILY TRIAL</button>
   </div>
   <button id="ovShare" type="button" hidden>COPY RESULT</button>
   <div id="controls">
     <span>WASD</span><span>move</span>
     <span>MOUSE</span><span>aim the cut</span>
-    <span>CLICK</span><span>slash; the third cut of the chain cleaves a man in two</span>
-    <span>SHIFT</span><span>dash (invulnerable)</span>
-    <span>SPACE</span><span>parry; time it against the white blade</span>
-    <span>F</span><span>iai draw; charge with kills + perfect parries</span>
+    <span>CLICK</span><span>cut, third cut cleaves</span>
+    <span>SHIFT</span><span>dash, no damage</span>
+    <span>SPACE</span><span>parry the white blade</span>
+    <span>F</span><span>iai, charge by skill</span>
   </div>
   <div id="touchControls">
     LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>抜</b> IAI
@@ -960,7 +1222,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=46"></script>
+<script type="module" src="./src/main.js?v=48"></script>
 
 </body>
 </html>

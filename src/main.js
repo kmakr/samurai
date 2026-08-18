@@ -298,12 +298,30 @@ let invertT = 0;
 function parryFlash() { invertT = 0.09; }
 
 const combatCalloutEl = document.getElementById('combatCallout');
+const boonNoticeEl = document.getElementById('boonNotice');
+const damageFlashEl = document.getElementById('damageFlash');
 function showCombatCallout(mark, meaning) {
   combatCalloutEl.querySelector('.mark').textContent = mark;
   combatCalloutEl.querySelector('.meaning').textContent = meaning;
   combatCalloutEl.classList.remove('show');
   void combatCalloutEl.offsetWidth;
   combatCalloutEl.classList.add('show');
+}
+
+function showBoonNotice(upgrade, rank, effect, mastered = false) {
+  boonNoticeEl.querySelector('.sigil').innerHTML = DISCIPLINE_ART[upgrade.id] || '';
+  boonNoticeEl.querySelector('.eyebrow').textContent = mastered ? 'MASTERY REWARD' : `DISCIPLINE ACTIVE · RANK ${rank}`;
+  boonNoticeEl.querySelector('.name').textContent = upgrade.name;
+  boonNoticeEl.querySelector('.effect').textContent = effect;
+  boonNoticeEl.classList.remove('show');
+  void boonNoticeEl.offsetWidth;
+  boonNoticeEl.classList.add('show');
+}
+
+function showDamageFlash() {
+  damageFlashEl.classList.remove('show');
+  void damageFlashEl.offsetWidth;
+  damageFlashEl.classList.add('show');
 }
 
 function makeBrushRing() {
@@ -687,7 +705,11 @@ function showUpgradeChoice() {
 
 function takeUpgrade(upgrade) {
   if (!state.choosingUpgrade) return;
-  if (state.upgrades[upgrade.id] >= 3) {
+  const current = state.upgrades[upgrade.id];
+  const mastered = current >= 3;
+  const next = Math.min(3, current + 1);
+  const effect = mastered ? 'Restored 20 life and 20 focus.' : upgrade.describe(next);
+  if (mastered) {
     state.hp = Math.min(PLAYER_MAX_HP, state.hp + 20);
     state.focus = Math.min(FOCUS_MAX, state.focus + 20);
   } else {
@@ -701,8 +723,8 @@ function takeUpgrade(upgrade) {
   upgradeOverlayEl.classList.add('hidden');
   upgradeOverlayEl.setAttribute('aria-hidden', 'true');
   document.activeElement?.blur();
-  showCombatCallout(upgrade.name, 'DISCIPLINE LEARNED');
-  audio.taiko(92, 0.42);
+  showBoonNotice(upgrade, next, effect, mastered);
+  audio.boon();
   updateHUD();
 }
 
@@ -904,9 +926,10 @@ function damagePlayer(amount, source = null) {
   ink.spray(p.x, 1.2, p.z, 10, { force: 1.0 });
   ink.pool(p.x, p.z, 0.35);
   ink.splashScreen(7, 1.1);
+  showDamageFlash();
   shake(0.9);
   hitstop(0.08, 0.1);
-  audio.hurt();
+  audio.hurt(1 - Math.max(0, state.hp) / PLAYER_MAX_HP);
   state.action = 'hurt';
   state.actionT = 0.26;
   updateHUD();
@@ -1010,6 +1033,7 @@ function tryIai() {
   if (!state.running || iaiT > 0) return;
   if (state.focus < FOCUS_MAX) {
     showIaiNotice('IAI NOT READY', 'CHARGE: KILLS + PERFECT PARRIES', 1500);
+    audio.denied();
     return;
   }
   state.focus = 0;
@@ -1805,6 +1829,7 @@ function updateHUD() {
   iaiGaugeEl.classList.toggle('ready', iaiReady);
   if (iaiReady && !iaiWasReady) {
     showIaiNotice('IAI READY', 'PRESS F');
+    audio.ready();
   } else if (!iaiReady && iaiWasReady) {
     clearTimeout(iaiNoticeTimer);
     iaiReadyNoticeEl.classList.remove('show');
@@ -1946,7 +1971,7 @@ function composeDeathPoem(record) {
     `the page took ${numberWord(w)} waves from me`,
   ] : [
     `${numberWord(w)} waves deep, the paper heavy`,
-    `${numberWord(w)} waves — the page near black`,
+    `${numberWord(w)} waves, the page near black`,
     `${numberWord(w)} waves of careful cutting`,
   ];
 
@@ -1961,7 +1986,7 @@ function composeDeathPoem(record) {
     oni: who
       ? [`${who} signed the page for me`, `${who}’s answer was iron`]
       : ['the iron demon signed his name', 'horns against a paper sky'],
-  }[info.type] || ['no blade — only my own haste', 'the field itself grew teeth'];
+  }[info.type] || ['no blade, only my own haste', 'the field itself grew teeth'];
   const caught = {
     dash: 'caught between two footfalls',
     attack: 'my own cut left the door open',
@@ -1973,7 +1998,7 @@ function composeDeathPoem(record) {
 
   // Line three: what the page keeps.
   const closings = [];
-  if (record) closings.push('furthest yet — dry it, turn the sheet', 'a new high-water mark of ink');
+  if (record) closings.push('furthest yet, dry it, turn the sheet', 'a new high-water mark of ink');
   if (state.perfectParries >= 8) closings.push('steel rang like temple bells, then rain');
   if (state.kills >= 30) closings.push('so much ink, and none of it mine to keep');
   if (state.bestChain >= 8) closings.push('the flow broke where the paper folds');
@@ -1992,7 +2017,7 @@ function buildShareText() {
   const tag = run.daily ? `Daily · ${run.dateStr}` : todayStamp();
   const poem = lastPoem ? [``, ...lastPoem.map((l) => `  ${l}`), ``] : [];
   return [
-    'ONISOLO — THE PAGE REMEMBERS',
+    'ONISOLO: THE PAGE REMEMBERS',
     tag,
     ...poem,
     `Wave ${state.wave} · ${state.kills} kills · ${state.perfectParries} perfect parries · best flow ${state.bestChain}`,
@@ -2024,6 +2049,7 @@ function gameOver() {
   audio.setWind(0.12);
   audio.setMusicIntensity(0);
   audio.silenceMusic(1.3, 0.001);
+  audio.defeat();
   const records = loadRecords();      // previous bests, before this run folds in
   const prevBestWave = records.wave;
   const newRecords = {
@@ -2042,12 +2068,12 @@ function gameOver() {
 
   // The chase line: the single strongest reason to draw again.
   let chase;
-  if (state.wave > prevBestWave) chase = `NEW BEST — WAVE <b>${state.wave}</b>`;
+  if (state.wave > prevBestWave) chase = `NEW BEST: WAVE <b>${state.wave}</b>`;
   else if (prevBestWave === 0) chase = 'FIRST BLOOD ON THE PAGE';
-  else if (state.wave === prevBestWave) chase = `YOU MATCHED YOUR BEST — WAVE <b>${prevBestWave}</b>`;
+  else if (state.wave === prevBestWave) chase = `YOU MATCHED YOUR BEST: WAVE <b>${prevBestWave}</b>`;
   else {
     const short = prevBestWave - state.wave;
-    chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST — WAVE <b>${prevBestWave}</b>`;
+    chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST: WAVE <b>${prevBestWave}</b>`;
   }
 
   // Compose the poem before recording the new grudge, so a repeat killing by
@@ -2056,6 +2082,7 @@ function gameOver() {
   if (state.deathInfo && state.deathInfo.rival) saveGrudge(state.deathInfo.rival);
 
   setTimeout(() => {
+    overlay.classList.remove('intro');
     ovTitle.textContent = 'DEFEAT';
     ovSub.textContent = record ? 'A NEW RECORD' : run.daily ? `DAILY · ${run.dateStr}` : 'DEATH ON THE PAGE';
     ovCause.hidden = false;
@@ -2079,29 +2106,45 @@ function gameOver() {
   }, 1200);
 }
 
+let beginPending = false;
 function beginGame(opts = {}) {
-  if (state.running) return;
+  if (state.running || beginPending) return;
   run.daily = Boolean(opts.daily);
   run.dateStr = todayStamp();
   run.rng = run.daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
-  overlay.classList.add('hidden');
-  input.enabled = true;
   audio.start();
-  if (state.over) {
-    try { sessionStorage.setItem('samurai-restart', run.daily ? 'daily' : 'normal'); } catch { /* ignore */ }
-    location.reload();
+  audio.begin();
+
+  const commit = () => {
+    beginPending = false;
+    overlay.classList.remove('leaving');
+    overlay.classList.add('hidden');
+    input.enabled = true;
+    if (state.over) {
+      try { sessionStorage.setItem('samurai-restart', run.daily ? 'daily' : 'normal'); } catch { /* ignore */ }
+      location.reload();
+      return;
+    }
+    state.running = true;
+    state.waveBreak = 1.2;
+    updateHUD();
+  };
+
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (opts.instant || reduceMotion) {
+    commit();
     return;
   }
-  state.running = true;
-  state.waveBreak = 1.2;
-  updateHUD();
+  beginPending = true;
+  overlay.classList.add('leaving');
+  setTimeout(commit, 220);
 }
 
 ovBtn.addEventListener('click', () => beginGame());
 ovDaily.addEventListener('click', () => beginGame({ daily: true }));
 ovShare.addEventListener('click', copyResult);
 addEventListener('keydown', (e) => {
-  if (e.code === 'Enter' && !state.running) beginGame();
+  if (e.code === 'Enter' && !state.running) beginGame({ instant: true });
 });
 
 // A fresh run's title screen, and the snappy path back in after a defeat: if
@@ -2119,7 +2162,7 @@ try {
   const restart = sessionStorage.getItem('samurai-restart');
   if (restart) {
     sessionStorage.removeItem('samurai-restart');
-    beginGame({ daily: restart === 'daily' });
+    beginGame({ daily: restart === 'daily', instant: true });
     // A reload-driven restart has no user gesture, so the audio context comes
     // up suspended. Resume it on the first input so the run isn't silent.
     const resume = () => audio.start();
