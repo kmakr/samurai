@@ -175,6 +175,69 @@ function makeKatana(len = 1.15, dark = false) {
 
 // ------------------------------------------------------------------ player
 
+// Player skins are lacquer palettes, not power. They deliberately vary tonal
+// hierarchy as well as hue so each one remains distinct after the film pass
+// turns the scene into an orthochromatic black-and-white print.
+export const SAMURAI_SKINS = [
+  {
+    id: 'musashi', name: 'MUSASHI', epithet: 'WANDERING SWORD',
+    colors: {
+      armor: 0x5e4938, plate: 0x8d7558, cloth: 0x28201b, trim: 0x0b0908,
+      skin: 0x81766b, sash: 0xc9b78f, crest: 0xd8c69d,
+    },
+    features: ['wildHair', 'dualSword', 'warSash'],
+  },
+  {
+    id: 'hitokiri', name: 'HITOKIRI', epithet: 'CRIMSON DRAW',
+    colors: {
+      armor: 0x8b2b22, plate: 0xc95a3f, cloth: 0x211b1e, trim: 0x09080a,
+      skin: 0x82766e, sash: 0xe7d9bd, crest: 0xd7462f,
+    },
+    features: ['ponytail', 'lightSleeves', 'warSash'],
+  },
+  {
+    id: 'masamune', name: 'MASAMUNE', epithet: 'ONE-EYED DRAGON',
+    colors: {
+      armor: 0x3f5f9a, plate: 0x7899d0, cloth: 0x151c2b, trim: 0x07090d,
+      skin: 0x817970, sash: 0xc1d2e8, crest: 0xe0e8ee,
+    },
+    features: ['kabuto', 'armoredShoulders', 'dragonCrescent'],
+  },
+  {
+    id: 'mibu', name: 'MIBU WOLF', epithet: 'PALE HAORI',
+    colors: {
+      armor: 0xb7d2d1, plate: 0xe8eee7, cloth: 0x30383d, trim: 0x12161a,
+      skin: 0x817870, sash: 0x496b72, crest: 0xf5efe1,
+    },
+    features: ['mibuHaori', 'mibuHeadband'],
+  },
+];
+
+export function applySamuraiSkin(actor, skinId) {
+  const skin = SAMURAI_SKINS.find((entry) => entry.id === skinId) || SAMURAI_SKINS[0];
+  const features = new Set(skin.features);
+  actor.root.traverse((object) => {
+    const feature = object.userData.skinFeature;
+    if (feature) object.visible = features.has(feature);
+    const slot = object.userData.skinSlot;
+    if (!slot || !object.material || !skin.colors[slot]) return;
+    object.material.color.setHex(skin.colors[slot]);
+  });
+  actor.skin = skin.id;
+  return skin;
+}
+
+function skinSlot(mesh, slot) {
+  mesh.userData.skinSlot = slot;
+  return mesh;
+}
+
+function skinFeature(object, feature) {
+  object.userData.skinFeature = feature;
+  object.visible = false;
+  return object;
+}
+
 export function makeSamurai() {
   const root = new THREE.Group();
   root.scale.setScalar(1.06);
@@ -185,40 +248,43 @@ export function makeSamurai() {
 
   // A fitted dō instead of the enemy's square robe. The bright front plates
   // and lacing keep their shape while the torso twists through a cut.
-  const torso = vpart('pTorsoArmored', taperLayers(7, 5, 6, 4, 7, 1), 0.38);
+  const torso = skinSlot(vpart('pTorsoArmored', taperLayers(7, 5, 6, 4, 7, 1), 0.38), 'armor');
   torso.position.y = 0.34;
   hips.add(torso);
-  const breastplate = vpart('pBreastplate', boxLayers(6, 1, 4, 1), 0.68);
+  const breastplate = skinSlot(vpart('pBreastplate', boxLayers(6, 1, 4, 1), 0.68), 'plate');
   breastplate.position.set(0, 0.02, 0.28);
   torso.add(breastplate);
-  const chestLace = vpart('pChestLace', boxLayers(6, 1, 1), 0.08);
+  const chestLace = skinSlot(vpart('pChestLace', boxLayers(6, 1, 1), 0.08), 'trim');
   chestLace.position.set(0, -0.14, 0.34);
   torso.add(chestLace);
 
   // Broad lamellar shoulders are the first player-only silhouette cue.
-  const shoulders = vpart('pShouldersArmored', taperLayers(12, 5, 9, 4, 3, 1), 0.52);
+  const shoulders = skinFeature(
+    skinSlot(vpart('pShouldersArmored', taperLayers(12, 5, 9, 4, 3, 1), 0.52), 'plate'),
+    'armoredShoulders',
+  );
   shoulders.position.y = 0.60;
   hips.add(shoulders);
 
-  const hakama = vpart('pHakamaArmored', taperLayers(10, 9, 5, 4, 9, 1), 0.18);
+  const hakama = skinSlot(vpart('pHakamaArmored', taperLayers(10, 9, 5, 4, 9, 1), 0.18), 'cloth');
   hakama.position.y = -0.44;
   hips.add(hakama);
 
-  const obi = vpart('pObi', boxLayers(6, 5, 1), 0.03);
+  const obi = skinSlot(vpart('pObi', boxLayers(6, 5, 1), 0.03), 'trim');
   obi.position.y = 0.0;
   hips.add(obi);
 
-  const neck = vpart('pNeck', boxLayers(2, 2, 1), 0.48);
+  const neck = skinSlot(vpart('pNeck', boxLayers(2, 2, 1), 0.48), 'skin');
   neck.position.y = 0.74;
   hips.add(neck);
 
   // Two white war-sash tails stay visible from the high camera at every
   // facing. They are both costume and player marker, not a HUD ring.
-  const sashL = vpart('pSashLong', boxLayers(2, 2, 12), 0.94);
+  const sashL = skinFeature(skinSlot(vpart('pSashLong', boxLayers(2, 2, 12), 0.94), 'sash'), 'warSash');
   sashL.position.set(-0.15, 0.38, -0.62);
   sashL.rotation.set(Math.PI / 2, -0.09, 0);
   hips.add(sashL);
-  const sashR = vpart('pSashShort', boxLayers(2, 2, 9), 0.82);
+  const sashR = skinFeature(skinSlot(vpart('pSashShort', boxLayers(2, 2, 9), 0.82), 'sash'), 'warSash');
   sashR.position.set(0.14, 0.34, -0.50);
   sashR.rotation.set(Math.PI / 2, 0.12, 0);
   hips.add(sashR);
@@ -226,36 +292,54 @@ export function makeSamurai() {
   const head = new THREE.Group();
   head.position.y = 0.88;
   hips.add(head);
-  const skull = vpart('pSkullArmored', boxLayers(3, 3, 3), 0.42);
+  const skull = skinSlot(vpart('pSkullArmored', boxLayers(3, 3, 3), 0.42), 'skin');
   head.add(skull);
   // Kabuto bowl, flared shikoro neck guard, and a bright frontal maedate.
   // The crest is a flat voxel sun rather than oni-like horns.
-  const shikoro = vpart('pShikoro', taperLayers(7, 6, 4, 4, 3, 1), 0.14);
+  const shikoro = skinFeature(
+    skinSlot(vpart('pShikoro', taperLayers(7, 6, 4, 4, 3, 1), 0.14), 'cloth'),
+    'kabuto',
+  );
   shikoro.position.y = -0.02;
   head.add(shikoro);
-  const kabuto = vpart('pKabuto', taperLayers(5, 5, 4, 4, 4, 1), 0.10);
+  const kabuto = skinFeature(
+    skinSlot(vpart('pKabuto', taperLayers(5, 5, 4, 4, 4, 1), 0.10), 'armor'),
+    'kabuto',
+  );
   kabuto.position.y = 0.20;
   head.add(kabuto);
-  const maedate = vpart('pMaedate', boxLayers(5, 1, 4, 1), 0.96);
+  const maedate = skinFeature(
+    skinSlot(vpart('pMaedate', boxLayers(5, 1, 4, 1), 0.96), 'crest'),
+    'kabuto',
+  );
   maedate.position.set(0, 0.30, 0.28);
   head.add(maedate);
-  const faceGuard = vpart('pMenpo', boxLayers(3, 1, 2, 1), 0.06);
+  const faceGuard = skinFeature(
+    skinSlot(vpart('pMenpo', boxLayers(3, 1, 2, 1), 0.06), 'trim'),
+    'kabuto',
+  );
   faceGuard.position.set(0, -0.07, 0.20);
   head.add(faceGuard);
 
   const armL = new THREE.Group();
   armL.position.set(-0.58, 0.55, 0);
   hips.add(armL);
-  armL.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
-  const sodeL = vpart('pSode', boxLayers(3, 2, 5, 1), 0.62);
+  armL.add(skinSlot(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28), 'armor'));
+  const sodeL = skinFeature(
+    skinSlot(vpart('pSode', boxLayers(3, 2, 5, 1), 0.62), 'plate'),
+    'armoredShoulders',
+  );
   sodeL.position.set(-0.05, -0.14, 0);
   armL.add(sodeL);
 
   const armR = new THREE.Group();
   armR.position.set(0.58, 0.55, 0);
   hips.add(armR);
-  armR.add(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28));
-  const sodeR = vpart('pSode', boxLayers(3, 2, 5, 1), 0.62);
+  armR.add(skinSlot(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28), 'armor'));
+  const sodeR = skinFeature(
+    skinSlot(vpart('pSode', boxLayers(3, 2, 5, 1), 0.62), 'plate'),
+    'armoredShoulders',
+  );
   sodeR.position.set(0.05, -0.14, 0);
   armR.add(sodeR);
 
@@ -270,12 +354,97 @@ export function makeSamurai() {
   const legL = new THREE.Group();
   legL.position.set(-0.17, -0.78, 0);
   hips.add(legL);
-  legL.add(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34));
+  legL.add(skinSlot(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34), 'cloth'));
 
   const legR = new THREE.Group();
   legR.position.set(0.17, -0.78, 0);
   hips.add(legR);
-  legR.add(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34));
+  legR.add(skinSlot(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34), 'cloth'));
+
+  // MUSASHI — an unarmored, uneven crown and the second sword at his hip.
+  // The pieces stay deliberately chunky so the read survives the high camera.
+  const wildHair = skinFeature(new THREE.Group(), 'wildHair');
+  const hairCrown = skinSlot(vpart('skinWildHairCrown', taperLayers(6, 5, 5, 4, 3, 1), 0.08), 'trim');
+  hairCrown.position.y = 0.23;
+  wildHair.add(hairCrown);
+  for (const [x, z, roll] of [[-0.18, 0, -0.58], [0, -0.03, 0.12], [0.18, 0, 0.62]]) {
+    const spike = skinSlot(vpart('skinWildHairSpike', boxLayers(1, 1, 4), 0.06), 'trim');
+    spike.position.set(x, 0.43, z);
+    spike.rotation.z = roll;
+    wildHair.add(spike);
+  }
+  head.add(wildHair);
+
+  const dualSword = skinFeature(new THREE.Group(), 'dualSword');
+  const shortSaya = skinSlot(vpart('skinShortSaya', boxLayers(1, 1, 10), 0.05), 'trim');
+  const shortTsuka = skinSlot(vpart('skinShortTsuka', boxLayers(2, 1, 3), 0.55), 'sash');
+  shortTsuka.position.y = 0.66;
+  dualSword.add(shortSaya, shortTsuka);
+  dualSword.position.set(-0.46, -0.04, -0.12);
+  dualSword.rotation.z = 1.18;
+  hips.add(dualSword);
+
+  // HITOKIRI — tied hair and loose sleeves replace the armored outline.
+  const ponytail = skinFeature(new THREE.Group(), 'ponytail');
+  const hairCap = skinSlot(vpart('skinHairCap', taperLayers(5, 5, 4, 4, 3, 1), 0.07), 'trim');
+  hairCap.position.y = 0.19;
+  const hairTie = skinSlot(vpart('skinHairTie', boxLayers(2, 2, 2), 0.75), 'sash');
+  hairTie.position.set(0, 0.18, -0.22);
+  const tail = skinSlot(vpart('skinPonytail', boxLayers(2, 2, 8), 0.06), 'trim');
+  tail.position.set(0, -0.12, -0.30);
+  tail.rotation.x = -0.36;
+  const foreheadTie = skinSlot(vpart('skinForeheadTie', boxLayers(5, 1, 1), 0.82), 'sash');
+  foreheadTie.position.set(0, 0.08, 0.19);
+  ponytail.add(hairCap, hairTie, tail, foreheadTie);
+  head.add(ponytail);
+
+  const sleeveL = skinFeature(
+    skinSlot(vpart('skinLightSleeve', taperLayers(5, 4, 4, 3, 6, 1), 0.48), 'armor'),
+    'lightSleeves',
+  );
+  sleeveL.position.set(-0.04, -0.22, 0);
+  armL.add(sleeveL);
+  const sleeveR = skinFeature(
+    skinSlot(vpart('skinLightSleeve', taperLayers(5, 4, 4, 3, 6, 1), 0.48), 'armor'),
+    'lightSleeves',
+  );
+  sleeveR.position.set(0.04, -0.22, 0);
+  armR.add(sleeveR);
+
+  // MASAMUNE — a large crescent and one dark eye break the helmet silhouette.
+  const dragonCrescent = skinFeature(new THREE.Group(), 'dragonCrescent');
+  for (const [x, roll] of [[-0.14, -0.72], [0.14, 0.72]]) {
+    const horn = skinSlot(vpart('skinDragonHorn', boxLayers(1, 1, 8), 0.95), 'crest');
+    horn.position.set(x, 0.48, 0.02);
+    horn.rotation.z = roll;
+    dragonCrescent.add(horn);
+  }
+  const eyeGuard = skinSlot(vpart('skinEyeGuard', boxLayers(2, 1, 2), 0.03), 'trim');
+  eyeGuard.position.set(-0.09, -0.04, 0.23);
+  dragonCrescent.add(eyeGuard);
+  head.add(dragonCrescent);
+
+  // MIBU WOLF — the pale haori widens the back and falls as two square tails.
+  const mibuHaori = skinFeature(new THREE.Group(), 'mibuHaori');
+  const cape = skinSlot(vpart('skinMibuCape', taperLayers(11, 9, 8, 5, 7, 1), 0.82), 'plate');
+  cape.position.set(0, 0.26, -0.26);
+  mibuHaori.add(cape);
+  for (const x of [-0.19, 0.19]) {
+    const coatTail = skinSlot(vpart('skinMibuTail', boxLayers(3, 2, 10), 0.76), 'armor');
+    coatTail.position.set(x, -0.40, -0.30);
+    coatTail.rotation.x = -0.12;
+    mibuHaori.add(coatTail);
+  }
+  hips.add(mibuHaori);
+
+  const mibuHeadband = skinFeature(new THREE.Group(), 'mibuHeadband');
+  const mibuBand = skinSlot(vpart('skinMibuBand', boxLayers(6, 1, 1), 0.84), 'sash');
+  mibuBand.position.set(0, 0.10, 0.19);
+  const topknot = skinSlot(vpart('skinMibuTopknot', boxLayers(2, 2, 4), 0.06), 'trim');
+  topknot.position.set(0, 0.34, -0.06);
+  topknot.rotation.x = -0.45;
+  mibuHeadband.add(mibuBand, topknot);
+  head.add(mibuHeadband);
 
   return { root, hips, head, torso, shoulders, hakama, armL, armR, legL, legR, katana, sashL, sashR };
 }

@@ -3,7 +3,10 @@ import { FilmRenderer, applyLetterbox, viewportSize } from './render.js';
 import { DISCIPLINE_ART, HUD_LIFE, HUD_IAI, MASTERY_SEAL, POEM_FLOURISH } from './glyphs.js';
 import { InkSystem } from './ink.js';
 import { buildWorld, ARENA, Rain } from './world.js';
-import { makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion } from './actors.js';
+import {
+  makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion,
+  SAMURAI_SKINS, applySamuraiSkin,
+} from './actors.js';
 import { SlashTrail } from './trail.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
@@ -16,7 +19,7 @@ import { toon } from './actors.js';
 const PLAYER_SPEED = 7.6;
 const PLAYER_MAX_HP = 100;
 const GAME_VERSION = new URL(import.meta.url).searchParams.get('v') || 'DEV';
-const DASH_SPEED = 24;
+const DASH_DISTANCE = 4.2;
 const DASH_TIME = 0.20;
 const DASH_COOLDOWN = 0.42;
 
@@ -140,6 +143,16 @@ const player = makeSamurai();
 player.baseHipY = player.hips.position.y;
 player.root.position.set(0, 0, 6);
 scene.add(player.root);
+
+const SKIN_STORAGE_KEY = 'samurai-skin';
+const LEGACY_SKIN_IDS = {
+  sumi: 'musashi', akane: 'hitokiri', ai: 'masamune', shiro: 'mibu',
+};
+let selectedSkinId = 'musashi';
+try { selectedSkinId = localStorage.getItem(SKIN_STORAGE_KEY) || selectedSkinId; } catch { /* private storage can fail */ }
+selectedSkinId = LEGACY_SKIN_IDS[selectedSkinId] || selectedSkinId;
+selectedSkinId = applySamuraiSkin(player, selectedSkinId).id;
+document.documentElement.dataset.skin = selectedSkinId;
 
 // Zenith Flow gives the player a thin white edge. Each shell is attached to
 // its source mesh, so it inherits the combat pose without a second animation
@@ -375,6 +388,63 @@ function makeBrushRing() {
 const parryRingGeo = makeBrushRing();
 const parryRings = [];
 const impactBursts = [];
+const dashWakes = [];
+
+function makeDashWakeGeometry() {
+  const positions = [];
+  // Three uneven dry-brush lanes. The mesh grows along local +Z with the
+  // samurai, so the mark is written by the dash instead of appearing ahead.
+  for (const [offset, startWidth, endWidth, start, end] of [
+    [-0.24, 0.18, 0.025, 0.00, 0.82],
+    [0.02, 0.25, 0.055, 0.04, 1.00],
+    [0.28, 0.11, 0.018, 0.13, 0.72],
+  ]) {
+    positions.push(
+      offset - startWidth, 0, start, offset + startWidth, 0, start, offset + endWidth, 0, end,
+      offset - startWidth, 0, start, offset + endWidth, 0, end, offset - endWidth, 0, end,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
+}
+
+const dashWakeGeo = makeDashWakeGeometry();
+
+function spawnDashWake(position, direction) {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x07070a,
+    transparent: true,
+    opacity: 0.76,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(dashWakeGeo, material);
+  mesh.position.set(position.x, 0.078, position.z);
+  mesh.rotation.y = Math.atan2(direction.x, direction.z);
+  mesh.scale.set(1, 1, 0.02);
+  mesh.renderOrder = 5;
+  scene.add(mesh);
+  dashWakes.push({ mesh, age: 0, life: DASH_TIME + 0.24 });
+}
+
+function updateDashWakes(dt) {
+  for (let i = dashWakes.length - 1; i >= 0; i--) {
+    const wake = dashWakes[i];
+    wake.age += dt;
+    const written = THREE.MathUtils.clamp(wake.age / DASH_TIME, 0, 1);
+    wake.mesh.scale.z = Math.max(0.02, DASH_DISTANCE * written);
+    if (wake.age > DASH_TIME) {
+      const fade = (wake.age - DASH_TIME) / (wake.life - DASH_TIME);
+      wake.mesh.material.opacity = 0.76 * (1 - THREE.MathUtils.clamp(fade, 0, 1)) ** 1.6;
+    }
+    if (wake.age >= wake.life) {
+      scene.remove(wake.mesh);
+      wake.mesh.material.dispose();
+      dashWakes.splice(i, 1);
+    }
+  }
+}
 
 function spawnImpactBurst(position, strength = 1) {
   const pos = [];
@@ -1125,6 +1195,21 @@ function tryIai() {
   updateHUD();
 }
 
+function beginDash(moving) {
+  state.action = 'dash';
+  state.actionT = 0;
+  state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
+  state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
+  state.dashHit.clear();
+  rewardDashRead();
+  spawnDashWake(player.root.position, state.dashDir);
+  spawnImpactBurst(player.root.position, 0.42);
+  camPunch.x += state.dashDir.x * 0.2;
+  camPunch.z += state.dashDir.z * 0.2;
+  shake(0.14);
+  audio.dash();
+}
+
 // ------------------------------------------------------------- player update
 
 // Idle sheathing: stand truly still with no blade near, and the samurai puts
@@ -1174,14 +1259,8 @@ function updatePlayer(dt) {
       state.action = 'parry';
       state.actionT = 0;
       state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + parryDuration() + PARRY_RECOVER;
-    } else if (input.take('dash') && state.dashCooldown <= 0) {
-      state.action = 'dash';
-      state.actionT = 0;
-      state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
-      state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
-      state.dashHit.clear();
-      rewardDashRead();
-      audio.dash();
+    } else if (state.dashCooldown <= 0 && input.take('dash')) {
+      beginDash(moving);
     } else if (input.take('attack')) {
       beginAttack();
     }
@@ -1191,26 +1270,23 @@ function updatePlayer(dt) {
     if (input.take('attack') && state.comboIndex < ATTACK.length - 1) {
       state.comboIndex++;
       beginAttack(true);
-    } else if (input.take('dash') && state.dashCooldown <= 0) {
-      state.action = 'dash';
-      state.actionT = 0;
-      state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
-      state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
-      state.dashHit.clear();
-      rewardDashRead();
-      audio.dash();
+    } else if (state.dashCooldown <= 0 && input.take('dash')) {
+      beginDash(moving);
     }
   }
 
   // ---- movement
   let speed = 0;
   if (state.action === 'dash') {
+    // Cover a fixed distance regardless of frame cadence. The old quadratic
+    // slowdown travelled only ~2 units — barely farther than normal running
+    // over the same 0.2 s — so the dash looked and felt like it did nothing.
+    const dashDt = Math.min(dt, Math.max(0, DASH_TIME - state.actionT));
     state.actionT += dt;
     state.invuln = Math.max(state.invuln, 0.02);
-    const k = 1 - state.actionT / DASH_TIME;
-    const s = DASH_SPEED * Math.max(0.25, k * k);
-    player.root.position.x += state.dashDir.x * s * dt;
-    player.root.position.z += state.dashDir.z * s * dt;
+    const travel = DASH_DISTANCE * (dashDt / DASH_TIME);
+    player.root.position.x += state.dashDir.x * travel;
+    player.root.position.z += state.dashDir.z * travel;
     playerDashHits();
     // A dash drags ink off the blade across the paper.
     if (Math.random() < 0.6) {
@@ -1981,7 +2057,41 @@ const ovChase = document.getElementById('ovChase');
 const ovDaily = document.getElementById('ovDaily');
 const ovShare = document.getElementById('ovShare');
 const ledgerEl = document.getElementById('ledger');
+const skinPickerEl = document.getElementById('skinPicker');
+const skinCurrentEl = document.getElementById('skinCurrent');
+const skinButtons = [...document.querySelectorAll('.skinOption')];
 const TITLE_LOGO = ovTitle.innerHTML;
+
+function selectSkin(skinId, { persist = true } = {}) {
+  const skin = applySamuraiSkin(player, skinId);
+  selectedSkinId = skin.id;
+  document.documentElement.dataset.skin = skin.id;
+  skinCurrentEl.textContent = `${skin.name} · ${skin.epithet}`;
+  for (const button of skinButtons) {
+    const selected = button.dataset.skin === skin.id;
+    button.setAttribute('aria-pressed', `${selected}`);
+    button.tabIndex = selected ? 0 : -1;
+  }
+  if (persist) {
+    try { localStorage.setItem(SKIN_STORAGE_KEY, skin.id); } catch { /* private storage can fail */ }
+  }
+  return skin;
+}
+
+for (const button of skinButtons) {
+  button.addEventListener('click', () => selectSkin(button.dataset.skin));
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = skinButtons.indexOf(button);
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? skinButtons.length - 1
+      : (current + (event.key === 'ArrowRight' ? 1 : -1) + skinButtons.length) % skinButtons.length;
+    selectSkin(skinButtons[next].dataset.skin);
+    skinButtons[next].focus();
+  });
+}
+selectSkin(selectedSkinId, { persist: false });
 
 function loadRecords() {
   try {
@@ -2062,6 +2172,7 @@ function renderTitleScreen() {
   ovChase.hidden = chaseLines.length === 0;
   ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
+  skinPickerEl.hidden = false;
   ovBtn.textContent = 'DRAW THE BLADE';
   ovDaily.hidden = false;
   ovShare.hidden = true;
@@ -2224,6 +2335,7 @@ function gameOver() {
     ovChase.hidden = false;
     ovChase.innerHTML = chase;
     renderLedger(ledger);
+    skinPickerEl.hidden = true;
     ovBtn.textContent = 'DRAW AGAIN';
     ovDaily.hidden = true;
     ovShare.hidden = false;
@@ -2379,6 +2491,7 @@ function step(dt) {
   enemyTrail.update(sdt);
   updateParryRings(dt);
   updateImpactBursts(dt);
+  updateDashWakes(dt);
   ragdolls.update(sdt);
   gibs.update(sdt, ink);
   ink.update(sdt, camera);
@@ -2433,7 +2546,8 @@ window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   trail, enemyTrail, iaiTrail,
-  getFlowTier, addFlow, breakFlow,
+  getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
+  get selectedSkin() { return selectedSkinId; },
   beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
   get enemies() { return enemies; },
 };

@@ -1,4 +1,4 @@
-// Monochrome film emulation.
+// Monochrome film emulation with selective lacquer retention.
 //
 // The scene renders to an offscreen target, then a single fullscreen pass turns
 // it into a black-and-white print: orthochromatic response, a hard tone curve,
@@ -48,8 +48,15 @@ const FILM_FRAG = /* glsl */`
     c += bl * smoothstep(0.62, 1.0, bLum) * 0.30;
 
     // Orthochromatic weighting: reds sink toward black, greens go bright. This
-    // is why skin and blood look so dark in period black-and-white.
-    float l = dot(c, vec3(0.20, 0.72, 0.08));
+    // is why skin and blood look so dark in period black-and-white. Preserve
+    // the pre-curve luminance and chroma so intentional lacquer colors can be
+    // restored after the print treatment; the grayscale world has no chroma
+    // and therefore remains fully monochrome.
+    float sourceL = max(dot(c, vec3(0.20, 0.72, 0.08)), 0.001);
+    float highChannel = max(c.r, max(c.g, c.b));
+    float lowChannel = min(c.r, min(c.g, c.b));
+    float sourceChroma = highChannel - lowChannel;
+    float l = sourceL;
 
     // Tone curve: crushed toe, hot shoulder.
     l = clamp((l - 0.46) * uContrast + 0.46, 0.0, 1.0);
@@ -91,10 +98,19 @@ const FILM_FRAG = /* glsl */`
     vec2 d = vUv - 0.5;
     l *= 1.0 - uVignette * dot(d, d) * 1.7;
 
-    l = mix(clamp(l, 0.0, 1.0), 1.0, uWhite);
+    l = clamp(l, 0.0, 1.0);
+
+    // Only genuinely colored source pixels keep pigment. This makes the
+    // selected samurai lacquer visible without tinting the paper, scenery,
+    // enemies, ink, shadows or the rest of the period-film image.
+    vec3 lacquer = clamp(c * (l / sourceL), 0.0, 1.0);
+    float pigment = smoothstep(0.025, 0.14, sourceChroma) * 0.82;
+    vec3 finalColor = mix(vec3(l), lacquer, pigment);
+
+    finalColor = mix(finalColor, vec3(1.0), uWhite);
     // A flash frame: the print inverts for a few frames on a perfect parry.
-    l = mix(l, 1.0 - l, uInvert);
-    gl_FragColor = vec4(vec3(l), 1.0);
+    finalColor = mix(finalColor, vec3(1.0) - finalColor, uInvert);
+    gl_FragColor = vec4(finalColor, 1.0);
     #include <colorspace_fragment>
   }
 `;

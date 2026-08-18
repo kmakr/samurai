@@ -955,7 +955,8 @@
   #overlay.intro #ovTitle .brandSeal { animation: brandStamp 180ms var(--ease-out) 570ms both; }
   #overlay.intro #ovSub { animation: introRise 220ms var(--ease-out) 500ms both; }
   #overlay.intro #ovText { animation: introRise 220ms var(--ease-out) 570ms both; }
-  #overlay.intro #ovButtons { animation: introRise 220ms var(--ease-out) 640ms both; }
+  #overlay.intro #skinPicker { animation: introRise 220ms var(--ease-out) 620ms both; }
+  #overlay.intro #ovButtons { animation: introRise 220ms var(--ease-out) 670ms both; }
   #overlay.intro #controls, #overlay.intro #touchControls { animation: introRise 220ms var(--ease-out) 700ms both; }
   @keyframes maskBleed {
     from { opacity: 0; transform: translateY(-10px) scale(0.94); clip-path: inset(48% 14% 48% 14%); }
@@ -981,6 +982,7 @@
     #overlay.intro #ovTitle .brandSeal,
     #overlay.intro #ovSub,
     #overlay.intro #ovText,
+    #overlay.intro #skinPicker,
     #overlay.intro #ovButtons,
     #overlay.intro #controls,
     #overlay.intro #touchControls {
@@ -1167,6 +1169,180 @@
   #ledger i.best { opacity: 0.85; width: 4px; }
   #ledger i.latest { opacity: 0.7; }
 
+  #skinPicker {
+    --intro-opacity: 1;
+    width: min(88vw, 760px);
+    margin-top: 18px;
+    pointer-events: auto;
+  }
+  #skinPicker[hidden] { display: none; }
+  .skinPickerHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 7px;
+    font-size: 9px;
+    letter-spacing: 0.28em;
+    text-indent: 0;
+    opacity: 0.58;
+  }
+  #skinCurrent {
+    color: var(--paper);
+    letter-spacing: 0.16em;
+    opacity: 0.78;
+  }
+  #skinOptions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .skinOption {
+    --skin-armor: #626268;
+    --skin-plate: #aaa8a1;
+    --skin-cloth: #2e2e34;
+    --skin-sash: #eee9dc;
+    position: relative;
+    min-width: 0;
+    min-height: 62px;
+    padding: 7px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--paper);
+    background: rgba(8, 8, 11, 0.54);
+    border: 1px solid rgba(233, 228, 214, 0.22);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+    clip-path: polygon(1% 4%, 98% 0, 100% 94%, 3% 100%, 0 86%);
+    transition: transform 140ms var(--ease-out), background 160ms ease, border-color 160ms ease, color 160ms ease, filter 160ms ease;
+  }
+  .skinOption[aria-pressed="true"] {
+    color: #0a0a0d;
+    background: var(--paper);
+    border-color: var(--paper);
+  }
+  .skinOption:active { transform: scale(0.97); }
+  .skinOption:focus-visible {
+    outline: none;
+    filter: brightness(1.1) drop-shadow(0 0 5px rgba(255,255,255,0.72));
+  }
+  .skinFigure {
+    position: relative;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 42px;
+    display: block;
+    filter: drop-shadow(0 4px 4px rgba(0,0,0,0.38));
+  }
+  .skinFigure i { position: absolute; display: block; }
+  .skinCrest {
+    left: 14px;
+    top: 0;
+    width: 7px;
+    height: 8px;
+    background: var(--skin-sash);
+    clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%);
+  }
+  .skinHelm {
+    left: 8px;
+    top: 7px;
+    width: 19px;
+    height: 11px;
+    background: var(--skin-armor);
+    clip-path: polygon(18% 0, 82% 0, 100% 72%, 82% 100%, 18% 100%, 0 72%);
+    box-shadow: 0 3px 0 var(--skin-cloth);
+  }
+  .skinBody {
+    left: 5px;
+    top: 21px;
+    width: 25px;
+    height: 19px;
+    background: var(--skin-armor);
+    clip-path: polygon(16% 0, 84% 0, 100% 100%, 0 100%);
+    border-top: 5px solid var(--skin-plate);
+  }
+  .skinSash {
+    left: 16px;
+    top: 22px;
+    width: 3px;
+    height: 19px;
+    background: var(--skin-sash);
+    transform: rotate(-8deg);
+  }
+  .skinOption[data-skin="musashi"] .skinCrest {
+    left: 5px;
+    top: 1px;
+    width: 25px;
+    height: 12px;
+    background: var(--skin-cloth);
+    clip-path: polygon(0 100%, 12% 20%, 31% 72%, 48% 0, 61% 70%, 83% 16%, 100% 100%);
+  }
+  .skinOption[data-skin="musashi"] .skinHelm { border-radius: 45% 45% 12% 12%; }
+  .skinOption[data-skin="hitokiri"] .skinFigure::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    top: 10px;
+    width: 6px;
+    height: 24px;
+    background: var(--skin-cloth);
+    transform: rotate(-18deg);
+    clip-path: polygon(18% 0, 100% 8%, 72% 100%, 0 92%);
+  }
+  .skinOption[data-skin="hitokiri"] .skinCrest {
+    left: 8px;
+    top: 9px;
+    width: 20px;
+    height: 3px;
+    background: var(--skin-sash);
+    clip-path: none;
+  }
+  .skinOption[data-skin="masamune"] .skinCrest {
+    left: 3px;
+    top: -1px;
+    width: 28px;
+    height: 16px;
+    box-sizing: border-box;
+    background: transparent;
+    border-top: 4px solid var(--skin-sash);
+    border-radius: 50% 50% 0 0;
+    clip-path: none;
+  }
+  .skinOption[data-skin="mibu"] .skinBody {
+    left: 2px;
+    width: 31px;
+    background: var(--skin-plate);
+    clip-path: polygon(10% 0, 90% 0, 100% 100%, 58% 88%, 50% 100%, 42% 88%, 0 100%);
+  }
+  .skinOption[data-skin="mibu"] .skinCrest {
+    left: 7px;
+    top: 8px;
+    width: 22px;
+    height: 3px;
+    background: var(--skin-sash);
+    clip-path: none;
+  }
+  .skinCopy { min-width: 0; display: grid; gap: 3px; }
+  .skinCopy strong {
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-overflow: ellipsis;
+  }
+  .skinCopy small {
+    overflow: hidden;
+    font-size: 7px;
+    letter-spacing: 0.11em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    opacity: 0.58;
+  }
+
   #ovButtons {
     width: min(88vw, 760px);
     margin-top: 26px;
@@ -1237,6 +1413,7 @@
     #ovBtn:hover, #ovDaily:hover { background: #fff; filter: brightness(1.08); }
     #ovShare:hover { background: rgba(233, 228, 214, 0.12); filter: brightness(1.08); }
     #ovShare:hover::after { border-color: var(--paper); }
+    .skinOption:hover { border-color: rgba(233,228,214,0.62); filter: brightness(1.08); }
     .scroll:hover { filter: brightness(1.08); }
   }
 
@@ -1338,6 +1515,8 @@
     #ovTitle .wordmark { margin-top: -14px; }
     #ovSub { margin-top: 3px; }
     #ovText { margin-top: 11px; padding-top: 11px; line-height: 1.5; }
+    #skinPicker { margin-top: 12px; }
+    .skinOption { min-height: 54px; padding-block: 5px; }
     #ovButtons { margin-top: 18px; gap: 10px; }
     #controls { margin-top: 17px; gap: 5px 8px; padding-block: 8px; }
     #ledger { margin-top: 12px; height: 25px; }
@@ -1355,6 +1534,11 @@
     #ovSeal { width: 38px; height: 38px; font-size: 22px; right: -50px; top: -10px; }
     #ovChase { margin-top: 6px; }
     #ledger { margin-top: 10px; height: 24px; }
+    #skinPicker { margin-top: 9px; }
+    .skinPickerHead { margin-bottom: 4px; }
+    .skinOption { min-height: 46px; padding: 4px 7px; gap: 6px; }
+    .skinFigure { flex-basis: 28px; width: 28px; transform: scale(0.82); }
+    .skinCopy small { display: none; }
     #ovButtons { margin-top: 12px; }
     #ovBtn, #ovDaily { min-height: 44px; padding: 9px 24px; }
     #ovShare { margin-top: 8px; padding: 7px 20px; }
@@ -1518,6 +1702,27 @@
   </p>
   <div id="ovChase" hidden></div>
   <div id="ledger" aria-hidden="true"></div>
+  <section id="skinPicker" aria-labelledby="skinPickerLabel">
+    <div class="skinPickerHead"><span id="skinPickerLabel">CHOOSE LEGEND</span><span id="skinCurrent">MUSASHI · WANDERING SWORD</span></div>
+    <div id="skinOptions" role="group" aria-label="Samurai skins">
+      <button class="skinOption" type="button" data-skin="musashi" aria-pressed="true" style="--skin-armor:#5e4938;--skin-plate:#8d7558;--skin-cloth:#28201b;--skin-sash:#c9b78f">
+        <span class="skinFigure" aria-hidden="true"><i class="skinCrest"></i><i class="skinHelm"></i><i class="skinBody"></i><i class="skinSash"></i></span>
+        <span class="skinCopy"><strong>MUSASHI</strong><small>WANDERING SWORD</small></span>
+      </button>
+      <button class="skinOption" type="button" data-skin="hitokiri" aria-pressed="false" style="--skin-armor:#8b2b22;--skin-plate:#c95a3f;--skin-cloth:#211b1e;--skin-sash:#e7d9bd">
+        <span class="skinFigure" aria-hidden="true"><i class="skinCrest"></i><i class="skinHelm"></i><i class="skinBody"></i><i class="skinSash"></i></span>
+        <span class="skinCopy"><strong>HITOKIRI</strong><small>CRIMSON DRAW</small></span>
+      </button>
+      <button class="skinOption" type="button" data-skin="masamune" aria-pressed="false" style="--skin-armor:#3f5f9a;--skin-plate:#7899d0;--skin-cloth:#151c2b;--skin-sash:#c1d2e8">
+        <span class="skinFigure" aria-hidden="true"><i class="skinCrest"></i><i class="skinHelm"></i><i class="skinBody"></i><i class="skinSash"></i></span>
+        <span class="skinCopy"><strong>MASAMUNE</strong><small>ONE-EYED DRAGON</small></span>
+      </button>
+      <button class="skinOption" type="button" data-skin="mibu" aria-pressed="false" style="--skin-armor:#b7d2d1;--skin-plate:#e8eee7;--skin-cloth:#30383d;--skin-sash:#496b72">
+        <span class="skinFigure" aria-hidden="true"><i class="skinCrest"></i><i class="skinHelm"></i><i class="skinBody"></i><i class="skinSash"></i></span>
+        <span class="skinCopy"><strong>MIBU WOLF</strong><small>PALE HAORI</small></span>
+      </button>
+    </div>
+  </section>
   <div id="ovButtons">
     <button id="ovBtn" type="button">DRAW THE BLADE</button>
     <button id="ovDaily" type="button">DAILY TRIAL</button>
@@ -1543,7 +1748,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=57"></script>
+<script type="module" src="./src/main.js?v=58"></script>
 
 </body>
 </html>
