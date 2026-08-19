@@ -227,6 +227,36 @@ export function applySamuraiSkin(actor, skinId) {
   return skin;
 }
 
+// Weapons are wielded steel — an axis orthogonal to skins. A skin is who the
+// samurai is; a weapon is what they carry. Each keeps the shared dash and parry,
+// but carries its own combo (authored in main.js — its own animation, timing and
+// hit shape, not a stat multiplier) and its own focus-spent signature. KATANA is
+// the blade every run starts with; its signature is the iai draw. `blade` scales
+// the katana mesh so the silhouette reads the change from the high camera.
+export const WEAPONS = [
+  {
+    id: 'katana', name: '刀', roman: 'KATANA', epithet: 'THE DRAWN LINE',
+    skill: 'iai', skillName: '居合', skillRoman: 'IAI', gaugeLabel: 'IAI',
+    blade: { lengthMul: 1, widthMul: 1 },
+  },
+  {
+    id: 'nodachi', name: '大太刀', roman: 'NODACHI', epithet: 'THE GREAT BLADE',
+    skill: 'tsunami', skillName: '波断', skillRoman: 'TSUNAMI CUT', gaugeLabel: 'WAVE',
+    blade: { lengthMul: 1.5, widthMul: 1.35 },
+  },
+];
+
+export function applyWeapon(actor, weaponId) {
+  const weapon = WEAPONS.find((entry) => entry.id === weaponId) || WEAPONS[0];
+  // The katana group carries the blade; scaling it along its length (local Y)
+  // and cross-section (X/Z) turns the same mesh into a great blade.
+  if (actor.katana) {
+    actor.katana.scale.set(weapon.blade.widthMul, weapon.blade.lengthMul, weapon.blade.widthMul);
+  }
+  actor.weapon = weapon.id;
+  return weapon;
+}
+
 function skinSlot(mesh, slot) {
   mesh.userData.skinSlot = slot;
   return mesh;

@@ -490,13 +490,24 @@ export class Audio {
   swing(style = 0) {
     // The recorded swoosh, pitched per style: quicker for the return cut,
     // heavier for the execution stroke — which keeps its low synth weight
-    // underneath, since the sample alone is all air and no mass.
-    const rate = (style === 1 ? 1.14 : style === 2 ? 0.85 : 1) * (0.95 + Math.random() * 0.1);
-    if (this.playSample('slash', { gain: style === 2 ? 0.7 : 0.45, rate })) {
+    // underneath, since the sample alone is all air and no mass. Style 3 is the
+    // great blade: slowest sample rate and a heavy low body dragged under it.
+    const rate = (style === 1 ? 1.14 : style === 2 ? 0.85 : style === 3 ? 0.62 : 1)
+      * (0.95 + Math.random() * 0.1);
+    if (this.playSample('slash', { gain: style === 2 ? 0.7 : style === 3 ? 0.8 : 0.45, rate })) {
       if (style === 2) this.tone(118, 0.30, { type: 'triangle', gain: 0.16, to: 48 });
+      if (style === 3) {
+        this.tone(88, 0.42, { type: 'triangle', gain: 0.22, to: 34 });
+        this.tone(52, 0.34, { type: 'sine', gain: 0.16, to: 26 });
+      }
       return;
     }
-    if (style === 1) {
+    if (style === 3) {
+      // Great blade: a slow, deep rush of air with real mass under it.
+      this.noise(0.46, { freq: 1500, q: 0.8, gain: 0.3, sweep: 0.1 });
+      this.tone(88, 0.42, { type: 'triangle', gain: 0.22, to: 34 });
+      this.tone(52, 0.34, { type: 'sine', gain: 0.16, to: 26 });
+    } else if (style === 1) {
       // Return cut: short, high, and fast.
       this.noise(0.17, { freq: 3900, q: 1.7, gain: 0.17, sweep: 0.20 });
       this.tone(520, 0.10, { type: 'triangle', gain: 0.035, to: 260 });
@@ -513,23 +524,25 @@ export class Audio {
     // Three layers on the contact frame: the slice, the body thud, and a low
     // punch that lands under both. The bottom layer carries the weight. A small
     // per-hit pitch wobble keeps a fast chain of cuts from ringing identical.
+    // Style 3 is the great blade — even deeper and longer than the finisher.
     const second = style === 1;
-    const finisher = style === 2;
+    const heavy = style === 3;
+    const finisher = style === 2 || heavy;
     const v = 0.95 + Math.random() * 0.1;
-    this.noise(finisher ? 0.20 : 0.12, {
-      freq: (second ? 4300 : finisher ? 2700 : 3400) * v,
+    this.noise(heavy ? 0.24 : finisher ? 0.20 : 0.12, {
+      freq: (second ? 4300 : heavy ? 2100 : finisher ? 2700 : 3400) * v,
       q: second ? 3.4 : 2.5,
-      gain: finisher ? 0.28 : 0.18,
+      gain: heavy ? 0.3 : finisher ? 0.28 : 0.18,
       sweep: finisher ? 0.18 : 0.3,
     });
-    this.noise(finisher ? 0.28 : 0.16, {
-      type: 'lowpass', freq: finisher ? 720 : 900, gain: finisher ? 0.46 : 0.34, sweep: 0.3,
+    this.noise(heavy ? 0.36 : finisher ? 0.28 : 0.16, {
+      type: 'lowpass', freq: heavy ? 560 : finisher ? 720 : 900, gain: heavy ? 0.54 : finisher ? 0.46 : 0.34, sweep: 0.3,
     });
-    this.tone((finisher ? 112 : second ? 180 : 150) * v, finisher ? 0.28 : 0.16, {
-      type: 'triangle', gain: finisher ? 0.32 : 0.24, to: finisher ? 44 : 60,
+    this.tone((heavy ? 92 : finisher ? 112 : second ? 180 : 150) * v, heavy ? 0.34 : finisher ? 0.28 : 0.16, {
+      type: 'triangle', gain: heavy ? 0.36 : finisher ? 0.32 : 0.24, to: heavy ? 36 : finisher ? 44 : 60,
     });
-    this.tone((finisher ? 54 : 72) * v, finisher ? 0.38 : 0.22, {
-      type: 'sine', gain: finisher ? 0.42 : 0.32, to: finisher ? 28 : 38,
+    this.tone((heavy ? 44 : finisher ? 54 : 72) * v, heavy ? 0.46 : finisher ? 0.38 : 0.22, {
+      type: 'sine', gain: heavy ? 0.5 : finisher ? 0.42 : 0.32, to: heavy ? 22 : finisher ? 28 : 38,
     });
   }
 

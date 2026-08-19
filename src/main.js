@@ -6,6 +6,7 @@ import { buildWorld, ARENA, Rain } from './world.js';
 import {
   makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion,
   SAMURAI_SKINS, applySamuraiSkin,
+  WEAPONS, applyWeapon,
 } from './actors.js';
 import { SlashTrail } from './trail.js';
 import { Input } from './input.js';
@@ -40,6 +41,15 @@ const ATTACK = [
 // Neither chains — each is one committed read spent from a dash.
 const THRUST  = { windup: 0.06, active: 0.12, recover: 0.24, damage: 48, reach: 4.7 };
 const DASHCUT = { windup: 0.04, active: 0.11, recover: 0.20, damage: 40, reach: 3.4 };
+// The nodachi combo: two heavy horizontal sweeps, not three quick cuts. Authored
+// slow on purpose — a wind-up long enough to read as commitment (0.20s vs the
+// katana's 0.09s) and a long follow-through — so the weight is felt in the swing,
+// not asserted in the stats. Each sweep reaches far and catches a wide forward
+// fan; playerAttackHits throws the whole crowd back off it.
+const NODACHI_COMBO = [
+  { windup: 0.20, active: 0.15, recover: 0.30, damage: 60, reach: 4.8, arc: 0.4 },
+  { windup: 0.22, active: 0.17, recover: 0.44, damage: 108, reach: 5.2, arc: -0.5 },
+];
 const COMBO_WINDOW = 0.42;
 
 const PARRY_STARTUP = 0.03;
@@ -161,6 +171,16 @@ try { selectedSkinId = localStorage.getItem(SKIN_STORAGE_KEY) || selectedSkinId;
 selectedSkinId = LEGACY_SKIN_IDS[selectedSkinId] || selectedSkinId;
 selectedSkinId = applySamuraiSkin(player, selectedSkinId).id;
 document.documentElement.dataset.skin = selectedSkinId;
+
+// The wielded weapon is a second identity, chosen alongside the skin. It tunes
+// the shared combo (reach/damage/weight) and supplies the focus-spent signature
+// skill. selectWeapon (below) does the full lock-gated wiring; this boot read
+// applies the stored blade so the combat code always has a real activeWeapon.
+const WEAPON_STORAGE_KEY = 'samurai-weapon';
+let selectedWeaponId = 'katana';
+try { selectedWeaponId = localStorage.getItem(WEAPON_STORAGE_KEY) || selectedWeaponId; } catch { /* private storage can fail */ }
+let activeWeapon = applyWeapon(player, selectedWeaponId);
+selectedWeaponId = activeWeapon.id;
 
 // Zenith Flow gives the player a thin white edge. Each shell is attached to
 // its source mesh, so it inherits the combat pose without a second animation
@@ -953,10 +973,16 @@ function parryDuration() {
 
 // The spec for the swing in flight. The arc combo indexes ATTACK by combo
 // position; the dash-cancel strikes are single fixed specs.
+// The weapon supplies its own combo — its own timing and hit shape, authored
+// rather than scaled — while the dash-cancel strikes stay shared.
+function weaponCombo() {
+  return activeWeapon.skill === 'tsunami' ? NODACHI_COMBO : ATTACK;
+}
+
 function activeAttack() {
   if (state.attackKind === 'thrust') return THRUST;
   if (state.attackKind === 'dashcut') return DASHCUT;
-  return ATTACK[state.comboIndex];
+  return weaponCombo()[state.comboIndex];
 }
 
 function playerAttackHits() {
@@ -966,7 +992,11 @@ function playerAttackHits() {
   const fx = Math.sin(state.facing), fz = Math.cos(state.facing);
   let hitAny = false;
 
-  const isFinisher = kind === 'arc' && state.comboIndex === 2;
+  // The nodachi's arc is a wide, planted sweep, not a quick cut — it takes the
+  // whole forward fan and shoves everything it catches back off the steel.
+  const isSweep = kind === 'arc' && activeWeapon.skill === 'tsunami';
+  const lastIndex = weaponCombo().length - 1;
+  const isFinisher = kind === 'arc' && state.comboIndex === lastIndex;
   const isThrust = kind === 'thrust';
   // The direction a victim is thrown follows the *blade's travel*, not the
   // line from attacker to victim. Cut 1 and the dash-cut sweep right-to-left,
@@ -983,9 +1013,10 @@ function playerAttackHits() {
     const dist = Math.hypot(dx, dz);
     const reach = cfg.reach + e.spec.height * 0.4;
     if (dist > reach) continue;
-    // A thrust is a narrow line — only what's dead ahead is pierced. The
-    // sweeps take a wide forward arc: generous for a crowd, not a 360.
-    if ((dx * fx + dz * fz) / (dist || 1) < (isThrust ? 0.6 : -0.15)) continue;
+    // A thrust is a narrow line — only what's dead ahead is pierced. The katana
+    // sweeps take a wide forward arc; the nodachi's takes nearly the whole front.
+    const cull = isThrust ? 0.6 : isSweep ? -0.62 : -0.15;
+    if ((dx * fx + dz * fz) / (dist || 1) < cull) continue;
 
     state.hitThisSwing.add(e);
     hitAny = true;
@@ -995,6 +1026,13 @@ function playerAttackHits() {
     const dmgScale = isFinisher ? 1 + state.upgrades.finalStroke * 0.25 : 1;
     damageEnemy(e, cfg.damage * dmgScale, cx / cl, cz / cl,
       isFinisher ? 'bisect' : 'limb');
+    // The great blade hurls survivors outward — a wall of steel, not a nick.
+    if (isSweep && !e.dead) {
+      const inv = 1 / (dist || 1);
+      e.actor.root.position.x += dx * inv * (isFinisher ? 2.0 : 1.4);
+      e.actor.root.position.z += dz * inv * (isFinisher ? 2.0 : 1.4);
+      e.stagger = Math.max(e.stagger, isFinisher ? 0.55 : 0.4);
+    }
   }
 
   if (hitAny) {
@@ -1004,7 +1042,13 @@ function playerAttackHits() {
     // Contact freeze is kept light on the bread-and-butter cuts so the combo
     // flows; the execution finisher keeps its heavy freeze as a weighty peak.
     let impactStop, impactShake, overhead;
-    if (isThrust) { impactStop = 0.06; impactShake = 0.5; overhead = 1; }
+    if (isSweep) {
+      // The great blade lands with real mass on every contact — a heavy freeze
+      // you feel, not the light tap the katana keeps for flow.
+      impactStop = (isFinisher ? 0.13 : 0.075) * (zenithFinisher ? 1.15 : 1);
+      impactShake = (isFinisher ? 0.9 : 0.62) * (zenithFinisher ? 1.2 : 1);
+      overhead = isFinisher ? 1 : 0.5;
+    } else if (isThrust) { impactStop = 0.06; impactShake = 0.5; overhead = 1; }
     else if (kind === 'dashcut') { impactStop = 0.035; impactShake = 0.42; overhead = 0; }
     else {
       impactStop = [0.02, 0.03, 0.12][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
@@ -1019,7 +1063,29 @@ function playerAttackHits() {
     camPunch.x += fx * (0.42 + overhead * 0.52) + tangX * (straight ? 0 : 0.20);
     camPunch.z += fz * (0.42 + overhead * 0.52) + tangZ * (straight ? 0 : 0.20);
     camPunch.y -= isFinisher ? 0.24 : 0.12;
-    if (isFinisher) {
+    if (isSweep) {
+      flash(isFinisher ? 0.24 : 0.12);
+      ink.splashScreen(isFinisher ? 4 : 3, isFinisher ? 0.5 : 0.4);
+      // The great blade's own hit art: not the katana's tight point-star but a
+      // wide crescent gash dragged across the whole front, following the sweep.
+      const gr = cfg.reach * 0.72;
+      const fan = 2.2;                         // ~126° of front carved
+      const n = isFinisher ? 10 : 7;
+      for (let i = 0; i < n; i++) {
+        const a = state.facing + (i / (n - 1) - 0.5) * fan * mirror;
+        const rr = gr * (0.82 + Math.random() * 0.3);
+        ink.addStain(px + Math.sin(a) * rr, pz + Math.cos(a) * rr,
+          (isFinisher ? 0.44 : 0.34) + Math.random() * 0.28,
+          { alpha: isFinisher ? 0.44 : 0.32 });
+      }
+      // A bigger central burst where the mass connects, and — on the finisher —
+      // a heavy dark pool the blade slams into the paper.
+      spawnImpactBurst({ x: px + fx * gr * 0.5, z: pz + fz * gr * 0.5 }, isFinisher ? 1.7 : 1.1);
+      if (isFinisher) {
+        ink.pool(px + fx * gr, pz + fz * gr, 1.3);
+        audio.taiko(52, 0.42);
+      }
+    } else if (isFinisher) {
       flash(zenithFinisher ? 0.36 : 0.18);
       ink.splashScreen(zenithFinisher ? 4 : 2, zenithFinisher ? 0.52 : 0.34);
       if (zenithFinisher) audio.taiko(62, 0.34);
@@ -1027,7 +1093,7 @@ function playerAttackHits() {
       flash(0.16);
       ink.splashScreen(2, 0.3);
     }
-    audio.hit(isThrust ? 2 : kind === 'dashcut' ? 1 : state.comboIndex);
+    audio.hit(isSweep ? 3 : isThrust ? 2 : kind === 'dashcut' ? 1 : state.comboIndex);
   }
 }
 
@@ -1279,31 +1345,90 @@ function fireIaiCut() {
   audio.iai();
 }
 
-function tryIai() {
+// The focus-spent signature. Every weapon shares the committed 'iai' action —
+// its timer, its i-frames, its uncancellable / facing-locked gates — so the
+// state machine needs no new branch; the weapon only decides which stroke fills
+// the window. The katana draws its iai; the nodachi drops a tsunami cut.
+function trySignature() {
   if (!state.running || iaiT > 0) return;
   if (state.focus < FOCUS_MAX) {
-    showIaiNotice('IAI NOT READY', 'CHARGE: KILLS + PERFECT PARRIES', 1500);
+    showIaiNotice(`${activeWeapon.skillRoman} NOT READY`, 'CHARGE: KILLS + PERFECT PARRIES', 1500);
     audio.denied();
     return;
   }
   state.focus = 0;
-  audio.silenceMusic(0.62, 0.001);
-  // A held breath: time dilates through the draw, then fireIaiCut releases it
-  // into a hard freeze and back to full speed as the stroke lands.
-  state.slowmo = 0.55;
-  state.slowmoScale = 0.32;
   iaiT = 0.62;
-  state.invuln = Math.max(state.invuln, 0.85);
   state.action = 'iai';
   state.actionT = 0;
   iaiFacing = state.facing;
   iaiCutFired = false;
   iaiOrigin.copy(player.root.position);
+  if (activeWeapon.skill === 'tsunami') beginTsunamiCut();
+  else beginIai();
+  updateHUD();
+}
+
+function beginIai() {
+  audio.silenceMusic(0.62, 0.001);
+  // A held breath: time dilates through the draw, then fireIaiCut releases it
+  // into a hard freeze and back to full speed as the stroke lands.
+  state.slowmo = 0.55;
+  state.slowmoScale = 0.32;
+  state.invuln = Math.max(state.invuln, 0.85);
   const dist = Math.min(9, 4 + enemies.length * 0.3);
   iaiEnd.copy(iaiOrigin);
   iaiEnd.x += Math.sin(iaiFacing) * dist;
   iaiEnd.z += Math.cos(iaiFacing) * dist;
-  updateHUD();
+}
+
+function beginTsunamiCut() {
+  audio.silenceMusic(0.4, 0.03);
+  // A short heave rather than iai's long-held breath: the great blade loads
+  // overhead, then plants a single step through the downward cleave.
+  state.slowmo = 0.2;
+  state.slowmoScale = 0.55;
+  state.invuln = Math.max(state.invuln, 0.72);
+  const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
+  iaiEnd.copy(iaiOrigin);
+  iaiEnd.x += fx * 1.7;
+  iaiEnd.z += fz * 1.7;
+}
+
+function fireTsunamiCut() {
+  iaiCutFired = true;
+  const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
+  const reach = 7.4 + state.upgrades.longShadow * 1.2;
+  const ox = player.root.position.x, oz = player.root.position.z;
+  // A wide close crescent — the opposite of iai's far, narrow lane. Everything
+  // in a ~150° forward fan inside reach is cleaved and thrown outward.
+  for (const e of [...enemies]) {
+    if (e.dead) continue;
+    const dx = e.actor.root.position.x - ox;
+    const dz = e.actor.root.position.z - oz;
+    const dist = Math.hypot(dx, dz);
+    if (dist > reach + e.spec.height * 0.4) continue;
+    if ((dx * fx + dz * fz) / (dist || 1) < -0.32) continue;
+    const nx = dx / (dist || 1), nz = dz / (dist || 1);
+    damageEnemy(e, 180, nx, nz, 'bisect');
+  }
+
+  // The crescent stroke, a ground shockwave of ink, and the heavy contact
+  // grammar the iai cut already speaks (respecting reduce-shake downstream).
+  vTmp.set(ox + fx * 2.6, 0.2, oz + fz * 2.6);
+  iaiTrail.fire(vTmp, iaiFacing, { duration: 0.5, scale: 1.95, style: 2 });
+  for (let i = 0; i < 12; i++) {
+    const a = iaiFacing + (i / 12) * Math.PI * 2;
+    const rr = 2.2 + Math.random() * 1.4;
+    ink.addStain(ox + Math.sin(a) * rr, oz + Math.cos(a) * rr, 0.3 + Math.random() * 0.4, { alpha: 0.34 });
+  }
+  ink.splashScreen(11, 1.2);
+  flash(0.72);
+  invertT = Math.max(invertT, 0.09);
+  state.slowmo = 0;
+  hitstop(0.2, 0.02);
+  shake(1.35);
+  audio.iai();
+  audio.taiko(48, 0.4);
 }
 
 function beginDash(moving) {
@@ -1378,7 +1503,7 @@ function updatePlayer(dt) {
   if (dashCancellable && state.dashCooldown <= 0 && input.take('dash')) {
     beginDash(moving);
   } else if (state.action === 'idle') {
-    if (input.take('focus')) tryIai();
+    if (input.take('focus')) trySignature();
     else if (input.take('parry') && state.parryCooldown <= 0) {
       state.action = 'parry';
       state.actionT = 0;
@@ -1389,7 +1514,7 @@ function updatePlayer(dt) {
   } else if (canChain) {
     // Chaining late in recovery (or the moment a hit confirms) is what makes the
     // combo feel like one sequence rather than three separate swings.
-    if (input.take('attack') && state.comboIndex < ATTACK.length - 1) {
+    if (input.take('attack') && state.comboIndex < weaponCombo().length - 1) {
       state.comboIndex++;
       beginAttack(true);
     }
@@ -1434,25 +1559,31 @@ function updatePlayer(dt) {
     if (state.actionT >= DASH_TIME) { state.action = 'idle'; state.actionT = 0; }
   } else if (state.action === 'attack') {
     updateAttack(dt);
+    const heavyArc = state.attackKind === 'arc' && activeWeapon.skill === 'tsunami';
     // Keep most of your footwork through a swing so you flow while cutting
-    // instead of planting — except the execution finisher, which stays
-    // committed and weighty (one of the peaks worth keeping).
-    speed = PLAYER_SPEED * (state.attackKind === 'arc' && state.comboIndex === 2 ? 0.25 : 0.45);
-    // Root motion: the body drives the cut. A small settle backward during the
-    // coil, then a hard step through the active frames — the swing carries the
-    // samurai forward instead of the sword waving from a planted figure.
+    // instead of planting — except the execution finisher and the heavy nodachi
+    // sweeps, which stay committed and weighty (peaks worth keeping).
+    speed = PLAYER_SPEED * (heavyArc ? 0.2
+      : state.attackKind === 'arc' && state.comboIndex === 2 ? 0.25 : 0.45);
+    // Root motion: the body drives the cut. A settle backward during the coil,
+    // then a hard step through the active frames — the swing carries the samurai
+    // forward instead of the sword waving from a planted figure.
     if (state.action === 'attack') {   // updateAttack may have ended the swing
       const cfg = activeAttack();
       const t = state.actionT, wu = cfg.windup, act = cfg.active;
       let drive = 0;
       if (t < wu) {
-        drive = -1.3 * (t / wu);
+        // The great blade hauls the body back further as it loads — the coil is
+        // part of the weight you can see.
+        drive = (heavyArc ? -2.4 : -1.3) * (t / wu);
       } else if (t < wu + act) {
         const w = (t - wu) / act;
         // The thrust launches the body forward far harder than a sweep — that
-        // lunge is the whole point of it as a gap-closer.
+        // lunge is the whole point of it as a gap-closer. The nodachi heaves a
+        // planted step through the sweep rather than lunging.
         const peak = state.attackKind === 'thrust' ? 27
           : state.attackKind === 'dashcut' ? 15
+          : heavyArc ? (state.comboIndex >= 1 ? 16 : 11)
           : state.comboIndex === 2 ? 15 : 10.5;
         drive = peak * Math.pow(1 - w, 1.4);
       }
@@ -1468,14 +1599,27 @@ function updatePlayer(dt) {
   } else if (state.action === 'iai') {
     state.actionT += dt;
     state.invuln = Math.max(state.invuln, 0.08);
-    if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
-    const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
-    const moveEase = moveT * moveT * (3 - 2 * moveT);
-    player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
-    if (state.actionT >= 0.54) {
-      player.root.position.copy(iaiEnd);
-      state.action = 'idle';
-      state.actionT = 0;
+    if (activeWeapon.skill === 'tsunami') {
+      // A planted step through a heavy cleave: the cut lands after the coil.
+      if (!iaiCutFired && state.actionT >= 0.18) fireTsunamiCut();
+      const moveT = THREE.MathUtils.clamp((state.actionT - 0.12) / 0.18, 0, 1);
+      const moveEase = moveT * moveT * (3 - 2 * moveT);
+      player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
+      if (state.actionT >= 0.52) {
+        player.root.position.copy(iaiEnd);
+        state.action = 'idle';
+        state.actionT = 0;
+      }
+    } else {
+      if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
+      const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
+      const moveEase = moveT * moveT * (3 - 2 * moveT);
+      player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
+      if (state.actionT >= 0.54) {
+        player.root.position.copy(iaiEnd);
+        state.action = 'idle';
+        state.actionT = 0;
+      }
     }
   } else if (state.action === 'hurt') {
     state.actionT -= dt;
@@ -1513,7 +1657,8 @@ function beginAttack(chain = false, kind = 'arc') {
   state.attackPhase = 'windup';
   state.hitThisSwing = new Set();
   state.comboTimer = COMBO_WINDOW;
-  audio.swing(kind === 'thrust' ? 2 : state.comboIndex);
+  const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
+  audio.swing(heavyArc ? 3 : kind === 'thrust' ? 2 : state.comboIndex);
 }
 
 function updateAttack(dt) {
@@ -1531,12 +1676,13 @@ function updateAttack(dt) {
       // before) painted the stroke while the sword was still drawn back.
       vTmp.copy(player.root.position); vTmp.y = 0.1;
       const tier = getFlowTier();
-      const baseScale = kind === 'thrust' ? 1.12 : state.comboIndex === 2 ? 1.28 : 1;
+      const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
+      const baseScale = kind === 'thrust' ? 1.12 : heavyArc ? 1.6 : state.comboIndex === 2 ? 1.28 : 1;
       trail.fire(vTmp, state.facing, {
         mirror: kind === 'dashcut' || (kind === 'arc' && state.comboIndex === 1),
-        duration: cfg.active + cfg.recover * 0.8 + tier * 0.018,
+        duration: cfg.active + cfg.recover * (heavyArc ? 1.0 : 0.8) + tier * 0.018,
         scale: baseScale * (1 + tier * 0.06),
-        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : state.comboIndex,
+        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : heavyArc ? 2 : state.comboIndex,
         energy: tier,
       });
     }
@@ -1596,6 +1742,47 @@ function poseArms(dt) {
       torsoY = -0.32 + 0.32 * e;
       katanaRoll = 1.5 - 0.5 * e;
     }
+  } else if (state.action === 'attack' && state.attackKind === 'arc' && activeWeapon.skill === 'tsunami') {
+    // The nodachi's swing is a two-handed HORIZONTAL haul, not the katana's
+    // overhead diagonal: the blade is wound far back past one shoulder, then
+    // dragged flat across the whole front by the torso heaving its weight
+    // around. Slow enough (authored windup) that the coil reads as commitment.
+    const cfg = activeAttack();
+    const mirror = state.comboIndex === 1 ? -1 : 1;
+    const wu = cfg.windup, act = cfg.active;
+    const t = state.actionT;
+    snap = true;
+    twoHanded = true;
+    if (t < wu) {
+      // Haul the great blade back to the far side, torso winding with it.
+      const w = t / wu;
+      const e = 1 - Math.pow(1 - w, 2);
+      armX = -0.4 - 1.35 * e;
+      armZ = (0.55 + 1.15 * e) * mirror;      // wound far to one side, held flat
+      torsoY = 1.05 * e * mirror;             // a big torso coil, not a wrist cock
+      katanaRoll = (0.5 + 0.5 * e) * mirror;  // edge levelled for a flat sweep
+      crouch = 0.1 * e;
+    } else if (t < wu + act) {
+      // Drag it across the entire front in one flat, heavy arc.
+      const w = (t - wu) / act;
+      const e = Math.pow(w, 0.55);            // heavy to start, not a flick
+      armX = -1.75 + 1.5 * e;
+      armZ = (1.7 - 3.4 * e) * mirror;        // sweeps fully across the body
+      torsoY = (1.05 - 2.2 * e) * mirror;     // torso hauls all the way round
+      torsoZ = Math.sin(e * Math.PI) * 0.22;
+      katanaRoll = (1.0 - 0.3 * e) * mirror;
+      crouch = 0.1 + Math.sin(e * Math.PI) * 0.16;  // sink into the sweep
+      smear = Math.sin(Math.min(1, w * 1.4) * Math.PI) * 1.05;
+    } else {
+      // A long, heavy follow-through: the blade over-travels, then settles.
+      const w = (t - wu - act) / cfg.recover;
+      const e = w * w;
+      armX = -0.25 - 0.35 * (1 - e);
+      armZ = (-1.7 + 1.85 * e) * mirror;
+      torsoY = (-1.15 + 1.15 * e) * mirror;
+      katanaRoll = (0.7 - 0.7 * e) * mirror;
+      crouch = 0.14 * (1 - e);
+    }
   } else if (state.action === 'attack') {
     const cfg = activeAttack();
     // The dash-cut is a mirrored cross-slash; the arc combo alternates sides.
@@ -1642,6 +1829,36 @@ function poseArms(dt) {
     armX = -2.5 * Math.min(1, k * 4);
     armZ = 0.9;
     torsoY = 0.35;
+  } else if (state.action === 'iai' && activeWeapon.skill === 'tsunami') {
+    // A two-handed overhead: load the great blade high behind the head, slam it
+    // down through a planted stance, then recover to guard.
+    const t = state.actionT;
+    snap = true;
+    twoHanded = true;
+    if (t < 0.18) {
+      const k = t / 0.18;
+      armX = -0.15 - 2.45 * k;   // raise the blade overhead
+      armZ = 0.2 + 0.42 * k;
+      torsoZ = -0.3 * k;         // lean back to load
+      katanaRoll = -0.32 * k;
+      crouch = 0.16 * k;
+    } else if (t < 0.32) {
+      const k = (t - 0.18) / 0.14;
+      const e = 1 - (1 - k) ** 3;
+      armX = -2.6 + e * 3.15;    // chop straight down and through
+      armZ = 0.62 - e * 0.72;
+      torsoZ = -0.3 + e * 0.52;  // pitch the whole body into the cut
+      katanaRoll = -0.32 + e * 0.9;
+      crouch = 0.16 + e * 0.16;  // drop into the plant
+      smear = Math.sin(k * Math.PI) * 0.98;
+    } else {
+      const k = THREE.MathUtils.clamp((t - 0.32) / 0.2, 0, 1);
+      armX = 0.55 - k * 0.55;
+      armZ = -0.1 + k * 0.1;
+      torsoZ = 0.22 - k * 0.22;
+      katanaRoll = 0.58 - k * 0.58;
+      crouch = 0.32 * (1 - k);
+    }
   } else if (state.action === 'iai') {
     const t = state.actionT;
     snap = true;
@@ -2218,7 +2435,7 @@ function updateHUD() {
   const iaiReady = state.running && !state.over && state.focus >= FOCUS_MAX;
   iaiGaugeEl.classList.toggle('ready', iaiReady);
   if (iaiReady && !iaiWasReady) {
-    showIaiNotice('IAI READY', 'PRESS F');
+    showIaiNotice(`${activeWeapon.skillRoman} READY`, 'PRESS F');
     audio.ready();
   } else if (!iaiReady && iaiWasReady) {
     clearTimeout(iaiNoticeTimer);
@@ -2285,6 +2502,7 @@ const ovDaily = document.getElementById('ovDaily');
 const ovShare = document.getElementById('ovShare');
 const ledgerEl = document.getElementById('ledger');
 const skinPickerEl = document.getElementById('skinPicker');
+const weaponPickerEl = document.getElementById('weaponPicker');
 const skinCurrentEl = document.getElementById('skinCurrent');
 const skinButtons = [...document.querySelectorAll('.skinOption')];
 const TITLE_LOGO = ovTitle.innerHTML;
@@ -2372,6 +2590,93 @@ for (const button of skinButtons) {
 if (!isSkinUnlocked(selectedSkinId, loadRecords())) selectedSkinId = 'musashi';
 selectSkin(selectedSkinId, { persist: false });
 
+// ---- weapons: a second identity on an orthogonal axis, earned and picked the
+// same way as skins. KATANA is the blade every run starts with; others are
+// gated on the same lifetime records, so no separate save is needed.
+const weaponCurrentEl = document.getElementById('weaponCurrent');
+const weaponButtons = [...document.querySelectorAll('.weaponOption')];
+const WEAPON_UNLOCKS = {
+  nodachi: { metric: 'wave', need: 8, label: 'REACH WAVE 8' },
+};
+const WEAPON_META = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
+
+function isWeaponUnlocked(id, records) {
+  const req = WEAPON_UNLOCKS[id];
+  return !req || (records[req.metric] || 0) >= req.need;
+}
+
+// The nearest weapon still to earn — a second "one more run" pull beside the
+// next legend.
+function nextLockedWeapon(records) {
+  let best = null, bestRatio = -1;
+  for (const weapon of WEAPONS) {
+    const req = WEAPON_UNLOCKS[weapon.id];
+    if (!req || (records[req.metric] || 0) >= req.need) continue;
+    const ratio = (records[req.metric] || 0) / req.need;
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      best = { id: weapon.id, roman: weapon.roman, label: req.label };
+    }
+  }
+  return best;
+}
+
+function renderWeaponLocks(records) {
+  for (const button of weaponButtons) {
+    const id = button.dataset.weapon;
+    const unlocked = isWeaponUnlocked(id, records);
+    button.classList.toggle('locked', !unlocked);
+    button.disabled = !unlocked;
+    button.setAttribute('aria-disabled', `${!unlocked}`);
+    const small = button.querySelector('.weaponCopy small');
+    if (small) small.textContent = unlocked ? WEAPON_META[id].epithet : WEAPON_UNLOCKS[id].label;
+  }
+}
+
+function selectWeapon(weaponId, { persist = true } = {}) {
+  if (!isWeaponUnlocked(weaponId, loadRecords())) weaponId = selectedWeaponId || 'katana';
+  activeWeapon = applyWeapon(player, weaponId);
+  selectedWeaponId = activeWeapon.id;
+  weaponCurrentEl.textContent = `${activeWeapon.roman} · ${activeWeapon.epithet}`;
+  // Everywhere the signature is named takes this weapon's skill: the compact
+  // gauge badge and touch button use the short label; the control legend has
+  // room for the full move name.
+  const gaugeLabel = vitalLabels[1].querySelector('span');
+  if (gaugeLabel) gaugeLabel.textContent = activeWeapon.gaugeLabel;
+  const cueSig = document.getElementById('cueSignature');
+  if (cueSig) cueSig.textContent = activeWeapon.skillRoman;
+  const touchSig = document.getElementById('touchSignature');
+  if (touchSig) touchSig.textContent = activeWeapon.gaugeLabel;
+  for (const button of weaponButtons) {
+    const selected = button.dataset.weapon === activeWeapon.id;
+    button.setAttribute('aria-pressed', `${selected}`);
+    button.tabIndex = selected ? 0 : -1;
+  }
+  if (persist) {
+    try { localStorage.setItem(WEAPON_STORAGE_KEY, activeWeapon.id); } catch { /* private storage can fail */ }
+  }
+  return activeWeapon;
+}
+
+for (const button of weaponButtons) {
+  button.addEventListener('click', () => selectWeapon(button.dataset.weapon));
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    // Arrow through earned steel only; sealed weapons are skipped, not landed on.
+    const usable = weaponButtons.filter((b) => isWeaponUnlocked(b.dataset.weapon, loadRecords()));
+    const current = usable.indexOf(button);
+    if (current === -1) return;
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? usable.length - 1
+      : (current + (event.key === 'ArrowRight' ? 1 : -1) + usable.length) % usable.length;
+    selectWeapon(usable[next].dataset.weapon);
+    usable[next].focus();
+  });
+}
+if (!isWeaponUnlocked(selectedWeaponId, loadRecords())) selectedWeaponId = 'katana';
+selectWeapon(selectedWeaponId, { persist: false });
+
 function loadRecords() {
   try {
     return { wave: 0, kills: 0, parries: 0, flow: 0, ...JSON.parse(localStorage.getItem('samurai-records') || '{}') };
@@ -2451,11 +2756,15 @@ function renderTitleScreen() {
   // The next legend to earn: shown before the run so the goal is already in mind.
   const nextSkin = nextLockedSkin(records);
   if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b> — ${nextSkin.label}`);
+  const nextWeapon = nextLockedWeapon(records);
+  if (nextWeapon) chaseLines.push(`NEXT BLADE · <b>${nextWeapon.roman}</b> — ${nextWeapon.label}`);
   ovChase.hidden = chaseLines.length === 0;
   ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
   renderSkinLocks(records);
+  renderWeaponLocks(records);
   skinPickerEl.hidden = false;
+  weaponPickerEl.hidden = false;
   ovBtn.textContent = 'DRAW THE BLADE';
   ovDaily.hidden = false;
   ovShare.hidden = true;
@@ -2633,6 +2942,7 @@ function gameOver() {
     ovChase.innerHTML = chaseLines.join('<br />');
     renderLedger(ledger);
     skinPickerEl.hidden = true;
+    weaponPickerEl.hidden = true;
     ovBtn.textContent = 'DRAW AGAIN';
     ovDaily.hidden = true;
     ovShare.hidden = false;
@@ -2928,6 +3238,9 @@ window.__samurai = {
   trail, enemyTrail, iaiTrail,
   getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
   get selectedSkin() { return selectedSkinId; },
+  WEAPONS, selectWeapon, trySignature, activeAttack,
+  get selectedWeapon() { return selectedWeaponId; },
+  get activeWeapon() { return activeWeapon; },
   beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
   setPaused, togglePause, toggleMute, toggleReduceShake, settings,
   get paused() { return paused; },

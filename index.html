@@ -1091,7 +1091,8 @@
   #overlay.intro #ovSub { animation: introRise 220ms var(--ease-out) 500ms both; }
   #overlay.intro #ovText { animation: introRise 220ms var(--ease-out) 570ms both; }
   #overlay.intro #skinPicker { animation: introRise 220ms var(--ease-out) 620ms both; }
-  #overlay.intro #ovButtons { animation: introRise 220ms var(--ease-out) 670ms both; }
+  #overlay.intro #weaponPicker { animation: introRise 220ms var(--ease-out) 650ms both; }
+  #overlay.intro #ovButtons { animation: introRise 220ms var(--ease-out) 690ms both; }
   #overlay.intro #controls, #overlay.intro #touchControls { animation: introRise 220ms var(--ease-out) 700ms both; }
   @keyframes maskBleed {
     from { opacity: 0; transform: translateY(-10px) scale(0.94); clip-path: inset(48% 14% 48% 14%); }
@@ -1118,6 +1119,7 @@
     #overlay.intro #ovSub,
     #overlay.intro #ovText,
     #overlay.intro #skinPicker,
+    #overlay.intro #weaponPicker,
     #overlay.intro #ovButtons,
     #overlay.intro #controls,
     #overlay.intro #touchControls {
@@ -1505,6 +1507,132 @@
     opacity: 0.58;
   }
 
+  /* Weapons: same picker language as skins, on an orthogonal axis. The figure
+     is a drawn blade rather than a figure — a katana's short line beside the
+     nodachi's long one, so the choice reads before the label does. */
+  #weaponPicker {
+    --intro-opacity: 1;
+    width: min(88vw, 760px);
+    margin-top: 12px;
+    pointer-events: auto;
+  }
+  #weaponPicker[hidden] { display: none; }
+  #weaponCurrent {
+    color: var(--paper);
+    letter-spacing: 0.16em;
+    opacity: 0.78;
+  }
+  #weaponOptions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .weaponOption {
+    position: relative;
+    min-width: 0;
+    min-height: 62px;
+    padding: 7px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    color: var(--paper);
+    background: rgba(8, 8, 11, 0.54);
+    border: 1px solid rgba(233, 228, 214, 0.22);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+    clip-path: polygon(1% 4%, 98% 0, 100% 94%, 3% 100%, 0 86%);
+    transition: transform 140ms var(--ease-out), background 160ms ease, border-color 160ms ease, color 160ms ease, filter 160ms ease;
+  }
+  .weaponOption[aria-pressed="true"] {
+    color: #0a0a0d;
+    background: var(--paper);
+    border-color: var(--paper);
+  }
+  .weaponOption[aria-pressed="true"] .weaponBlade,
+  .weaponOption[aria-pressed="true"] .weaponGuard { background: #14140f; }
+  .weaponOption:active { transform: scale(0.97); }
+  .weaponOption:focus-visible {
+    outline: none;
+    filter: brightness(1.1) drop-shadow(0 0 5px rgba(255,255,255,0.72));
+  }
+  .weaponOption.locked {
+    cursor: default;
+    color: rgba(233, 228, 214, 0.5);
+    border-color: rgba(233, 228, 214, 0.12);
+    background: rgba(8, 8, 11, 0.4);
+  }
+  .weaponOption.locked .weaponFigure { opacity: 0.4; filter: grayscale(1) brightness(0.6); }
+  .weaponOption.locked strong { opacity: 0.72; }
+  .weaponOption.locked .weaponCopy small { letter-spacing: 0.1em; opacity: 0.92; }
+  .weaponOption.locked::after {
+    content: '封';
+    position: absolute;
+    top: 3px;
+    right: 6px;
+    font-family: var(--font-brush);
+    font-size: 13px;
+    line-height: 1;
+    color: var(--paper);
+    opacity: 0.5;
+  }
+  .weaponOption.locked:active { transform: none; }
+  .weaponOption.locked:hover { transform: none; filter: none; }
+  .weaponFigure {
+    position: relative;
+    flex: 0 0 26px;
+    width: 26px;
+    height: 42px;
+    display: block;
+    filter: drop-shadow(0 3px 3px rgba(0,0,0,0.4));
+  }
+  .weaponFigure i { position: absolute; display: block; left: 50%; transform-origin: bottom center; }
+  .weaponBlade {
+    bottom: 12px;
+    width: 3px;
+    height: 24px;
+    margin-left: -1.5px;
+    background: linear-gradient(to top, rgba(233,228,214,0.55), var(--paper));
+    border-radius: 2px 2px 0 0;
+    transform: rotate(24deg);
+  }
+  .weaponGuard {
+    bottom: 11px;
+    width: 9px;
+    height: 2px;
+    margin-left: -4.5px;
+    background: var(--paper);
+    transform: rotate(24deg);
+  }
+  .weaponHilt {
+    bottom: 4px;
+    width: 2px;
+    height: 8px;
+    margin-left: -1px;
+    background: var(--seal);
+    transform: rotate(24deg);
+  }
+  .weaponOption[data-weapon="nodachi"] .weaponBlade { height: 33px; width: 4px; margin-left: -2px; }
+  .weaponOption[data-weapon="nodachi"] .weaponHilt { height: 11px; }
+  .weaponCopy { min-width: 0; display: grid; gap: 3px; }
+  .weaponCopy strong {
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-overflow: ellipsis;
+  }
+  .weaponCopy small {
+    overflow: hidden;
+    font-size: 7px;
+    letter-spacing: 0.11em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    opacity: 0.58;
+  }
+
   #ovButtons {
     width: min(88vw, 760px);
     margin-top: 26px;
@@ -1679,7 +1807,8 @@
     #ovSub { margin-top: 3px; }
     #ovText { margin-top: 11px; padding-top: 11px; line-height: 1.5; }
     #skinPicker { margin-top: 12px; }
-    .skinOption { min-height: 54px; padding-block: 5px; }
+    #weaponPicker { margin-top: 8px; }
+    .skinOption, .weaponOption { min-height: 54px; padding-block: 5px; }
     #ovButtons { margin-top: 18px; gap: 10px; }
     #controls { margin-top: 17px; gap: 5px 8px; padding-block: 8px; }
     #ledger { margin-top: 12px; height: 25px; }
@@ -1698,9 +1827,11 @@
     #ovChase { margin-top: 6px; }
     #ledger { margin-top: 10px; height: 24px; }
     #skinPicker { margin-top: 9px; }
+    #weaponPicker { margin-top: 6px; }
     .skinPickerHead { margin-bottom: 4px; }
-    .skinOption { min-height: 46px; padding: 4px 7px; gap: 6px; }
+    .skinOption, .weaponOption { min-height: 46px; padding: 4px 7px; gap: 6px; }
     .skinFigure { flex-basis: 28px; width: 28px; transform: scale(0.82); }
+    .weaponFigure { flex-basis: 22px; width: 22px; transform: scale(0.85); }
     .skinCopy small { display: none; }
     #ovButtons { margin-top: 12px; }
     #ovBtn, #ovDaily { min-height: 44px; padding: 9px 24px; }
@@ -1809,7 +1940,7 @@
     <span class="controlCue"><kbd>LMB</kbd><span>CUT</span></span>
     <span class="controlCue"><kbd>SHIFT</kbd><span>DASH<small>→CUT LUNGE</small></span></span>
     <span class="controlCue"><kbd>SPACE</kbd><span>PARRY</span></span>
-    <span class="controlCue"><kbd>F</kbd><span>IAI<small>KILLS + PARRY</small></span></span>
+    <span class="controlCue"><kbd>F</kbd><span><span id="cueSignature">IAI</span><small>KILLS + PARRY</small></span></span>
   </div>
 
   <div id="buildTag" aria-label="Onisolo game build">ONISOLO / BUILD <span id="buildVersion">...</span></div>
@@ -1859,7 +1990,7 @@
   <div id="stickZone"></div>
   <div id="stickRing"><div id="stickNub"></div></div>
   <div id="touchButtons">
-    <button id="touchIai" type="button"><span class="k">抜</span><span class="l">IAI</span></button>
+    <button id="touchIai" type="button"><span class="k">抜</span><span class="l" id="touchSignature">IAI</span></button>
     <button id="touchDash" type="button"><span class="k">疾</span><span class="l">DASH</span></button>
     <button id="touchParry" type="button"><span class="k">受</span><span class="l">PARRY</span></button>
     <button id="touchCut" type="button"><span class="k">斬</span><span class="l">CUT</span></button>
@@ -1911,6 +2042,19 @@
       </button>
     </div>
   </section>
+  <section id="weaponPicker" aria-labelledby="weaponPickerLabel">
+    <div class="skinPickerHead"><span id="weaponPickerLabel">CHOOSE BLADE</span><span id="weaponCurrent">KATANA · THE DRAWN LINE</span></div>
+    <div id="weaponOptions" role="group" aria-label="Weapons">
+      <button class="weaponOption" type="button" data-weapon="katana" aria-pressed="true">
+        <span class="weaponFigure" aria-hidden="true"><i class="weaponBlade"></i><i class="weaponGuard"></i><i class="weaponHilt"></i></span>
+        <span class="weaponCopy"><strong>KATANA</strong><small>THE DRAWN LINE</small></span>
+      </button>
+      <button class="weaponOption" type="button" data-weapon="nodachi" aria-pressed="false">
+        <span class="weaponFigure" aria-hidden="true"><i class="weaponBlade"></i><i class="weaponGuard"></i><i class="weaponHilt"></i></span>
+        <span class="weaponCopy"><strong>NODACHI</strong><small>THE GREAT BLADE</small></span>
+      </button>
+    </div>
+  </section>
   <div id="ovButtons">
     <button id="ovBtn" type="button">DRAW THE BLADE</button>
     <button id="ovDaily" type="button">DAILY TRIAL</button>
@@ -1923,10 +2067,10 @@
     <span>SHIFT</span><span>dash, no damage</span>
     <span>DASH → CUT</span><span>a lunging strike, or a cross-cut</span>
     <span>SPACE</span><span>parry the white blade — dash the red</span>
-    <span>F</span><span>iai, charge by skill</span>
+    <span>F</span><span>signature strike, charged by skill</span>
   </div>
   <div id="touchControls">
-    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>疾→斬</b> LUNGE · <b>抜</b> IAI
+    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>疾→斬</b> LUNGE · <b>抜</b> SIGNATURE
     <small>white blade — parry · red blade — dash</small>
   </div>
 </div>
@@ -1938,7 +2082,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=62"></script>
+<script type="module" src="./src/main.js?v=63"></script>
 
 </body>
 </html>
