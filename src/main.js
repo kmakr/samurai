@@ -332,6 +332,33 @@ function aimYaw() {
 
 // ------------------------------------------------------------------ effects
 
+// Player-facing settings, persisted to localStorage. `reduceShake` also turns
+// itself on the first visit under the OS "reduce motion" preference. It feeds
+// `juiceScale`, which damps the camera's undirected shake, the directed
+// contact punch, and the white flash at the moment they reach the frame — so
+// the read stays intact while the violence of the motion comes down.
+const settings = { muted: false, reduceShake: false };
+let juiceScale = 1;
+function applyJuice() { juiceScale = settings.reduceShake ? 0.32 : 1; }
+
+function loadSettings() {
+  let raw = null;
+  try { raw = localStorage.getItem('samurai-settings'); } catch { /* private storage can fail */ }
+  if (raw) {
+    try {
+      const s = JSON.parse(raw);
+      if (typeof s.muted === 'boolean') settings.muted = s.muted;
+      if (typeof s.reduceShake === 'boolean') settings.reduceShake = s.reduceShake;
+    } catch { /* corrupt value: keep defaults */ }
+  } else if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    settings.reduceShake = true;   // first visit honours the OS preference
+  }
+  applyJuice();
+}
+function saveSettings() {
+  try { localStorage.setItem('samurai-settings', JSON.stringify(settings)); } catch { /* ignore */ }
+}
+
 let shakeAmount = 0;
 function shake(v) { shakeAmount = Math.min(1.4, shakeAmount + v); }
 
@@ -717,6 +744,13 @@ function rollFierce(e) {
   if (e.type === 'brute') return run.rng() < 0.75;
   if (e.type === 'oni') return run.rng() < 0.5;
   return false;
+}
+
+// Decide a strike's kind as its wind-up begins, and sound the unblockable's
+// warning the instant it commits so the ear has the whole wind-up to react.
+function commitStrike(e) {
+  e.fierce = rollFierce(e);
+  if (e.fierce) audio.fierce();
 }
 
 function startWave() {
@@ -1755,7 +1789,7 @@ function updateEnemies(dt) {
           break;
         }
         if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-          e.state = 'windup'; e.t = 0; e.fierce = rollFierce(e);
+          e.state = 'windup'; e.t = 0; commitStrike(e);
         } else if (dist < reach * 1.6) {
           e.state = 'circle'; e.t = 0;
         }
@@ -1786,7 +1820,7 @@ function updateEnemies(dt) {
               e.circleDir *= -1;
             }
           } else if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-            e.state = 'windup'; e.fierce = rollFierce(e);
+            e.state = 'windup'; commitStrike(e);
           } else if (dist > reach * 2.2) {
             e.state = 'approach';
           } else if (Math.random() < 0.3) {
@@ -1892,7 +1926,7 @@ function updateEnemies(dt) {
           if (e.rival && !e.rivalFollowup && dist < reach * 1.8) {
             e.rivalFollowup = true;
             e.state = 'windup';
-            e.fierce = rollFierce(e);
+            commitStrike(e);
             // A grudge shortens the pause before the follow-up: the rival that
             // remembers you presses where a first meeting would breathe.
             e.t = Math.max(0, e.spec.windup - (e.grudge ? 0.32 : 0.24));
@@ -2080,15 +2114,15 @@ function updateCamera(dt) {
 
   shakeAmount *= Math.exp(-6 * dt);
   camShake.set(
-    (Math.random() - 0.5) * shakeAmount,
-    (Math.random() - 0.5) * shakeAmount,
-    (Math.random() - 0.5) * shakeAmount * 0.5,
+    (Math.random() - 0.5) * shakeAmount * juiceScale,
+    (Math.random() - 0.5) * shakeAmount * juiceScale,
+    (Math.random() - 0.5) * shakeAmount * 0.5 * juiceScale,
   );
   camera.position.add(camShake);
   // Contact punch: a directed kick into the cut, unlike the undirected shake.
   // Decays on real time so hitstop doesn't freeze it mid-lurch.
   camPunch.multiplyScalar(Math.exp(-9 * dt));
-  camera.position.add(camPunch);
+  camera.position.addScaledVector(camPunch, juiceScale);
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
 
   // Keep the shadow frustum on the action. The light hangs off the camera's
@@ -2611,6 +2645,81 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && !state.running) beginGame({ instant: true });
 });
 
+// ------------------------------------------------------------- pause & settings
+
+const muteBtn = document.getElementById('muteBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const pauseScreen = document.getElementById('pauseScreen');
+const pauseResume = document.getElementById('pauseResume');
+const pauseMute = document.getElementById('pauseMute');
+const pauseShake = document.getElementById('pauseShake');
+const pauseQuit = document.getElementById('pauseQuit');
+
+let paused = false;
+
+function canPause() {
+  return state.running && !state.over && !state.choosingUpgrade;
+}
+
+function setPaused(p) {
+  if (p === paused || (p && !canPause())) return;
+  paused = p;
+  pauseScreen.classList.toggle('show', p);
+  pauseScreen.setAttribute('aria-hidden', p ? 'false' : 'true');
+  document.body.classList.toggle('paused', p);
+  audio.setPaused(p);
+  input.enabled = !p;          // pointer actions ignore input while paused
+  input.keys.clear();
+  for (const k in input.buffers) input.buffers[k] = 0;   // nothing queued fires on resume
+}
+function togglePause() { setPaused(!paused); }
+
+function applyMuteUI() {
+  muteBtn.classList.toggle('muted', settings.muted);
+  muteBtn.setAttribute('aria-pressed', String(settings.muted));
+  muteBtn.setAttribute('aria-label', settings.muted ? 'Unmute' : 'Mute');
+  pauseMute.setAttribute('aria-pressed', String(settings.muted));
+  pauseMute.querySelector('.optState').textContent = settings.muted ? 'MUTED' : 'ON';
+}
+function applyShakeUI() {
+  pauseShake.setAttribute('aria-pressed', String(settings.reduceShake));
+  pauseShake.querySelector('.optState').textContent = settings.reduceShake ? 'REDUCED' : 'FULL';
+}
+function toggleMute() {
+  settings.muted = !settings.muted;
+  audio.setMuted(settings.muted);
+  saveSettings();
+  applyMuteUI();
+}
+function toggleReduceShake() {
+  settings.reduceShake = !settings.reduceShake;
+  applyJuice();
+  saveSettings();
+  applyShakeUI();
+}
+
+muteBtn.addEventListener('click', toggleMute);
+pauseBtn.addEventListener('click', togglePause);
+pauseMute.addEventListener('click', toggleMute);
+pauseShake.addEventListener('click', toggleReduceShake);
+pauseResume.addEventListener('click', () => setPaused(false));
+pauseQuit.addEventListener('click', () => { setPaused(false); location.reload(); });
+
+addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' || e.code === 'KeyP') {
+    if (paused || canPause()) { e.preventDefault(); togglePause(); }
+  }
+});
+// Coming back to a hidden tab mid-fight should find the duel held, not lost.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && canPause()) setPaused(true);
+});
+
+loadSettings();
+audio.setMuted(settings.muted);   // stored now; applied when the context starts
+applyMuteUI();
+applyShakeUI();
+
 // A fresh run's title screen, and the snappy path back in after a defeat: if
 // DRAW AGAIN reloaded the page, drop straight into a new run in the same mode.
 // The installed game keeps working offline. Skipped on localhost so the dev
@@ -2754,7 +2863,7 @@ function step(dt) {
   film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05 + deathCrush * 0.3 + act.vig;
   film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55 + act.con;
   whiteFlash *= Math.exp(-9 * dt);
-  film.uniforms.uWhite.value = whiteFlash;
+  film.uniforms.uWhite.value = whiteFlash * (settings.reduceShake ? 0.6 : 1);
   invertT = Math.max(0, invertT - dt);
   film.uniforms.uInvert.value = invertT > 0 ? 1 : 0;
   film.updateFilm(state.time);
@@ -2767,6 +2876,7 @@ function frame(now) {
   checkResize();
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  if (paused) return;   // hold the last frame under the pause screen
   step(dt);
 }
 
@@ -2781,5 +2891,8 @@ window.__samurai = {
   getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
   get selectedSkin() { return selectedSkinId; },
   beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
+  setPaused, togglePause, toggleMute, toggleReduceShake, settings,
+  get paused() { return paused; },
+  get juiceScale() { return juiceScale; },
   get enemies() { return enemies; },
 };

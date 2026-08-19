@@ -7,6 +7,8 @@ export class Audio {
   constructor() {
     this.ctx = null;
     this.master = null;
+    this.muteGain = null;   // sits after master so ducking never un-mutes
+    this.muted = false;
     this.noiseBuf = null;
     this.enabled = true;
     this.rustleTarget = -1;
@@ -33,7 +35,13 @@ export class Audio {
     this.ctx = new AC();
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.55;
-    this.master.connect(this.ctx.destination);
+    // A second gain after the master carries the mute. The master is ducked
+    // and ramped by effects (perfectParry, silenceMusic), so muting it there
+    // would be undone on the next ramp; the mute node stays untouched.
+    this.muteGain = this.ctx.createGain();
+    this.muteGain.gain.value = this.muted ? 0 : 1;
+    this.master.connect(this.muteGain);
+    this.muteGain.connect(this.ctx.destination);
 
     const len = this.ctx.sampleRate * 2;
     this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -47,6 +55,25 @@ export class Audio {
   }
 
   get t() { return this.ctx.currentTime; }
+
+  // Persisted mute. Works before the context exists (the value is applied when
+  // start() builds the mute node) and ramps to avoid a click when toggled live.
+  setMuted(muted) {
+    this.muted = muted;
+    if (!this.ctx || !this.muteGain) return;
+    const now = this.t;
+    this.muteGain.gain.cancelScheduledValues(now);
+    this.muteGain.gain.setValueAtTime(this.muteGain.gain.value, now);
+    this.muteGain.gain.linearRampToValueAtTime(muted ? 0 : 1, now + 0.08);
+  }
+
+  // Suspend the whole graph while the game is paused so wind and score stop
+  // instead of droning under the pause screen.
+  setPaused(paused) {
+    if (!this.ctx) return;
+    if (paused) this.ctx.suspend();
+    else this.ctx.resume();
+  }
 
   noise(dur, { type = 'bandpass', freq = 1200, q = 1, gain = 0.3, sweep = 0, delay = 0 } = {}) {
     if (!this.ctx) return;
@@ -643,6 +670,18 @@ export class Audio {
   }
 
   dash() { this.noise(0.28, { freq: 900, q: 0.8, gain: 0.12, sweep: 0.4 }); }
+
+  // The unblockable's warning: a low ominous swell with a rising dissonant edge,
+  // ducking the score for a beat. Audible danger for anyone who cannot read the
+  // vermilion blade — a parry here is a mistake, and the ear should know it.
+  fierce() {
+    if (!this.ctx) return;
+    this.silenceMusic(0.34, 0.07);
+    this.tone(150, 0.5, { type: 'sawtooth', gain: 0.15, to: 84 });
+    this.tone(56, 0.55, { type: 'sine', gain: 0.3, to: 38 });
+    this.noise(0.5, { type: 'bandpass', freq: 2500, q: 3, gain: 0.09, sweep: 0.6 });
+    this.tone(200, 0.44, { type: 'square', gain: 0.05, to: 300, delay: 0.02 });
+  }
 
   // Taiko: wave announcements and the iai release.
   taiko(pitch = 82, gain = 0.5) {

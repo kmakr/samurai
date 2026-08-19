@@ -496,6 +496,141 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Persistent corner controls: quick mute, and pause. */
+  #hudControls {
+    position: absolute;
+    right: calc(var(--film-bar-w) + var(--hud-inline));
+    top: 0;
+    height: var(--film-bar-h);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: auto;
+  }
+  #hudControls button {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    color: var(--paper);
+    background: rgba(233, 228, 214, 0.05);
+    border: 1px solid rgba(233, 228, 214, 0.3);
+    border-radius: 2px;
+    font-family: var(--font-brush);
+    font-size: 15px;
+    line-height: 1;
+    opacity: 0.6;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+    transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+  #hudControls button:hover { opacity: 0.95; background: rgba(233, 228, 214, 0.1); }
+  #hudControls button:focus-visible { outline: none; opacity: 1; border-color: var(--paper); }
+  #muteBtn.muted { color: var(--seal); border-color: rgba(185, 54, 37, 0.5); opacity: 0.85; }
+  #muteBtn.muted::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top right, transparent 43%, currentColor 43%, currentColor 57%, transparent 57%);
+    pointer-events: none;
+  }
+  body:has(#overlay:not(.hidden)) #hudControls { opacity: 0; pointer-events: none; }
+
+  /* Pause screen. */
+  #pauseScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 5, 10, 0.74);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms var(--ease-out), visibility 180ms;
+  }
+  #pauseScreen.show { opacity: 1; visibility: visible; }
+  .pausePanel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 32px 40px;
+    color: var(--paper);
+    text-align: center;
+  }
+  .pauseMark {
+    font-family: var(--font-brush);
+    font-size: 44px;
+    line-height: 1;
+    color: var(--seal);
+    opacity: 0.9;
+  }
+  #pauseHeading {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-weight: 500;
+    font-size: 19px;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em;
+  }
+  .pauseOptions, .pauseButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(280px, 74vw);
+  }
+  .pauseOptions { margin-top: 6px; }
+  .pauseButtons { margin-top: 4px; }
+  .pauseOpt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 16px;
+    color: var(--paper);
+    background: rgba(233, 228, 214, 0.04);
+    border: 1px solid rgba(233, 228, 214, 0.26);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+  .pauseOpt:hover { background: rgba(233, 228, 214, 0.09); }
+  .pauseOpt:focus-visible { outline: none; border-color: var(--paper); }
+  .pauseOpt .optState { opacity: 0.55; font-size: 11px; letter-spacing: 0.18em; }
+  .pauseOpt[aria-pressed="true"] .optState { color: var(--seal); opacity: 0.95; }
+  .pauseButtons button {
+    min-height: 46px;
+    padding: 10px 24px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 0;
+    clip-path: var(--paper-edge);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: var(--control-tracking);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: filter 140ms ease;
+  }
+  #pauseQuit {
+    color: var(--paper);
+    background: transparent;
+    border: 1px solid rgba(233, 228, 214, 0.3);
+    clip-path: none;
+  }
+  .pauseButtons button:hover { filter: brightness(1.06); }
+  .pauseButtons button:focus-visible { outline: none; filter: brightness(1.1) drop-shadow(0 0 6px rgba(255, 255, 255, 0.8)); }
+  .pauseHint { font-size: 10px; letter-spacing: 0.2em; opacity: 0.4; margin-top: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    #pauseScreen { transition: none; }
+  }
+
   .hud-compact #combatStatus { gap: 8px; }
   .hud-compact .statSeal { grid-template-columns: 20px auto; column-gap: 5px; min-width: 52px; }
   .hud-compact .statMark { width: 20px; height: 20px; }
@@ -1459,6 +1594,7 @@
     opacity: 0.55;
   }
   #touchControls b { font-weight: 400; opacity: 1; }
+  #touchControls small { display: block; margin-top: 7px; font-size: 9px; letter-spacing: 0.16em; opacity: 0.72; }
 
   #stickZone {
     position: fixed;
@@ -1671,12 +1807,17 @@
     <span class="controlCue"><kbd>WASD</kbd><span>MOVE</span></span>
     <span class="controlCue"><kbd>MOUSE</kbd><span>AIM</span></span>
     <span class="controlCue"><kbd>LMB</kbd><span>CUT</span></span>
-    <span class="controlCue"><kbd>SHIFT</kbd><span>DASH</span></span>
+    <span class="controlCue"><kbd>SHIFT</kbd><span>DASH<small>→CUT LUNGE</small></span></span>
     <span class="controlCue"><kbd>SPACE</kbd><span>PARRY</span></span>
     <span class="controlCue"><kbd>F</kbd><span>IAI<small>KILLS + PARRY</small></span></span>
   </div>
 
   <div id="buildTag" aria-label="Onisolo game build">ONISOLO / BUILD <span id="buildVersion">...</span></div>
+
+  <div id="hudControls">
+    <button id="muteBtn" type="button" aria-pressed="false" aria-label="Mute"><span aria-hidden="true">音</span></button>
+    <button id="pauseBtn" type="button" aria-label="Pause"><span aria-hidden="true">止</span></button>
+  </div>
 
   <div id="waveTitle"></div>
   <div id="combatCallout"><span class="mark"></span><span class="meaning"></span></div>
@@ -1692,6 +1833,26 @@
   <h2 id="upgradeHeading">CHOOSE A DISCIPLINE</h2>
   <p id="upgradePrompt">ONE CHOICE BEFORE THE NEXT WAVE</p>
   <div id="upgradeChoices"></div>
+</div>
+
+<div id="pauseScreen" aria-hidden="true" role="dialog" aria-labelledby="pauseHeading">
+  <div class="pausePanel">
+    <div class="pauseMark" aria-hidden="true">止</div>
+    <h2 id="pauseHeading">PAUSED</h2>
+    <div class="pauseOptions">
+      <button id="pauseMute" class="pauseOpt" type="button" aria-pressed="false">
+        <span class="optLabel">SOUND</span><span class="optState">ON</span>
+      </button>
+      <button id="pauseShake" class="pauseOpt" type="button" aria-pressed="false">
+        <span class="optLabel">SCREEN SHAKE</span><span class="optState">FULL</span>
+      </button>
+    </div>
+    <div class="pauseButtons">
+      <button id="pauseResume" type="button">RESUME</button>
+      <button id="pauseQuit" type="button">QUIT TO TITLE</button>
+    </div>
+    <div class="pauseHint">ESC or P to resume</div>
+  </div>
 </div>
 
 <div id="touchUI" aria-hidden="true">
@@ -1760,11 +1921,13 @@
     <span>MOUSE</span><span>aim the cut</span>
     <span>CLICK</span><span>cut, third cut cleaves</span>
     <span>SHIFT</span><span>dash, no damage</span>
-    <span>SPACE</span><span>parry the white blade</span>
+    <span>DASH → CUT</span><span>a lunging strike, or a cross-cut</span>
+    <span>SPACE</span><span>parry the white blade — dash the red</span>
     <span>F</span><span>iai, charge by skill</span>
   </div>
   <div id="touchControls">
-    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>抜</b> IAI
+    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>疾→斬</b> LUNGE · <b>抜</b> IAI
+    <small>white blade — parry · red blade — dash</small>
   </div>
 </div>
 
@@ -1775,7 +1938,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=60"></script>
+<script type="module" src="./src/main.js?v=61"></script>
 
 </body>
 </html>
