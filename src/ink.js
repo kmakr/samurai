@@ -51,6 +51,7 @@ export class InkSystem {
     this.stains = [];
     this.drops = [];
     this.jets = [];
+    this.slashes = [];
 
     // Screen-space ink lives on a 2D canvas above the WebGL surface.
     this.screenCanvas = document.getElementById('inkOverlay');
@@ -215,9 +216,87 @@ export class InkSystem {
     }
   }
 
+  // A single katana cut drawn across the whole page: a white edge snaps across
+  // at `angle` (screen-space radians), then the sheet parts into two dark ink
+  // lips that drift open and fade. The iai's signature — one decisive stroke.
+  slashWipe(angle, { life = 0.52 } = {}) {
+    this.slashes.push({
+      angle,
+      age: 0,
+      life,
+      reach: Math.hypot(innerWidth, innerHeight) * 0.62,
+    });
+  }
+
+  drawSlashes(dt) {
+    if (!this.slashes.length) return;
+    const ctx = this.screenCtx;
+    const cx = innerWidth / 2, cy = innerHeight / 2;
+    for (let i = this.slashes.length - 1; i >= 0; i--) {
+      const s = this.slashes[i];
+      s.age += dt;
+      const t = s.age / s.life;
+      if (t >= 1) { this.slashes.splice(i, 1); continue; }
+      const half = s.reach;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(s.angle);
+
+      // The blade races across in the first sliver of the life, then holds.
+      const reveal = Math.min(1, t / 0.16);
+      const ease = reveal * reveal * (3 - 2 * reveal);
+      const tipX = -half + 2 * half * ease;
+
+      // The white edge: brightest at the racing tip, blooming as it goes.
+      const edgeFade = 1 - Math.max(0, (t - 0.18) / 0.82);
+      if (edgeFade > 0.01) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = edgeFade;
+        ctx.strokeStyle = '#ffffff';
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 26 * edgeFade;
+        ctx.lineWidth = 1.5 + 3.5 * edgeFade;
+        ctx.beginPath();
+        ctx.moveTo(-half, 0);
+        ctx.lineTo(tipX, 0);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      // The parted sheet: two dark ink lips that open perpendicular to the cut
+      // and bleed shut. They only begin once the edge has crossed.
+      const openT = Math.max(0, (t - 0.22) / 0.78);
+      if (openT > 0) {
+        const sep = openT * 20;
+        const lipFade = (1 - openT) * 0.6;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = lipFade;
+        ctx.fillStyle = '#0a0a0d';
+        const grad = ctx.createLinearGradient(0, -sep - 12, 0, -sep);
+        grad.addColorStop(0, 'rgba(10,10,13,0)');
+        grad.addColorStop(1, 'rgba(10,10,13,1)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(-half, -sep - 12, half * 2, 12);
+        const grad2 = ctx.createLinearGradient(0, sep, 0, sep + 12);
+        grad2.addColorStop(0, 'rgba(10,10,13,1)');
+        grad2.addColorStop(1, 'rgba(10,10,13,0)');
+        ctx.fillStyle = grad2;
+        ctx.fillRect(-half, sep, half * 2, 12);
+      }
+
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
   // ------------------------------------------------------------------ update
 
-  update(dt, camera) {
+  // `dt` is scaled game time (blood and stains obey slow-motion); `realDt` is
+  // wall-clock, used for the screen slash so the cut snaps across crisply even
+  // while the world is frozen on the iai's impact frame.
+  update(dt, camera, realDt = dt) {
     const r = this.rnd;
 
     this.updateJets(dt);
@@ -248,7 +327,7 @@ export class InkSystem {
 
     this.buildStains();
     this.buildDropCubes();
-    this.drawScreen(dt);
+    this.drawScreen(dt, realDt);
   }
 
   buildStains() {
@@ -286,9 +365,10 @@ export class InkSystem {
     this.dropMesh.instanceMatrix.needsUpdate = true;
   }
 
-  drawScreen(dt) {
+  drawScreen(dt, realDt = dt) {
     const ctx = this.screenCtx;
     ctx.clearRect(0, 0, innerWidth, innerHeight);
+    this.drawSlashes(realDt);
     if (!this.screenMarks.length) return;
     const atlasImg = this.darkAtlas;
     const cw = atlasImg.width / 4, ch = atlasImg.height / 4;

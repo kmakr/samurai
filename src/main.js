@@ -194,6 +194,8 @@ const state = {
   time: 0,
   timeScale: 1,
   hitstop: 0,
+  slowmo: 0,          // seconds of sustained slow-motion remaining
+  slowmoScale: 1,     // time scale held while slowmo runs
   phase: 0,          // gait phase
   vel: new THREE.Vector3(),
   facing: 0,
@@ -1144,6 +1146,8 @@ let iaiT = 0;
 const iaiTrail = new SlashTrail(scene, { radius: 5.2, width: 2.7, sweep: 1.2 });
 const iaiOrigin = new THREE.Vector3();
 const iaiEnd = new THREE.Vector3();
+const iaiScreenA = new THREE.Vector3();
+const iaiScreenB = new THREE.Vector3();
 let iaiFacing = 0;
 let iaiCutFired = false;
 
@@ -1165,10 +1169,20 @@ function fireIaiCut() {
 
   vTmp.lerpVectors(iaiOrigin, iaiEnd, 0.45); vTmp.y = 0.2;
   iaiTrail.fire(vTmp, iaiFacing, { duration: 0.56, scale: 1.2, style: 2 });
-  ink.splashScreen(14, 1.8);
+
+  // The cut, drawn across the page itself. Project the world stroke to the
+  // screen so the wipe leans the way the blade actually travelled.
+  iaiScreenA.copy(iaiOrigin).project(camera);
+  iaiScreenB.copy(iaiEnd).project(camera);
+  const wipeAngle = Math.atan2(-(iaiScreenB.y - iaiScreenA.y), iaiScreenB.x - iaiScreenA.x);
+  ink.slashWipe(wipeAngle);
+
+  ink.splashScreen(16, 1.8);
   flash(1);
-  hitstop(0.14, 0.08);
-  shake(1.1);
+  invertT = Math.max(invertT, 0.11);   // the sheet flips negative on impact
+  state.slowmo = 0;                     // release the held breath...
+  hitstop(0.16, 0.02);                  // ...into a hard freeze, then full speed
+  shake(1.2);
   audio.iai();
 }
 
@@ -1181,6 +1195,10 @@ function tryIai() {
   }
   state.focus = 0;
   audio.silenceMusic(0.62, 0.001);
+  // A held breath: time dilates through the draw, then fireIaiCut releases it
+  // into a hard freeze and back to full speed as the stroke lands.
+  state.slowmo = 0.55;
+  state.slowmoScale = 0.32;
   iaiT = 0.62;
   state.invuln = Math.max(state.invuln, 0.85);
   state.action = 'iai';
@@ -2062,7 +2080,53 @@ const skinCurrentEl = document.getElementById('skinCurrent');
 const skinButtons = [...document.querySelectorAll('.skinOption')];
 const TITLE_LOGO = ovTitle.innerHTML;
 
+// Legends beyond the wandering sword are earned, not chosen. Each is gated on a
+// lifetime best the page already keeps, so no separate save is needed: cross
+// the mark and the legend answers. MUSASHI is the blade you start with.
+const SKIN_UNLOCKS = {
+  hitokiri: { metric: 'wave', need: 5, label: 'REACH WAVE 5' },
+  masamune: { metric: 'wave', need: 10, label: 'REACH WAVE 10' },
+  mibu: { metric: 'flow', need: 20, label: 'HOLD A FLOW OF 20' },
+};
+const SKIN_META = Object.fromEntries(SAMURAI_SKINS.map((s) => [s.id, s]));
+
+function isSkinUnlocked(id, records) {
+  const req = SKIN_UNLOCKS[id];
+  return !req || (records[req.metric] || 0) >= req.need;
+}
+
+// The nearest legend still to earn, chosen by how close it stands — the
+// strongest "one more run" pull the page can show.
+function nextLockedSkin(records) {
+  let best = null, bestRatio = -1;
+  for (const skin of SAMURAI_SKINS) {
+    const req = SKIN_UNLOCKS[skin.id];
+    if (!req || (records[req.metric] || 0) >= req.need) continue;
+    const ratio = (records[req.metric] || 0) / req.need;
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      best = { id: skin.id, name: skin.name, label: req.label };
+    }
+  }
+  return best;
+}
+
+// Grey and seal every legend not yet earned, and wear its requirement where its
+// epithet would sit. Called whenever the picker is shown, from current records.
+function renderSkinLocks(records) {
+  for (const button of skinButtons) {
+    const id = button.dataset.skin;
+    const unlocked = isSkinUnlocked(id, records);
+    button.classList.toggle('locked', !unlocked);
+    button.disabled = !unlocked;
+    button.setAttribute('aria-disabled', `${!unlocked}`);
+    const small = button.querySelector('.skinCopy small');
+    if (small) small.textContent = unlocked ? SKIN_META[id].epithet : SKIN_UNLOCKS[id].label;
+  }
+}
+
 function selectSkin(skinId, { persist = true } = {}) {
+  if (!isSkinUnlocked(skinId, loadRecords())) skinId = selectedSkinId || 'musashi';
   const skin = applySamuraiSkin(player, skinId);
   selectedSkinId = skin.id;
   document.documentElement.dataset.skin = skin.id;
@@ -2083,14 +2147,20 @@ for (const button of skinButtons) {
   button.addEventListener('keydown', (event) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const current = skinButtons.indexOf(button);
+    // Arrow through earned legends only; sealed ones are skipped, not landed on.
+    const usable = skinButtons.filter((b) => isSkinUnlocked(b.dataset.skin, loadRecords()));
+    const current = usable.indexOf(button);
+    if (current === -1) return;
     const next = event.key === 'Home' ? 0
-      : event.key === 'End' ? skinButtons.length - 1
-      : (current + (event.key === 'ArrowRight' ? 1 : -1) + skinButtons.length) % skinButtons.length;
-    selectSkin(skinButtons[next].dataset.skin);
-    skinButtons[next].focus();
+      : event.key === 'End' ? usable.length - 1
+      : (current + (event.key === 'ArrowRight' ? 1 : -1) + usable.length) % usable.length;
+    selectSkin(usable[next].dataset.skin);
+    usable[next].focus();
   });
 }
+// A persisted choice can outlive its unlock (records cleared, or an old save):
+// fall back to the starting blade so the samurai never wears a sealed legend.
+if (!isSkinUnlocked(selectedSkinId, loadRecords())) selectedSkinId = 'musashi';
 selectSkin(selectedSkinId, { persist: false });
 
 function loadRecords() {
@@ -2169,9 +2239,13 @@ function renderTitleScreen() {
     const wave = (names.indexOf(grudge) + 1) * 5;
     chaseLines.push(`GRUDGE · <b>${grudge}</b> WAITS AT WAVE ${wave}`);
   }
+  // The next legend to earn: shown before the run so the goal is already in mind.
+  const nextSkin = nextLockedSkin(records);
+  if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b> — ${nextSkin.label}`);
   ovChase.hidden = chaseLines.length === 0;
   ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
+  renderSkinLocks(records);
   skinPickerEl.hidden = false;
   ovBtn.textContent = 'DRAW THE BLADE';
   ovDaily.hidden = false;
@@ -2278,6 +2352,7 @@ function gameOver() {
   if (state.over) return;
   state.over = true;
   state.running = false;
+  state.slowmo = 0;   // never carry an in-progress iai slow-mo into the death freeze
   updateHUD();
   ink.splashScreen(20, 2.2);
   // The print ends rather than fading: the final frame holds near-frozen for a
@@ -2314,6 +2389,19 @@ function gameOver() {
     chase = `${short} WAVE${short === 1 ? '' : 'S'} SHORT OF YOUR BEST: WAVE <b>${prevBestWave}</b>`;
   }
 
+  // Legends earned this run, or the nearest one still sealed — the second hook
+  // under the chase line. A newly-earned legend is the loudest reason to return.
+  const chaseLines = [chase];
+  const earned = SAMURAI_SKINS.filter(
+    (s) => isSkinUnlocked(s.id, newRecords) && !isSkinUnlocked(s.id, records),
+  );
+  if (earned.length) {
+    chaseLines.push(`NEW LEGEND · <b>${earned.map((s) => s.name).join(' · ')}</b> ANSWERS THE PAGE`);
+  } else {
+    const nextSkin = nextLockedSkin(newRecords);
+    if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b> — ${nextSkin.label}`);
+  }
+
   // Compose the poem before recording the new grudge, so a repeat killing by
   // the same rival can read as one ("twice now") — then the debt is written.
   lastPoem = composeDeathPoem(record);
@@ -2333,7 +2421,7 @@ function gameOver() {
     if (record) { void ovSeal.offsetWidth; ovSeal.classList.add('stamp'); }
     ovText.innerHTML = `WAVE ${state.wave} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
     ovChase.hidden = false;
-    ovChase.innerHTML = chase;
+    ovChase.innerHTML = chaseLines.join('<br />');
     renderLedger(ledger);
     skinPickerEl.hidden = true;
     ovBtn.textContent = 'DRAW AGAIN';
@@ -2450,12 +2538,19 @@ let last = performance.now();
 // One simulation tick. Separated from the rAF callback so it can be driven at a
 // fixed rate for testing, independent of how the browser schedules frames.
 function step(dt) {
-  // Hitstop runs on real time; everything else runs on scaled time.
+  // Hitstop runs on real time; everything else runs on scaled time. A hard
+  // freeze (hitstop) pins the scale for its whole duration; outside it, time
+  // eases toward the current target — 1, or the slowmo scale while a sustained
+  // slow-motion beat is running (the iai draw holds its breath this way).
+  if (state.slowmo > 0) state.slowmo -= dt;
+  const timeTarget = state.slowmo > 0 ? state.slowmoScale : 1;
   if (state.hitstop > 0) {
     state.hitstop -= dt;
-    if (state.hitstop <= 0) state.timeScale = 1;
+    // A freeze that releases straight into slow-motion should land on the
+    // slowmo scale, not snap to full speed and then re-slow.
+    if (state.hitstop <= 0) state.timeScale = timeTarget;
   } else {
-    state.timeScale += (1 - state.timeScale) * Math.min(1, dt * 12);
+    state.timeScale += (timeTarget - state.timeScale) * Math.min(1, dt * 12);
   }
   const sdt = dt * state.timeScale;
 
@@ -2494,7 +2589,7 @@ function step(dt) {
   updateDashWakes(dt);
   ragdolls.update(sdt);
   gibs.update(sdt, ink);
-  ink.update(sdt, camera);
+  ink.update(sdt, camera, dt);
   world.update(player.root.position);
   audio.setRustle(world.ambience.rustle);
 
