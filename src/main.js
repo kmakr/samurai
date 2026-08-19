@@ -21,7 +21,9 @@ const PLAYER_MAX_HP = 100;
 const GAME_VERSION = new URL(import.meta.url).searchParams.get('v') || 'DEV';
 const DASH_DISTANCE = 4.2;
 const DASH_TIME = 0.20;
-const DASH_COOLDOWN = 0.42;
+// Short cooldown so dashes chain — the dash is the connective tissue of the
+// flow, not a rationed escape. Lockout between dashes is DASH_TIME + this.
+const DASH_COOLDOWN = 0.12;
 
 // Attack phases, in seconds. Short wind-up, brief active window, longer
 // recovery — committing to a swing should feel like a decision.
@@ -660,10 +662,15 @@ function updateFlow(dt) {
 
 function waveComposition(n) {
   const list = [];
-  const ronin = 2 + Math.floor(n * 0.8);
-  const hunters = n >= 2 ? Math.floor(n * 0.7) : 0;
-  const yari = n >= 3 ? 1 + Math.floor((n - 3) * 0.4) : 0;
-  const brutes = n >= 4 ? Math.floor((n - 2) / 3) : 0;
+  // Every count is capped so the field plateaus around two dozen instead of
+  // ballooning past forty — a clear frame, not a slog. Chaff (ronin, hunters)
+  // is capped hardest so late waves become a denser mix of real threats rather
+  // than a sea of the weakest enemy. Escalation past the caps comes from the
+  // HP/damage scaling and the rising attack-slot count, not from headcount.
+  const ronin = Math.min(7, 2 + Math.floor(n * 0.6));
+  const hunters = n >= 2 ? Math.min(6, Math.floor(n * 0.5)) : 0;
+  const yari = n >= 3 ? Math.min(4, 1 + Math.floor((n - 3) * 0.35)) : 0;
+  const brutes = n >= 4 ? Math.min(4, Math.floor((n - 2) / 3)) : 0;
   const yumi = n >= 6 ? Math.min(3, 1 + Math.floor((n - 6) / 4)) : 0;
   for (let i = 0; i < ronin; i++) list.push('ronin');
   for (let i = 0; i < hunters; i++) list.push('hunter');
@@ -710,7 +717,12 @@ function spawnEnemy(type, options = {}) {
     scene.add(aimLine);
   }
 
-  const scale = 1 + state.wave * 0.06;
+  // Late-game difficulty comes from threat, not tedium: HP scales gently so
+  // kills stay snappy, while damage scales so a missed read stays lethal — the
+  // whole point of the parry/dash game is that a hit should cost you more as
+  // the waves climb, not less.
+  const hpScale = 1 + state.wave * 0.05;
+  const dmgScale = 1 + state.wave * 0.04;
   enemies.push({
     type, spec, actor, bladeMats, bladeGlow,
     aimLine,
@@ -719,8 +731,9 @@ function spawnEnemy(type, options = {}) {
     rivalName: options.rivalName || '',
     grudge: Boolean(options.grudge),
     rivalFollowup: false,
-    hp: spec.hp * scale,
-    maxHp: spec.hp * scale,
+    hp: spec.hp * hpScale,
+    maxHp: spec.hp * hpScale,
+    damage: spec.damage * dmgScale,
     state: 'approach',
     t: 0,
     phase: Math.random() * 10,
@@ -755,7 +768,10 @@ function commitStrike(e) {
 
 function startWave() {
   state.wave++;
-  state.slots = Math.min(4, 2 + Math.floor(state.wave / 4));
+  // How many enemies may commit an attack at once. Climbs past the old cap of
+  // 4 so the pressure keeps rising after the crowd size has plateaued —
+  // intensity from simultaneity, not from a bigger pool of idle bodies.
+  state.slots = Math.min(5, 2 + Math.floor(state.wave / 3));
   const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
   if (rivalName) audio.silenceMusic(0.82, 0.002);
   const grudge = Boolean(rivalName) && loadGrudge() === rivalName;
@@ -985,11 +1001,13 @@ function playerAttackHits() {
     const zenithFinisher = getFlowTier() === 3 && isFinisher;
     // Per-kind contact weight: the thrust lands like the execution stroke, the
     // dash-cut between a light and the finisher.
+    // Contact freeze is kept light on the bread-and-butter cuts so the combo
+    // flows; the execution finisher keeps its heavy freeze as a weighty peak.
     let impactStop, impactShake, overhead;
-    if (isThrust) { impactStop = 0.11; impactShake = 0.5; overhead = 1; }
-    else if (kind === 'dashcut') { impactStop = 0.07; impactShake = 0.42; overhead = 0; }
+    if (isThrust) { impactStop = 0.06; impactShake = 0.5; overhead = 1; }
+    else if (kind === 'dashcut') { impactStop = 0.035; impactShake = 0.42; overhead = 0; }
     else {
-      impactStop = [0.055, 0.075, 0.13][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
+      impactStop = [0.02, 0.03, 0.12][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
       impactShake = [0.30, 0.43, 0.78][state.comboIndex] * (zenithFinisher ? 1.28 : 1);
       overhead = isFinisher ? 1 : 0;
     }
@@ -1346,25 +1364,34 @@ function updatePlayer(dt) {
   }
 
   // ---- action transitions
-  if (state.action === 'idle') {
+  // Dash is the universal cancel: it breaks out of an attack (any phase) or a
+  // parry the instant it is pressed, so recovery never traps you — the core of
+  // the fluid feel. The committed iai and the hurt stagger are the exceptions.
+  const dashCancellable = state.action === 'idle' || state.action === 'attack' || state.action === 'parry';
+  // A landed hit lets the combo chain immediately, without waiting for the
+  // recovery window — kills flow straight into the next cut.
+  const hitConfirmed = state.action === 'attack'
+    && state.hitThisSwing && state.hitThisSwing.size > 0;
+  const canChain = state.action === 'attack'
+    && (state.attackPhase === 'recover' || (state.attackPhase === 'active' && hitConfirmed));
+
+  if (dashCancellable && state.dashCooldown <= 0 && input.take('dash')) {
+    beginDash(moving);
+  } else if (state.action === 'idle') {
     if (input.take('focus')) tryIai();
     else if (input.take('parry') && state.parryCooldown <= 0) {
       state.action = 'parry';
       state.actionT = 0;
       state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + parryDuration() + PARRY_RECOVER;
-    } else if (state.dashCooldown <= 0 && input.take('dash')) {
-      beginDash(moving);
     } else if (input.take('attack')) {
       beginAttack();
     }
-  } else if (state.action === 'attack' && state.attackPhase === 'recover') {
-    // Chaining is allowed late in the recovery, which is what makes the combo
-    // feel like a sequence rather than three separate swings.
+  } else if (canChain) {
+    // Chaining late in recovery (or the moment a hit confirms) is what makes the
+    // combo feel like one sequence rather than three separate swings.
     if (input.take('attack') && state.comboIndex < ATTACK.length - 1) {
       state.comboIndex++;
       beginAttack(true);
-    } else if (state.dashCooldown <= 0 && input.take('dash')) {
-      beginDash(moving);
     }
   } else if (state.action === 'dash') {
     // Dash-cancel: attack out of the evade. The dash direction relative to the
@@ -1407,7 +1434,10 @@ function updatePlayer(dt) {
     if (state.actionT >= DASH_TIME) { state.action = 'idle'; state.actionT = 0; }
   } else if (state.action === 'attack') {
     updateAttack(dt);
-    speed = PLAYER_SPEED * 0.22;
+    // Keep most of your footwork through a swing so you flow while cutting
+    // instead of planting — except the execution finisher, which stays
+    // committed and weighty (one of the peaks worth keeping).
+    speed = PLAYER_SPEED * (state.attackKind === 'arc' && state.comboIndex === 2 ? 0.25 : 0.45);
     // Root motion: the body drives the cut. A small settle backward during the
     // coil, then a hard step through the active frames — the swing carries the
     // samurai forward instead of the sword waving from a planted figure.
@@ -1431,7 +1461,7 @@ function updatePlayer(dt) {
     }
   } else if (state.action === 'parry') {
     state.actionT += dt;
-    speed = PLAYER_SPEED * 0.15;
+    speed = PLAYER_SPEED * 0.25;
     if (state.actionT >= PARRY_STARTUP + parryDuration() + PARRY_RECOVER) {
       state.action = 'idle'; state.actionT = 0;
     }
@@ -1643,8 +1673,16 @@ function poseArms(dt) {
       crouch = 0.06 * (1 - k);
     }
   } else if (state.action === 'dash') {
-    armX = -0.4;
-    torsoZ = 0.2;
+    // The burst reads as speed, not a slide: the body drops and leans into the
+    // dash while the arms trail, and the blade smears with the motion — a cheap
+    // motion-streak that peaks mid-dash and eases out.
+    const rush = Math.sin(THREE.MathUtils.clamp(state.actionT / DASH_TIME, 0, 1) * Math.PI);
+    snap = true;
+    armX = -0.4 - 0.55 * rush;
+    armZ = 0.2 * rush;
+    torsoZ = 0.2 + 0.28 * rush;
+    crouch = 0.12 * rush;
+    smear = rush * 0.5;
   } else {
     // Idle guard: blade low and slightly out, breathing — or, when the field
     // has been quiet long enough, at rest: arm dropped, blade rolled back.
@@ -1868,7 +1906,7 @@ function updateEnemies(dt) {
               audio.parry();
               updateHUD();
             } else if (state.invuln <= 0) {
-              damagePlayer(e.spec.damage, e);
+              damagePlayer(e.damage, e);
             }
           }
         }
@@ -1984,7 +2022,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
       showCombatCallout('見切', 'READ · SLIPPED');
       updateHUD();
     } else {
-      damagePlayer(e.spec.damage, e);
+      damagePlayer(e.damage, e);
     }
     return;
   }
@@ -2025,7 +2063,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
   }
 
   if (state.invuln > 0) return;
-  damagePlayer(e.spec.damage, e);
+  damagePlayer(e.damage, e);
 }
 
 // Push overlapping enemies apart so a crowd stays legible instead of merging

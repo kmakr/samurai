@@ -511,11 +511,13 @@ export class Audio {
 
   hit(style = 0) {
     // Three layers on the contact frame: the slice, the body thud, and a low
-    // punch that lands under both. The bottom layer carries the weight.
+    // punch that lands under both. The bottom layer carries the weight. A small
+    // per-hit pitch wobble keeps a fast chain of cuts from ringing identical.
     const second = style === 1;
     const finisher = style === 2;
+    const v = 0.95 + Math.random() * 0.1;
     this.noise(finisher ? 0.20 : 0.12, {
-      freq: second ? 4300 : finisher ? 2700 : 3400,
+      freq: (second ? 4300 : finisher ? 2700 : 3400) * v,
       q: second ? 3.4 : 2.5,
       gain: finisher ? 0.28 : 0.18,
       sweep: finisher ? 0.18 : 0.3,
@@ -523,10 +525,10 @@ export class Audio {
     this.noise(finisher ? 0.28 : 0.16, {
       type: 'lowpass', freq: finisher ? 720 : 900, gain: finisher ? 0.46 : 0.34, sweep: 0.3,
     });
-    this.tone(finisher ? 112 : second ? 180 : 150, finisher ? 0.28 : 0.16, {
+    this.tone((finisher ? 112 : second ? 180 : 150) * v, finisher ? 0.28 : 0.16, {
       type: 'triangle', gain: finisher ? 0.32 : 0.24, to: finisher ? 44 : 60,
     });
-    this.tone(finisher ? 54 : 72, finisher ? 0.38 : 0.22, {
+    this.tone((finisher ? 54 : 72) * v, finisher ? 0.38 : 0.22, {
       type: 'sine', gain: finisher ? 0.42 : 0.32, to: finisher ? 28 : 38,
     });
   }
@@ -669,7 +671,15 @@ export class Audio {
     this.noise(0.55, { type: 'lowpass', freq: 420, gain: 0.2, sweep: 0.18, delay: 0.1 });
   }
 
-  dash() { this.noise(0.28, { freq: 900, q: 0.8, gain: 0.12, sweep: 0.4 }); }
+  dash() {
+    // A crisp air-cut: a fast band-swept hiss with a short tonal "shwip" and a
+    // little body under it. Kept brief and pitch-varied so chained dashes read
+    // as deliberate footwork instead of smearing into one flat wash of noise.
+    const r = 0.94 + Math.random() * 0.12;
+    this.noise(0.17, { freq: 1500 * r, q: 1.1, gain: 0.12, sweep: 0.32 });
+    this.tone(760 * r, 0.09, { type: 'triangle', gain: 0.05, to: 300 });
+    this.tone(150, 0.12, { type: 'sine', gain: 0.06, to: 70 });
+  }
 
   // The unblockable's warning: a low ominous swell with a rising dissonant edge,
   // ducking the score for a beat. Audible danger for anyone who cannot read the
