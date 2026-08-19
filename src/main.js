@@ -32,6 +32,12 @@ const ATTACK = [
   { windup: 0.07, active: 0.12, recover: 0.22, damage: 38, reach: 3.2, arc: -0.15 },
   { windup: 0.13, active: 0.16, recover: 0.34, damage: 62, reach: 3.6, arc: 0.30 },
 ];
+// Dash-cancel strikes turn the evade into an opening: attack out of a dash and
+// the direction of the dash decides the cut. Driving forward yields a piercing
+// thrust that closes the gap; a side or back dash whips a fast cross cut.
+// Neither chains — each is one committed read spent from a dash.
+const THRUST  = { windup: 0.06, active: 0.12, recover: 0.24, damage: 48, reach: 4.7 };
+const DASHCUT = { windup: 0.04, active: 0.11, recover: 0.20, damage: 40, reach: 3.4 };
 const COMBO_WINDOW = 0.42;
 
 const PARRY_STARTUP = 0.03;
@@ -201,6 +207,7 @@ const state = {
   facing: 0,
   action: 'idle',    // idle | attack | dash | parry | iai | hurt
   actionT: 0,
+  attackKind: 'arc', // arc (the combo) | thrust | dashcut
   comboIndex: 0,
   comboTimer: 0,
   attackPhase: '',
@@ -217,6 +224,8 @@ const state = {
   rivalKills: 0,
   seenYari: false,
   seenYumi: false,
+  seenFierce: false,
+  seenDashCut: false,
   lastStandUsed: false,
   deathBy: '',
   deathInfo: null,
@@ -695,8 +704,19 @@ function spawnEnemy(type, options = {}) {
     circleDir: Math.random() < 0.5 ? 1 : -1,
     circleFor: 0.5 + Math.random() * 0.7,
     lunge: new THREE.Vector3(),
+    fierce: false,
     dead: false,
   });
+}
+
+// A fierce strike cannot be answered with steel — only with distance. The
+// heavy commits them by habit; the demon mixes them in. Their long wind-ups
+// are the fair warning, and the vermilion tell tells you *this* one is coming.
+function rollFierce(e) {
+  if (e.spec.bow) return false;
+  if (e.type === 'brute') return run.rng() < 0.75;
+  if (e.type === 'oni') return run.rng() < 0.5;
+  return false;
 }
 
 function startWave() {
@@ -881,19 +901,30 @@ function parryDuration() {
 
 // ------------------------------------------------------------------- combat
 
+// The spec for the swing in flight. The arc combo indexes ATTACK by combo
+// position; the dash-cancel strikes are single fixed specs.
+function activeAttack() {
+  if (state.attackKind === 'thrust') return THRUST;
+  if (state.attackKind === 'dashcut') return DASHCUT;
+  return ATTACK[state.comboIndex];
+}
+
 function playerAttackHits() {
-  const cfg = ATTACK[state.comboIndex];
+  const kind = state.attackKind;
+  const cfg = activeAttack();
   const px = player.root.position.x, pz = player.root.position.z;
   const fx = Math.sin(state.facing), fz = Math.cos(state.facing);
   let hitAny = false;
 
+  const isFinisher = kind === 'arc' && state.comboIndex === 2;
+  const isThrust = kind === 'thrust';
   // The direction a victim is thrown follows the *blade's travel*, not the
-  // line from attacker to victim. Cut 1 sweeps right-to-left, cut 2 mirrors
-  // it, and the overhead finisher drives straight through. Radial-only
-  // knockback is what made hits feel like a shove instead of a cut.
-  const mirror = state.comboIndex === 1 ? -1 : 1;
+  // line from attacker to victim. Cut 1 and the dash-cut sweep right-to-left,
+  // cut 2 mirrors back; the overhead finisher and the thrust drive straight
+  // through. Radial-only knockback made hits feel like a shove, not a cut.
+  const mirror = (kind === 'arc' && state.comboIndex === 1) || kind === 'dashcut' ? -1 : 1;
   const tangX = -fz * mirror, tangZ = fx * mirror;
-  const overhead = state.comboIndex === 2 ? 1 : 0;
+  const straight = isFinisher || isThrust ? 1 : 0;
 
   for (const e of enemies) {
     if (e.dead || state.hitThisSwing.has(e)) continue;
@@ -902,39 +933,49 @@ function playerAttackHits() {
     const dist = Math.hypot(dx, dz);
     const reach = cfg.reach + e.spec.height * 0.4;
     if (dist > reach) continue;
-    // Wide forward arc: generous enough for a crowd, not a 360.
-    if ((dx * fx + dz * fz) / (dist || 1) < -0.15) continue;
+    // A thrust is a narrow line — only what's dead ahead is pierced. The
+    // sweeps take a wide forward arc: generous for a crowd, not a 360.
+    if ((dx * fx + dz * fz) / (dist || 1) < (isThrust ? 0.6 : -0.15)) continue;
 
     state.hitThisSwing.add(e);
     hitAny = true;
-    let cx = (dx / (dist || 1)) * 0.35 + tangX * (1 - overhead) + fx * (0.3 + overhead);
-    let cz = (dz / (dist || 1)) * 0.35 + tangZ * (1 - overhead) + fz * (0.3 + overhead);
+    let cx = (dx / (dist || 1)) * 0.35 + tangX * (1 - straight) + fx * (0.3 + straight);
+    let cz = (dz / (dist || 1)) * 0.35 + tangZ * (1 - straight) + fz * (0.3 + straight);
     const cl = Math.hypot(cx, cz) || 1;
-    const finisherScale = state.comboIndex === 2
-      ? 1 + state.upgrades.finalStroke * 0.25
-      : 1;
-    damageEnemy(e, cfg.damage * finisherScale, cx / cl, cz / cl,
-      state.comboIndex === 2 ? 'bisect' : 'limb');
+    const dmgScale = isFinisher ? 1 + state.upgrades.finalStroke * 0.25 : 1;
+    damageEnemy(e, cfg.damage * dmgScale, cx / cl, cz / cl,
+      isFinisher ? 'bisect' : 'limb');
   }
 
   if (hitAny) {
-    const zenithFinisher = getFlowTier() === 3 && state.comboIndex === 2;
-    const impactStop = [0.055, 0.075, 0.13][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
-    const impactShake = [0.30, 0.43, 0.78][state.comboIndex] * (zenithFinisher ? 1.28 : 1);
-    hitstop(impactStop, state.comboIndex === 2 ? 0.04 : 0.06);
+    const zenithFinisher = getFlowTier() === 3 && isFinisher;
+    // Per-kind contact weight: the thrust lands like the execution stroke, the
+    // dash-cut between a light and the finisher.
+    let impactStop, impactShake, overhead;
+    if (isThrust) { impactStop = 0.11; impactShake = 0.5; overhead = 1; }
+    else if (kind === 'dashcut') { impactStop = 0.07; impactShake = 0.42; overhead = 0; }
+    else {
+      impactStop = [0.055, 0.075, 0.13][state.comboIndex] * (zenithFinisher ? 1.18 : 1);
+      impactShake = [0.30, 0.43, 0.78][state.comboIndex] * (zenithFinisher ? 1.28 : 1);
+      overhead = isFinisher ? 1 : 0;
+    }
+    hitstop(impactStop, isFinisher ? 0.04 : 0.06);
     shake(impactShake);
     // The camera bites forward along the cut — contact should be felt in the
     // frame, not just heard. The two arcs kick sideways in opposite directions;
-    // the execution stroke drives straight through and down.
-    camPunch.x += fx * (0.42 + overhead * 0.52) + tangX * (state.comboIndex === 2 ? 0 : 0.20);
-    camPunch.z += fz * (0.42 + overhead * 0.52) + tangZ * (state.comboIndex === 2 ? 0 : 0.20);
-    camPunch.y -= state.comboIndex === 2 ? 0.24 : 0.12;
-    if (state.comboIndex === 2) {
+    // the straight strokes drive through and down.
+    camPunch.x += fx * (0.42 + overhead * 0.52) + tangX * (straight ? 0 : 0.20);
+    camPunch.z += fz * (0.42 + overhead * 0.52) + tangZ * (straight ? 0 : 0.20);
+    camPunch.y -= isFinisher ? 0.24 : 0.12;
+    if (isFinisher) {
       flash(zenithFinisher ? 0.36 : 0.18);
       ink.splashScreen(zenithFinisher ? 4 : 2, zenithFinisher ? 0.52 : 0.34);
       if (zenithFinisher) audio.taiko(62, 0.34);
+    } else if (isThrust) {
+      flash(0.16);
+      ink.splashScreen(2, 0.3);
     }
-    audio.hit(state.comboIndex);
+    audio.hit(isThrust ? 2 : kind === 'dashcut' ? 1 : state.comboIndex);
   }
 }
 
@@ -1291,6 +1332,20 @@ function updatePlayer(dt) {
     } else if (state.dashCooldown <= 0 && input.take('dash')) {
       beginDash(moving);
     }
+  } else if (state.action === 'dash') {
+    // Dash-cancel: attack out of the evade. The dash direction relative to the
+    // aim decides the cut — driving in skewers with a thrust, cutting away or
+    // across whips a dash-cut. The dash has already spent its i-frames, so this
+    // is the aggressive continuation, not a second escape.
+    if (state.actionT > 0.02 && input.take('attack')) {
+      const fwd = state.dashDir.x * Math.sin(state.facing) + state.dashDir.z * Math.cos(state.facing);
+      const kind = fwd > 0.35 ? 'thrust' : 'dashcut';
+      beginAttack(false, kind);
+      if (!state.seenDashCut) {
+        state.seenDashCut = true;
+        showCombatCallout('抜', kind === 'thrust' ? 'DASH THRUST' : 'DASH CUT');
+      }
+    }
   }
 
   // ---- movement
@@ -1323,14 +1378,19 @@ function updatePlayer(dt) {
     // coil, then a hard step through the active frames — the swing carries the
     // samurai forward instead of the sword waving from a planted figure.
     if (state.action === 'attack') {   // updateAttack may have ended the swing
-      const cfg = ATTACK[state.comboIndex];
+      const cfg = activeAttack();
       const t = state.actionT, wu = cfg.windup, act = cfg.active;
       let drive = 0;
       if (t < wu) {
         drive = -1.3 * (t / wu);
       } else if (t < wu + act) {
         const w = (t - wu) / act;
-        drive = (state.comboIndex === 2 ? 15 : 10.5) * Math.pow(1 - w, 1.4);
+        // The thrust launches the body forward far harder than a sweep — that
+        // lunge is the whole point of it as a gap-closer.
+        const peak = state.attackKind === 'thrust' ? 27
+          : state.attackKind === 'dashcut' ? 15
+          : state.comboIndex === 2 ? 15 : 10.5;
+        drive = peak * Math.pow(1 - w, 1.4);
       }
       player.root.position.x += Math.sin(state.facing) * drive * dt;
       player.root.position.z += Math.cos(state.facing) * drive * dt;
@@ -1381,18 +1441,20 @@ function updatePlayer(dt) {
   poseArms(dt);
 }
 
-function beginAttack(chain = false) {
-  if (!chain) state.comboIndex = 0;
+function beginAttack(chain = false, kind = 'arc') {
+  state.attackKind = kind;
+  if (kind !== 'arc' || !chain) state.comboIndex = 0;
   state.action = 'attack';
   state.actionT = 0;
   state.attackPhase = 'windup';
   state.hitThisSwing = new Set();
   state.comboTimer = COMBO_WINDOW;
-  audio.swing(state.comboIndex);
+  audio.swing(kind === 'thrust' ? 2 : state.comboIndex);
 }
 
 function updateAttack(dt) {
-  const cfg = ATTACK[state.comboIndex];
+  const kind = state.attackKind;
+  const cfg = activeAttack();
   state.actionT += dt;
   const wu = cfg.windup, act = wu + cfg.active, rec = act + cfg.recover;
 
@@ -1405,12 +1467,12 @@ function updateAttack(dt) {
       // before) painted the stroke while the sword was still drawn back.
       vTmp.copy(player.root.position); vTmp.y = 0.1;
       const tier = getFlowTier();
-      const baseScale = state.comboIndex === 2 ? 1.28 : 1;
+      const baseScale = kind === 'thrust' ? 1.12 : state.comboIndex === 2 ? 1.28 : 1;
       trail.fire(vTmp, state.facing, {
-        mirror: state.comboIndex === 1,
+        mirror: kind === 'dashcut' || (kind === 'arc' && state.comboIndex === 1),
         duration: cfg.active + cfg.recover * 0.8 + tier * 0.018,
         scale: baseScale * (1 + tier * 0.06),
-        style: state.comboIndex,
+        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : state.comboIndex,
         energy: tier,
       });
     }
@@ -1438,9 +1500,42 @@ function poseArms(dt) {
   // hardly appeared to move.
   let snap = false;
 
-  if (state.action === 'attack') {
-    const cfg = ATTACK[state.comboIndex];
-    const mirror = state.comboIndex === 1 ? -1 : 1;
+  if (state.action === 'attack' && state.attackKind === 'thrust') {
+    // A stab, not a sweep: the blade levels edge-out and drives straight from
+    // the hip on a locked line, both hands behind the point. The forward body
+    // lunge (root motion) does most of the work; the arm just seats the line.
+    const cfg = activeAttack();
+    const wu = cfg.windup, act = cfg.active;
+    const t = state.actionT;
+    snap = true;
+    twoHanded = true;
+    if (t < wu) {
+      const w = t / wu;
+      armX = -0.2 - 0.55 * w;      // cock the point back by the hip
+      armZ = 0.24 - 0.1 * w;
+      torsoY = 0.3 * w;
+      katanaRoll = 1.5;            // rolled flat, edge leading the point
+    } else if (t < wu + act) {
+      const w = (t - wu) / act;
+      const e = Math.pow(w, 0.35);  // explode out, decelerate onto the line
+      armX = -0.75 + 1.55 * e;      // punch level and slightly down
+      armZ = 0.14 - 0.14 * e;
+      torsoY = 0.3 - 0.62 * e;
+      torsoZ = Math.sin(e * Math.PI) * 0.12;
+      katanaRoll = 1.5;
+      smear = Math.sin(Math.min(1, w * 1.7) * Math.PI);
+    } else {
+      const w = (t - wu - act) / cfg.recover;
+      const e = w * w;
+      armX = 0.8 - 1.0 * e;         // recover the point back to guard
+      armZ = 0.0 + 0.24 * e;
+      torsoY = -0.32 + 0.32 * e;
+      katanaRoll = 1.5 - 0.5 * e;
+    }
+  } else if (state.action === 'attack') {
+    const cfg = activeAttack();
+    // The dash-cut is a mirrored cross-slash; the arc combo alternates sides.
+    const mirror = state.attackKind === 'dashcut' || state.comboIndex === 1 ? -1 : 1;
     const wu = cfg.windup, act = cfg.active;
     const t = state.actionT;
     snap = true;
@@ -1559,16 +1654,40 @@ const ENEMY_STRIKE_TIME = 0.10;
 function updateEnemyBladeTelegraph(e) {
   let strength = 0;
   let ready = false;
+  const winding = e.state === 'windup' || (e.state === 'strike' && !e.resolved);
 
   if (e.state === 'windup') {
     const progress = THREE.MathUtils.clamp(e.t / e.spec.windup, 0, 1);
     const eta = e.spec.windup - e.t + ENEMY_STRIKE_TIME;
-    ready = eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
+    // A fierce strike never offers the white parry-ready flash — there is no
+    // frame to meet it on.
+    ready = !e.fierce && eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
     strength = 0.06 + progress ** 1.7 * 0.38;
   } else if (e.state === 'strike' && !e.resolved) {
     const eta = ENEMY_STRIKE_TIME - e.t;
-    ready = eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
+    ready = !e.fierce && eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
     strength = 0.3;
+  }
+
+  if (e.fierce && winding) {
+    // Unblockable: the steel burns vermilion — the game's one danger colour —
+    // and beats hard. The read is "leave", not "meet it".
+    const puls = 0.72 + Math.sin(state.time * 22) * 0.28;
+    const lit = (0.5 + strength) * puls;
+    for (const material of e.bladeMats) {
+      material.emissive.setRGB(0.9 * lit, 0.1 * lit, 0.05 * lit);
+      material.emissiveIntensity = 2.6;
+    }
+    if (e.bladeGlow) {
+      e.bladeGlow.material.color.setRGB(0.95, 0.13, 0.07);
+      e.bladeGlow.material.opacity = 0.34 + strength * 0.5 + Math.sin(state.time * 22) * 0.12;
+      e.bladeGlow.scale.setScalar(1.16 + Math.sin(state.time * 22) * 0.03);
+    }
+    if (!state.seenFierce) {
+      state.seenFierce = true;
+      showCombatCallout('避', 'UNBLOCKABLE · DASH THROUGH IT');
+    }
+    return;
   }
 
   const pulse = ready ? 0.88 + Math.sin(state.time * 30) * 0.12 : 1;
@@ -1578,6 +1697,7 @@ function updateEnemyBladeTelegraph(e) {
     material.emissiveIntensity = ready ? 2.8 : 0.9;
   }
   if (e.bladeGlow) {
+    e.bladeGlow.material.color.setRGB(1, 1, 1);   // reset after any fierce frame
     e.bladeGlow.material.opacity = ready
       ? 0.48 + Math.sin(state.time * 30) * 0.1
       : strength * 0.08;
@@ -1635,7 +1755,7 @@ function updateEnemies(dt) {
           break;
         }
         if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-          e.state = 'windup'; e.t = 0;
+          e.state = 'windup'; e.t = 0; e.fierce = rollFierce(e);
         } else if (dist < reach * 1.6) {
           e.state = 'circle'; e.t = 0;
         }
@@ -1666,7 +1786,7 @@ function updateEnemies(dt) {
               e.circleDir *= -1;
             }
           } else if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-            e.state = 'windup';
+            e.state = 'windup'; e.fierce = rollFierce(e);
           } else if (dist > reach * 2.2) {
             e.state = 'approach';
           } else if (Math.random() < 0.3) {
@@ -1772,6 +1892,7 @@ function updateEnemies(dt) {
           if (e.rival && !e.rivalFollowup && dist < reach * 1.8) {
             e.rivalFollowup = true;
             e.state = 'windup';
+            e.fierce = rollFierce(e);
             // A grudge shortens the pause before the follow-up: the rival that
             // remembers you presses where a first meeting would breathe.
             e.t = Math.max(0, e.spec.windup - (e.grudge ? 0.32 : 0.24));
@@ -1817,6 +1938,22 @@ function updateEnemies(dt) {
 
 function resolveEnemyStrike(e, dist, nx, nz, reach) {
   if (dist > reach * 1.35) return;
+
+  if (e.fierce) {
+    // No parry answers this — a dash's i-frames are the only clean out. Meeting
+    // vermilion with steel does not stop it; the parry attempt just eats the
+    // hit, and the punish teaches the read.
+    if (state.invuln > 0) {
+      // Read and slipped it: the reward the parry cannot give against a fierce
+      // strike. Cheaper than a perfect parry, but it keeps the aggression fed.
+      state.focus = Math.min(FOCUS_MAX, state.focus + 12 * flowMultiplier());
+      showCombatCallout('見切', 'READ · SLIPPED');
+      updateHUD();
+    } else {
+      damagePlayer(e.spec.damage, e);
+    }
+    return;
+  }
 
   if (parryActive()) {
     // A perfect read is the defensive game's peak reward. Every layer lands
