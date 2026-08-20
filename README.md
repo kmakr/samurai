@@ -54,10 +54,10 @@ Wrangler explicitly.
 | --- | --- |
 | `WASD` | Move |
 | Mouse | Aim the cut |
-| Click | Slash — a three-hit chain; the third cut cleaves a man in two |
+| Click | Slash. Katana uses a three-hit chain; nodachi uses two heavy cuts |
 | `Shift` | Dash (invulnerable) |
 | `Space` | Parry — time it against the enemy's white blade |
-| `F` | Iai draw, once focus is full |
+| `F` | Weapon signature, once focus is full |
 | `1` / `2` / `3` | Choose a discipline between waves |
 
 On a touch device the game switches to touch controls automatically: a dynamic
@@ -69,9 +69,10 @@ portrait shows a rotate prompt.
 
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
-focus charge makes one calm white ink aura breathe around the player and briefly shows
-the Iai key. One iai draw flash-steps forward and cuts down everything in a
-corridor ahead.
+focus charge makes one calm white ink aura breathe around the player and
+briefly shows the signature key. The katana uses an iai draw that flash-steps
+forward and cuts down everything in a corridor. The nodachi uses a broad
+tsunami cut that throws survivors away from the player.
 
 Enemy steel starts dim during the wind-up, then blooms white only during the
 real deflect input window. Hits add a short ground burst; finishers and perfect
@@ -153,8 +154,8 @@ ink reads at any distance and the frame gets its Kurosawa contrast for free.
   inverted-hull outline — it splits at every cube edge on non-indexed
   geometry, and voxels carry their shape with faces, not ink lines.
 - **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
-  play in. A circular HP ring follows the player. Iai readiness uses a white
-  ink aura instead of another meter; run statistics stay in the black bars.
+  play in. External ink bars show health and signature charge. A white ink
+  aura also marks signature readiness. Run statistics stay in the black bars.
 
 ## The ink
 

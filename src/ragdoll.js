@@ -501,5 +501,6 @@ export class RagdollSystem {
     for (const d of this.debris) this.dispose(d.obj);
     this.bodies.length = 0;
     this.debris.length = 0;
+    this.accum = 0;
   }
 }

@@ -79,6 +79,19 @@ export class InkSystem {
     this.screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  clear() {
+    this.stains.length = 0;
+    this.drops.length = 0;
+    this.jets.length = 0;
+    this.slashes.length = 0;
+    this.screenMarks.length = 0;
+    this.stainBatch.begin();
+    this.stainBatch.end();
+    for (let i = 0; i < MAX_DROPS; i++) this.dropMesh.setMatrixAt(i, HIDDEN);
+    this.dropMesh.instanceMatrix.needsUpdate = true;
+    this.screenCtx.clearRect(0, 0, innerWidth, innerHeight);
+  }
+
   // ------------------------------------------------------------- floor stains
 
   // size is the final radius in world units. Stains grow into that over `bleed`

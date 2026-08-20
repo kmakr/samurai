@@ -193,4 +193,10 @@ export class VoxelGibs {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
   }
+
+  clear() {
+    this.gibs.length = 0;
+    for (let i = 0; i < this.max; i++) this.mesh.setMatrixAt(i, this._hidden);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
 }

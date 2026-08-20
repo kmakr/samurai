@@ -25,6 +25,8 @@ export class Audio {
     this.musicMixIntensity = -1;
     this.musicMixBoss = false;
     this.musicSilenceUntil = 0;
+    this.criticalLevel = 0;
+    this.criticalNextTime = 0;
   }
 
   // Must be called from a user gesture.
@@ -465,6 +467,28 @@ export class Audio {
     this.musicFlowTier = Math.max(0, Math.min(3, tier | 0));
   }
 
+  // A restrained double pulse below critical health. This schedules only two
+  // short tones per beat, not a permanent graph or a per-frame allocation.
+  // The cadence tightens as life falls, but stays below the combat transients
+  // so steel, parry, and unblockable warnings remain easy to hear.
+  setCriticalHealth(v = 0) {
+    const level = Math.max(0, Math.min(1, v));
+    const wasActive = this.criticalLevel > 0;
+    this.criticalLevel = level;
+    if (!this.ctx) return;
+    const now = this.t;
+    if (level <= 0) {
+      if (wasActive) this.criticalNextTime = now;
+      return;
+    }
+    if (!wasActive) this.criticalNextTime = now;
+    if (now < this.criticalNextTime) return;
+    const gain = 0.045 + level * 0.055;
+    this.tone(62, 0.18, { type: 'sine', gain, to: 47 });
+    this.tone(55, 0.15, { type: 'sine', gain: gain * 0.72, to: 43, delay: 0.14 });
+    this.criticalNextTime = now + 0.94 - level * 0.22;
+  }
+
   silenceMusic(duration = 0.7, floor = 0.004) {
     if (!this.music || !this.ctx) return;
     const now = this.t;
@@ -518,6 +542,14 @@ export class Audio {
     } else {
       this.noise(0.22, { freq: 2700, q: 1.2, gain: 0.16, sweep: 0.25 });
     }
+  }
+
+  heavyWindup() {
+    // The nodachi announces commitment before it moves: cloth and a low steel
+    // strain load upward, then swing(3) releases the mass on the active frame.
+    this.noise(0.20, { type: 'lowpass', freq: 620, gain: 0.13, sweep: 0.62 });
+    this.tone(58, 0.20, { type: 'triangle', gain: 0.075, to: 82 });
+    this.tone(34, 0.18, { type: 'sine', gain: 0.07, to: 46, delay: 0.02 });
   }
 
   hit(style = 0) {
@@ -598,6 +630,14 @@ export class Audio {
   }
 
   // Steel on steel.
+  guard() {
+    if (!this.ctx) return;
+    // A short rising scrape confirms that the blade reached guard. It stays
+    // quieter than contact, so it cannot be mistaken for a successful parry.
+    this.noise(0.08, { type: 'highpass', freq: 2400, q: 1.2, gain: 0.055, sweep: 1.65 });
+    this.tone(980, 0.10, { type: 'sine', gain: 0.025, to: 1540, delay: 0.012 });
+  }
+
   parry() {
     if (this.playSample('clash', { gain: 0.7, rate: 0.97 + Math.random() * 0.06 })) return;
     this.noise(0.35, { freq: 5200, q: 6, gain: 0.28, sweep: 0.5 });
@@ -692,6 +732,14 @@ export class Audio {
     this.noise(0.17, { freq: 1500 * r, q: 1.1, gain: 0.12, sweep: 0.32 });
     this.tone(760 * r, 0.09, { type: 'triangle', gain: 0.05, to: 300 });
     this.tone(150, 0.12, { type: 'sine', gain: 0.06, to: 70 });
+  }
+
+  evade() {
+    // A clean slip has no steel contact. A lifted air-cut and a short low pulse
+    // distinguish the successful read from both an ordinary dash and a parry.
+    this.noise(0.18, { type: 'highpass', freq: 2100, q: 1.1, gain: 0.1, sweep: 0.48 });
+    this.tone(420, 0.14, { type: 'triangle', gain: 0.055, to: 760, delay: 0.018 });
+    this.tone(82, 0.16, { type: 'sine', gain: 0.11, to: 46, delay: 0.02 });
   }
 
   // The unblockable's warning: a low ominous swell with a rising dissonant edge,

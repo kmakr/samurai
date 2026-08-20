@@ -173,6 +173,103 @@ function makeKatana(len = 1.15, dark = false) {
   return g;
 }
 
+function makeNodachi(len = 1.96) {
+  const g = new THREE.Group();
+  const cells = Math.max(17, Math.round(len / VS));
+
+  // A nodachi needs one strong read at the game camera: long koshi-zori,
+  // broad steel near the hand, and a patient taper into the kissaki. The dark
+  // bo-hi is inset into the lower blade instead of painted across the full
+  // length, while the thin edge stays brighter and shallower than the spine.
+  const grid = 13;
+  const bodyLayers = [];
+  const spineLayers = [];
+  const grooveLayers = [];
+  const hamonLayers = [];
+  const edgeLayers = [];
+  const rows = (filled, depth = 2) => {
+    const row = Array.from({ length: grid }, (_, x) => filled.includes(x) ? 'X' : ' ').join('');
+    return Array.from({ length: depth }, () => row);
+  };
+  for (let i = 0; i < cells; i++) {
+    const t = i / (cells - 1);
+    const bend = t < 0.38 ? 0 : t < 0.60 ? 1 : t < 0.79 ? 2 : 3;
+    const width = t < 0.58 ? 5 : t < 0.74 ? 4 : t < 0.87 ? 3 : t < 0.96 ? 2 : 1;
+    const left = 2 + bend;
+    const edgeX = left + width - 1;
+
+    spineLayers.push(rows(width >= 3 ? [left] : [], 2));
+    edgeLayers.push(rows([edgeX], 1));
+
+    const groove = width === 5 && i > 1 && t < 0.55 ? [left + 1] : [];
+    grooveLayers.push(rows(groove, 1));
+
+    const hamon = width >= 4 && i % 4 !== 1 ? [edgeX - 1] : [];
+    hamonLayers.push(rows(hamon, 1));
+
+    const reserved = new Set([left, edgeX, ...groove, ...hamon]);
+    const body = [];
+    for (let x = left; x <= edgeX; x++) if (!reserved.has(x)) body.push(x);
+    // Fill each small break in the temper pattern with normal steel. This keeps
+    // the blade solid while the gunome line remains irregular.
+    if (width >= 4 && !hamon.length) body.push(edgeX - 1);
+    bodyLayers.push(rows(body, 2));
+  }
+
+  const bladeSpine = vpart(`nodachiSpine${cells}`, spineLayers, 0.34, { centerY: false, jitter: 0.018 });
+  const bladeGroove = vpart(`nodachiGroove${cells}`, grooveLayers, 0.12, { centerY: false, jitter: 0.012 });
+  const bladeBody = vpart(`nodachiBodyV3${cells}`, bodyLayers, 0.78, { centerY: false, jitter: 0.025 });
+  const bladeHamon = vpart(`nodachiHamonV2${cells}`, hamonLayers, 0.92, { centerY: false, jitter: 0.018 });
+  const bladeEdge = vpart(`nodachiEdge${cells}`, edgeLayers, 1.0, { centerY: false, jitter: 0.015 });
+  for (const bladePart of [bladeSpine, bladeGroove, bladeBody, bladeHamon, bladeEdge]) {
+    bladePart.position.y = 0.19;
+    bladePart.userData.isBlade = true;
+  }
+
+  // The deep habaki and thick mokko guard balance the longer blade. A long,
+  // oval two-hand grip uses five alternating wrap knots and one offset menuki.
+  const habaki = vpart('nodachiHabakiV3', boxLayers(5, 3, 2, 1), 0.76);
+  habaki.position.y = 0.11;
+  const seppaTop = vpart('nodachiSeppaV2', boxLayers(5, 4, 1, 1), 0.90);
+  seppaTop.position.y = 0.015;
+  const tsubaLayers = [[
+    '  XXX  ',
+    ' XXXXX ',
+    'XXXXXXX',
+    'XXXXXXX',
+    ' XXXXX ',
+    '  XXX  ',
+  ]];
+  const tsuba = vpart('nodachiMokkoTsubaV2', tsubaLayers, 0.075, { jitter: 0.015 });
+  tsuba.position.y = -0.045;
+  const tsubaBoss = vpart('nodachiTsubaBoss', boxLayers(3, 3, 1, 1), 0.34);
+  tsubaBoss.position.y = -0.075;
+  const seppaBottom = vpart('nodachiSeppaV2', boxLayers(5, 4, 1, 1), 0.90);
+  seppaBottom.position.y = -0.105;
+  const tsuka = vpart('nodachiTsukaV3', boxLayers(3, 2, 10), 0.045);
+  tsuka.position.y = -0.63;
+
+  const wraps = [-0.20, -0.40, -0.60, -0.80, -1.00].map((y, index) => {
+    const wrap = vpart(`nodachiWrapV3${index % 2}`, boxLayers(4, 3, 1, 1), 0.74);
+    wrap.position.y = y;
+    wrap.rotation.y = index % 2 ? -Math.PI / 4 : Math.PI / 4;
+    return wrap;
+  });
+  const menuki = vpart('nodachiMenukiV2', boxLayers(1, 1, 3), 0.90);
+  menuki.position.set(0.17, -0.61, 0.12);
+  const pommel = vpart('nodachiPommelV3', boxLayers(4, 3, 2, 1), 0.10);
+  pommel.position.y = -1.13;
+  const pommelCap = vpart('nodachiPommelCap', boxLayers(3, 2, 1, 1), 0.76);
+  pommelCap.position.y = -1.24;
+
+  g.add(
+    bladeSpine, bladeGroove, bladeBody, bladeHamon, bladeEdge,
+    habaki, seppaTop, tsuba, tsubaBoss, seppaBottom,
+    tsuka, ...wraps, menuki, pommel, pommelCap,
+  );
+  return g;
+}
+
 // ------------------------------------------------------------------ player
 
 // Player skins are lacquer palettes, not power. They deliberately vary tonal
@@ -242,14 +339,17 @@ export const WEAPONS = [
   {
     id: 'nodachi', name: '大太刀', roman: 'NODACHI', epithet: 'THE GREAT BLADE',
     skill: 'tsunami', skillName: '波断', skillRoman: 'TSUNAMI CUT', gaugeLabel: 'WAVE',
-    blade: { lengthMul: 1.5, widthMul: 1.35 },
+    blade: { lengthMul: 1, widthMul: 1 },
   },
 ];
 
 export function applyWeapon(actor, weaponId) {
   const weapon = WEAPONS.find((entry) => entry.id === weaponId) || WEAPONS[0];
-  // The katana group carries the blade; scaling it along its length (local Y)
-  // and cross-section (X/Z) turns the same mesh into a great blade.
+  // The player carries both cached models under one animated mount. Only the
+  // selected model is visible. Enemies still use one ordinary katana model.
+  if (actor.weaponModels) {
+    for (const [id, model] of Object.entries(actor.weaponModels)) model.visible = id === weapon.id;
+  }
   if (actor.katana) {
     actor.katana.scale.set(weapon.blade.widthMul, weapon.blade.lengthMul, weapon.blade.widthMul);
   }
@@ -373,7 +473,15 @@ export function makeSamurai() {
   sodeR.position.set(0.05, -0.14, 0);
   armR.add(sodeR);
 
-  const katana = makeKatana(1.2);
+  // One animated weapon mount keeps the combat and ragdoll code simple while
+  // allowing each player weapon to have a purpose-built voxel model.
+  const katana = new THREE.Group();
+  const katanaModel = makeKatana(1.2);
+  const nodachiModel = makeNodachi();
+  katanaModel.userData.weaponId = 'katana';
+  nodachiModel.userData.weaponId = 'nodachi';
+  nodachiModel.visible = false;
+  katana.add(katanaModel, nodachiModel);
   katana.position.set(0, -0.56, 0.06);
   // Grip pitch: the blade leaves the fist angled forward (chūdan guard), not
   // straight up the arm — bare +Y runs the blade vertically past the skull,
@@ -476,7 +584,10 @@ export function makeSamurai() {
   mibuHeadband.add(mibuBand, topknot);
   head.add(mibuHeadband);
 
-  return { root, hips, head, torso, shoulders, hakama, armL, armR, legL, legR, katana, sashL, sashR };
+  return {
+    root, hips, head, torso, shoulders, hakama, armL, armR, legL, legR, katana,
+    weaponModels: { katana: katanaModel, nodachi: nodachiModel }, sashL, sashR,
+  };
 }
 
 // ------------------------------------------------------------------ enemies

@@ -151,6 +151,11 @@
   }
   #hpGauge.urgent .inkFill {
     filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.72));
+    animation: hpMeterUrgent 0.82s ease-in-out infinite alternate;
+  }
+  @keyframes hpMeterUrgent {
+    from { opacity: 0.62; }
+    to { opacity: 1; }
   }
   #iaiGauge.ready .inkFill {
     filter: drop-shadow(0 0 5px #fff);
@@ -196,7 +201,7 @@
   #combatStatus {
     position: absolute;
     top: 0;
-    right: calc(var(--film-bar-w) + var(--hud-inline));
+    right: calc(var(--film-bar-w) + var(--hud-inline) + 118px);
     height: var(--film-bar-h);
     display: flex;
     align-items: center;
@@ -495,6 +500,30 @@
     opacity: 0.62;
     font-variant-numeric: tabular-nums;
   }
+  #buildTag .modeDaily { display: none; }
+  #buildTag .dailyWordShort { display: none; }
+  #buildTag .dailyDateShort { display: none; }
+  #buildTag.daily {
+    opacity: 0.9;
+  }
+  #buildTag.daily::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin-right: 7px;
+    flex: 0 0 auto;
+    background: var(--seal);
+    transform: rotate(-4deg);
+    box-shadow: 0 0 8px rgba(212, 55, 38, 0.38);
+  }
+  #buildTag.daily .modeNormal { display: none; }
+  #buildTag.daily .modeDaily { display: inline; }
+  .hud-compact #buildTag.daily .dailyDateFull { display: none; }
+  .hud-compact #buildTag.daily .dailyDateShort { display: inline; }
+  .hud-compact #buildTag .buildPrefix { display: none; }
+  .hud-compact #buildTag #buildVersion::before { content: " · V"; }
+  .hud-compact #buildTag.daily .dailyWordFull { display: none; }
+  .hud-compact #buildTag.daily .dailyWordShort { display: inline; }
 
   /* Persistent corner controls: quick mute, and pause. */
   #hudControls {
@@ -509,16 +538,19 @@
   }
   #hudControls button {
     position: relative;
-    width: 30px;
+    min-width: 52px;
     height: 30px;
+    padding: 0 7px;
     display: grid;
     place-items: center;
     color: var(--paper);
     background: rgba(233, 228, 214, 0.05);
     border: 1px solid rgba(233, 228, 214, 0.3);
     border-radius: 2px;
-    font-family: var(--font-brush);
-    font-size: 15px;
+    font-family: var(--font-ui);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     line-height: 1;
     opacity: 0.6;
     cursor: pointer;
@@ -563,8 +595,10 @@
     text-align: center;
   }
   .pauseMark {
-    font-family: var(--font-brush);
-    font-size: 44px;
+    font-family: var(--font-ui);
+    font-size: 15px;
+    letter-spacing: 0.18em;
+    text-indent: 0.18em;
     line-height: 1;
     color: var(--seal);
     opacity: 0.9;
@@ -658,6 +692,48 @@
   .hud-compact .inkMeter { height: 7px; }
   .hud-compact #iaiReadyNotice { display: none; }
 
+  /* A square laptop window cannot hold three full-width bottom groups. Keep
+     the combat keys, remove the two self-evident navigation hints, and give
+     each remaining cue a real two-column cell. Vitals and flow then keep
+     separate lanes instead of colliding with the help strip. */
+  @media (max-width: 900px) {
+    #vitals {
+      width: min(28vw, 190px);
+      gap: 5px;
+    }
+    #flow {
+      width: min(24vw, 166px);
+      gap: 3px;
+    }
+    .flowWord { font-size: 8px; }
+    #flowValue { font-size: 20px; }
+    #focusRate span { font-size: 9px; }
+    #focusRate strong { font-size: 16px; }
+    #help {
+      width: min(29vw, 194px);
+      grid-template-columns: repeat(2, minmax(70px, 1fr));
+      grid-template-rows: repeat(2, auto);
+      gap: 6px 8px;
+      overflow: visible;
+      opacity: 0.72;
+    }
+    #help .controlCue:nth-child(-n + 2) { display: none; }
+    .controlCue { gap: 3px; }
+    .controlCue kbd {
+      min-width: 38px;
+      padding: 3px 5px;
+      font-size: 8px;
+    }
+    .controlCue > span { font-size: 7px; letter-spacing: 0.11em; }
+    .controlCue small { display: none; }
+  }
+
+  @media (max-width: 620px) {
+    #vitals { width: min(31vw, 176px); }
+    #flow { width: min(25vw, 150px); }
+    #help { width: min(31vw, 176px); }
+  }
+
   /* Wave announcement: a large kanji that strikes and fades, like a title card. */
   #waveTitle {
     position: absolute;
@@ -706,11 +782,13 @@
   #combatCallout .mark {
     display: block;
     color: #fff;
-    font-size: clamp(52px, 9vw, 118px);
-    font-weight: normal;
+    font-size: clamp(36px, 7vw, 82px);
+    font-weight: 600;
     line-height: 0.85;
+    letter-spacing: 0.08em;
+    text-indent: 0.08em;
     text-shadow: 0 0 22px rgba(255,255,255,0.72);
-    font-family: var(--font-brush);
+    font-family: var(--font-ui);
   }
   #combatCallout .meaning {
     display: block;
@@ -720,7 +798,35 @@
     letter-spacing: 0.62em;
     text-indent: 0.62em;
   }
+  #combatCallout.teach {
+    width: min(520px, calc(100vw - 32px));
+    box-sizing: border-box;
+    padding: 14px 22px 13px;
+    color: var(--paper);
+    background:
+      linear-gradient(90deg, rgba(233,228,214,0.08), transparent 35%),
+      rgba(5,5,7,0.88);
+    border-top: 1px solid rgba(233,228,214,0.46);
+    border-bottom: 1px solid rgba(233,228,214,0.22);
+    clip-path: var(--paper-edge);
+  }
+  #combatCallout.teach .mark {
+    color: var(--paper);
+    font-size: clamp(30px, 6vw, 62px);
+    text-shadow: 0 2px 4px #000, 0 0 18px rgba(255,255,255,0.42);
+  }
+  #combatCallout.teach .meaning {
+    margin-top: 9px;
+    color: var(--paper);
+    font-size: clamp(9px, 1.1vw, 11px);
+    line-height: 1.45;
+    letter-spacing: clamp(0.14em, 0.45vw, 0.3em);
+    text-indent: 0;
+    text-shadow: 0 1px 3px #000;
+    white-space: normal;
+  }
   #combatCallout.show { animation: stampIn 1.05s ease-out forwards; }
+  #combatCallout.teach.show { animation-duration: 1.7s; }
   @keyframes stampIn {
     0% { opacity: 0; transform: translate(-50%, -50%) scale(1.7) rotate(-3deg); filter: blur(7px); }
     12% { opacity: 1; transform: translate(-50%, -50%) scale(0.96) rotate(-1deg); filter: blur(0); }
@@ -754,6 +860,33 @@
     width: 52px;
     background: var(--paper);
     clip-path: var(--paper-edge);
+  }
+  #ovChase .bladeUnlock {
+    position: relative;
+    display: inline-grid;
+    min-width: min(420px, 82vw);
+    margin-top: 9px;
+    padding: 11px 32px 10px;
+    color: #fff;
+    border-top: 1px solid rgba(233, 228, 214, 0.58);
+    border-bottom: 1px solid rgba(233, 228, 214, 0.3);
+    background: linear-gradient(90deg, rgba(7, 7, 9, 0.76), rgba(7, 7, 9, 0.96) 22%, rgba(7, 7, 9, 0.96) 78%, rgba(7, 7, 9, 0.76));
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    animation: bladeUnseal 1.2s var(--ease-out) both;
+  }
+  #ovChase .bladeUnlock b,
+  #ovChase .bladeUnlock small { position: relative; }
+  #ovChase .bladeUnlock small {
+    display: block;
+    margin-top: 5px;
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    opacity: 0.68;
+  }
+  @keyframes bladeUnseal {
+    from { opacity: 0; transform: scaleX(0.72); filter: blur(4px); }
+    to { opacity: 1; transform: scaleX(1); filter: blur(0); }
   }
   #boonNotice .sigil {
     position: absolute;
@@ -951,12 +1084,27 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    #waveTitle.show, #combatCallout.show, #boonNotice.show, #damageFlash.show, .scroll { animation-duration: 0.01ms; }
+    .scroll { animation-duration: 0.01ms; }
+    #waveTitle.show { animation: reducedCallout 2.4s linear forwards; }
+    #combatCallout.show { animation: reducedCallout 1.05s linear forwards; }
+    #combatCallout.teach.show { animation-duration: 1.7s; }
+    #boonNotice.show { animation: reducedBoon 4.4s linear forwards; }
+    #damageFlash.show { animation: none; opacity: 0; }
     .scroll, #flow, #vitals, .inkFill, #iaiReadyNotice { transition: none; }
     #flow.active .flowCharge::after { animation: none; opacity: 0.18; transform: translateX(120%); }
     #flow.expiring .flowCharge { animation: none; opacity: 0.72; }
     #iaiGauge.ready .inkFill { animation: none; }
+    #hpGauge.urgent .inkFill { animation: none; }
+    #ovChase .bladeUnlock { animation-duration: 0.01ms; animation-delay: 0s; }
     #ovSeal.stamp { animation-duration: 0.01ms; animation-delay: 0s; }
+    @keyframes reducedCallout {
+      0%, 86% { opacity: 1; transform: translate(-50%, -50%); filter: none; }
+      100% { opacity: 0; transform: translate(-50%, -50%); filter: none; }
+    }
+    @keyframes reducedBoon {
+      0%, 90% { opacity: 1; transform: translate(-50%, 0); }
+      100% { opacity: 0; transform: translate(-50%, 0); }
+    }
   }
 
   /* -------------------------------------------------------------- overlay */
@@ -973,7 +1121,7 @@
       linear-gradient(104deg, transparent 48.9%, rgba(233,228,214,0.035) 49%, transparent 50.5%),
       radial-gradient(ellipse at 50% 44%, rgba(35,32,27,0.52) 0%, rgba(0,0,0,0.96) 72%);
     text-align: center;
-    pointer-events: none;
+    pointer-events: auto;
     overflow-y: auto;
     scrollbar-width: none;
   }
@@ -1256,7 +1404,11 @@
     justify-content: center;
     background: #c53a28;
     color: var(--paper);
-    font-size: 27px;
+    font-family: var(--font-ui);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-indent: 0.04em;
     font-style: normal;
     line-height: 1;
     clip-path: polygon(4% 9%, 95% 2%, 100% 90%, 8% 98%);
@@ -1368,7 +1520,7 @@
     filter: brightness(1.1) drop-shadow(0 0 5px rgba(255,255,255,0.72));
   }
   /* A legend not yet earned: sealed, greyed, and wearing the requirement in
-     place of its epithet. The 封 seal is the mark of something closed. */
+     place of its epithet. The LOCKED stamp marks something closed. */
   .skinOption.locked {
     cursor: default;
     color: rgba(233, 228, 214, 0.5);
@@ -1382,12 +1534,13 @@
   .skinOption.locked strong { opacity: 0.72; }
   .skinOption.locked .skinCopy small { letter-spacing: 0.1em; opacity: 0.92; }
   .skinOption.locked::after {
-    content: '封';
+    content: 'LOCKED';
     position: absolute;
     top: 3px;
     right: 6px;
-    font-family: var(--font-brush);
-    font-size: 13px;
+    font-family: var(--font-ui);
+    font-size: 6px;
+    letter-spacing: 0.1em;
     line-height: 1;
     color: var(--paper);
     opacity: 0.5;
@@ -1528,6 +1681,9 @@
     gap: 8px;
   }
   .weaponOption {
+    --weapon-dark: rgba(120, 118, 112, 0.72);
+    --weapon-light: var(--paper);
+    --weapon-hilt: var(--seal);
     position: relative;
     min-width: 0;
     min-height: 62px;
@@ -1547,12 +1703,13 @@
     transition: transform 140ms var(--ease-out), background 160ms ease, border-color 160ms ease, color 160ms ease, filter 160ms ease;
   }
   .weaponOption[aria-pressed="true"] {
+    --weapon-dark: #5c5a55;
+    --weapon-light: #111116;
+    --weapon-hilt: #9f2d21;
     color: #0a0a0d;
     background: var(--paper);
     border-color: var(--paper);
   }
-  .weaponOption[aria-pressed="true"] .weaponBlade,
-  .weaponOption[aria-pressed="true"] .weaponGuard { background: #14140f; }
   .weaponOption:active { transform: scale(0.97); }
   .weaponOption:focus-visible {
     outline: none;
@@ -1568,12 +1725,13 @@
   .weaponOption.locked strong { opacity: 0.72; }
   .weaponOption.locked .weaponCopy small { letter-spacing: 0.1em; opacity: 0.92; }
   .weaponOption.locked::after {
-    content: '封';
+    content: 'LOCKED';
     position: absolute;
     top: 3px;
     right: 6px;
-    font-family: var(--font-brush);
-    font-size: 13px;
+    font-family: var(--font-ui);
+    font-size: 6px;
+    letter-spacing: 0.1em;
     line-height: 1;
     color: var(--paper);
     opacity: 0.5;
@@ -1582,40 +1740,72 @@
   .weaponOption.locked:hover { transform: none; filter: none; }
   .weaponFigure {
     position: relative;
-    flex: 0 0 26px;
-    width: 26px;
-    height: 42px;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 46px;
     display: block;
     filter: drop-shadow(0 3px 3px rgba(0,0,0,0.4));
   }
-  .weaponFigure i { position: absolute; display: block; left: 50%; transform-origin: bottom center; }
+  .weaponFigure i {
+    position: absolute;
+    display: block;
+    left: 50%;
+    transform-origin: bottom center;
+  }
   .weaponBlade {
-    bottom: 12px;
-    width: 3px;
-    height: 24px;
-    margin-left: -1.5px;
-    background: linear-gradient(to top, rgba(233,228,214,0.55), var(--paper));
-    border-radius: 2px 2px 0 0;
-    transform: rotate(24deg);
+    bottom: 13px;
+    width: 5px;
+    height: 27px;
+    margin-left: -2.5px;
+    background: linear-gradient(90deg, var(--weapon-dark) 0 42%, var(--weapon-light) 46% 100%);
+    clip-path: polygon(0 100%, 0 8%, 50% 0, 100% 10%, 100% 100%);
+    transform: rotate(25deg);
   }
   .weaponGuard {
     bottom: 11px;
-    width: 9px;
-    height: 2px;
-    margin-left: -4.5px;
-    background: var(--paper);
-    transform: rotate(24deg);
+    width: 12px;
+    height: 3px;
+    margin-left: -6px;
+    background: var(--weapon-light);
+    clip-path: polygon(8% 20%, 92% 0, 100% 78%, 10% 100%, 0 66%);
+    transform: rotate(25deg);
   }
   .weaponHilt {
-    bottom: 4px;
-    width: 2px;
-    height: 8px;
-    margin-left: -1px;
-    background: var(--seal);
-    transform: rotate(24deg);
+    bottom: 2px;
+    width: 4px;
+    height: 11px;
+    margin-left: -2px;
+    background: repeating-linear-gradient(
+      0deg,
+      var(--weapon-hilt) 0 2px,
+      var(--weapon-dark) 2px 4px
+    );
+    transform: rotate(25deg);
   }
-  .weaponOption[data-weapon="nodachi"] .weaponBlade { height: 33px; width: 4px; margin-left: -2px; }
-  .weaponOption[data-weapon="nodachi"] .weaponHilt { height: 11px; }
+  .weaponOption[data-weapon="nodachi"] .weaponBlade {
+    bottom: 12px;
+    width: 12px;
+    height: 38px;
+    margin-left: -6px;
+    background: linear-gradient(90deg, transparent 0 13%, var(--weapon-dark) 14% 50%, var(--weapon-light) 54% 100%);
+    clip-path: polygon(16% 100%, 8% 76%, 10% 46%, 25% 18%, 54% 4%, 100% 0, 72% 15%, 57% 40%, 54% 70%, 66% 100%);
+    transform: rotate(26deg);
+  }
+  .weaponOption[data-weapon="nodachi"] .weaponGuard {
+    bottom: 10px;
+    width: 17px;
+    height: 5px;
+    margin-left: -8.5px;
+    clip-path: polygon(20% 0, 80% 0, 100% 50%, 78% 100%, 22% 100%, 0 50%);
+    transform: rotate(26deg);
+  }
+  .weaponOption[data-weapon="nodachi"] .weaponHilt {
+    bottom: -2px;
+    width: 5px;
+    height: 15px;
+    margin-left: -2.5px;
+    transform: rotate(26deg);
+  }
   .weaponCopy { min-width: 0; display: grid; gap: 3px; }
   .weaponCopy strong {
     overflow: hidden;
@@ -1631,6 +1821,29 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     opacity: 0.58;
+  }
+  .weaponMove {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    font-family: var(--font-ui);
+    font-size: 6px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    opacity: 0.72;
+  }
+  .weaponMove::before {
+    content: "";
+    flex: 0 0 4px;
+    width: 4px;
+    height: 4px;
+    background: var(--seal);
+    transform: rotate(5deg);
   }
 
   #ovButtons {
@@ -1782,18 +1995,25 @@
     -webkit-tap-highlight-color: transparent;
     padding: 0;
   }
-  #touchButtons button .k { font-size: 26px; line-height: 1; }
-  #touchButtons button .l { font-size: 8px; letter-spacing: 0.16em; text-indent: 0; opacity: 0.7; }
+  #touchButtons button .k {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    text-indent: 0.06em;
+  }
+  #touchButtons button .l { font-size: 6px; letter-spacing: 0.1em; text-indent: 0; opacity: 0.7; }
   #touchButtons button.pressed { background: var(--paper); color: #0a0a0d; }
   /* The cut is the thumb's home; parry sits inside its reach; dash and iai
      ride above them. */
   #touchCut { right: 0; bottom: 44px; width: 84px; height: 84px; }
   #touchParry { right: 92px; bottom: 12px; width: 68px; height: 68px; }
   #touchDash { right: 22px; bottom: 136px; width: 56px; height: 56px; }
-  #touchDash .k { font-size: 20px; }
-  #touchParry .k { font-size: 22px; }
+  #touchDash .k { font-size: 9px; }
+  #touchParry .k { font-size: 9px; }
   #touchIai { right: 106px; bottom: 106px; width: 50px; height: 50px; }
-  #touchIai .k { font-size: 18px; }
+  #touchIai .k { font-size: 9px; }
 
   /* Short landscape screens (phones on their side): the scroll must fit a
      ~340pt-tall frame, so everything on it compacts — the logo scales by
@@ -1814,7 +2034,7 @@
     #ledger { margin-top: 12px; height: 25px; }
   }
   @media (max-height: 520px) {
-    #overlay { padding: 10px 16px; overflow-y: auto; }
+    #overlay { justify-content: flex-start; padding: 10px 16px; overflow-y: auto; }
     #ovTitle { font-size: clamp(34px, 8vh, 52px); }
     #ovTitle .maskStage { width: auto; height: 24vh; }
     #ovTitle img { width: auto; height: 24vh; }
@@ -1838,13 +2058,83 @@
     #ovShare { margin-top: 8px; padding: 7px 20px; }
     #controls { display: none; }
     #touchControls { margin-top: 10px; font-size: 9.5px; }
+    .hud-compact #help { display: none; }
+    .hud-compact #flow { width: min(34vw, 190px); }
+    .hud-compact .flowWord { font-size: 8px; }
+    .hud-compact #flowValue { font-size: 19px; }
+    .hud-compact #focusRate span { font-size: 8px; }
+    .hud-compact #focusRate strong { font-size: 15px; }
+    .hud-compact #vitals { width: min(37vw, 210px); }
   }
 
   @media (max-width: 620px) {
+    #overlay {
+      justify-content: flex-start;
+      padding: max(18px, env(safe-area-inset-top)) 0 max(22px, env(safe-area-inset-bottom));
+      overflow-x: hidden;
+    }
+    #ovTitle {
+      font-size: clamp(34px, 10.5vw, 44px);
+      letter-spacing: 0.12em;
+      text-indent: 0.12em;
+    }
+    #ovTitle .maskStage {
+      width: auto;
+      height: min(16vh, 126px);
+    }
+    #ovTitle img { width: auto; height: 100%; max-height: 100%; }
+    #ovTitle .wordmark { margin-top: -10px; }
+    #ovTitle .brandSeal {
+      right: -14px;
+      bottom: 0;
+      width: 22px;
+      height: 24px;
+      font-size: 14px;
+    }
+    #ovSub {
+      max-width: 88vw;
+      letter-spacing: 0.28em;
+      text-indent: 0.28em;
+    }
+    #ovText {
+      width: min(90vw, 36em);
+      padding-inline: 10px;
+      box-sizing: border-box;
+    }
+    #ovChase {
+      width: 92vw;
+      font-size: 9.5px;
+      line-height: 1.7;
+      letter-spacing: 0.18em;
+      text-indent: 0.18em;
+    }
+    #ledger { max-width: 92vw; }
+    #skinPicker, #weaponPicker, #ovButtons { width: min(92vw, 430px); }
+    #skinCurrent, #weaponCurrent {
+      max-width: 56%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    #skinOptions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .skinOption {
+      min-height: 56px;
+      padding: 6px 10px;
+      justify-content: flex-start;
+    }
     #ovButtons {
-      width: min(88vw, 360px);
       grid-template-columns: minmax(0, 1fr);
     }
+    #controls {
+      width: min(92vw, 360px);
+      box-sizing: border-box;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 6px 9px;
+      margin-top: 14px;
+      padding: 9px 10px;
+      font-size: 10.5px;
+    }
+    #controls span:nth-child(even) { margin-right: 0; }
   }
 
   /* While a scroll is up, the combat thumbs are noise. */
@@ -1867,7 +2157,13 @@
       text-indent: 0.3em;
       font-size: 13px;
     }
-    body.touch #rotateHint .mark { font-size: 54px; opacity: 0.85; }
+    body.touch #rotateHint .mark {
+      font-family: var(--font-ui);
+      font-size: 18px;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      opacity: 0.85;
+    }
     body.touch #rotateHint small { font-size: 10px; opacity: 0.55; letter-spacing: 0.2em; }
   }
 </style>
@@ -1943,11 +2239,11 @@
     <span class="controlCue"><kbd>F</kbd><span><span id="cueSignature">IAI</span><small>KILLS + PARRY</small></span></span>
   </div>
 
-  <div id="buildTag" aria-label="Onisolo game build">ONISOLO / BUILD <span id="buildVersion">...</span></div>
+  <div id="buildTag" aria-label="Onisolo game build"><span class="modeNormal">ONISOLO</span><span class="modeDaily"><span class="dailyWordFull">DAILY </span><span class="dailyWordShort">D </span><span id="dailyDateFull" class="dailyDateFull"></span><span id="dailyDateShort" class="dailyDateShort"></span></span><span class="buildPrefix">&nbsp;/ BUILD&nbsp;</span><span id="buildVersion">...</span></div>
 
   <div id="hudControls">
-    <button id="muteBtn" type="button" aria-pressed="false" aria-label="Mute"><span aria-hidden="true">音</span></button>
-    <button id="pauseBtn" type="button" aria-label="Pause"><span aria-hidden="true">止</span></button>
+    <button id="muteBtn" type="button" aria-pressed="false" aria-label="Mute"><span aria-hidden="true">MUTE</span></button>
+    <button id="pauseBtn" type="button" aria-label="Pause"><span aria-hidden="true">PAUSE</span></button>
   </div>
 
   <div id="waveTitle"></div>
@@ -1968,7 +2264,7 @@
 
 <div id="pauseScreen" aria-hidden="true" role="dialog" aria-labelledby="pauseHeading">
   <div class="pausePanel">
-    <div class="pauseMark" aria-hidden="true">止</div>
+    <div class="pauseMark" aria-hidden="true">PAUSE</div>
     <h2 id="pauseHeading">PAUSED</h2>
     <div class="pauseOptions">
       <button id="pauseMute" class="pauseOpt" type="button" aria-pressed="false">
@@ -1990,15 +2286,15 @@
   <div id="stickZone"></div>
   <div id="stickRing"><div id="stickNub"></div></div>
   <div id="touchButtons">
-    <button id="touchIai" type="button"><span class="k">抜</span><span class="l" id="touchSignature">IAI</span></button>
-    <button id="touchDash" type="button"><span class="k">疾</span><span class="l">DASH</span></button>
-    <button id="touchParry" type="button"><span class="k">受</span><span class="l">PARRY</span></button>
-    <button id="touchCut" type="button"><span class="k">斬</span><span class="l">CUT</span></button>
+    <button id="touchIai" type="button" aria-label="Use signature"><span class="k" id="touchSignature">IAI</span><span class="l">SIGNATURE</span></button>
+    <button id="touchDash" type="button" aria-label="Dash"><span class="k">DASH</span><span class="l">EVADE</span></button>
+    <button id="touchParry" type="button" aria-label="Parry"><span class="k">PARRY</span><span class="l">DEFLECT</span></button>
+    <button id="touchCut" type="button" aria-label="Cut"><span class="k">CUT</span><span class="l">ATTACK</span></button>
   </div>
 </div>
 
 <div id="rotateHint">
-  <div class="mark">頁</div>
+  <div class="mark">TURN</div>
   <div>ROTATE THE PAGE</div>
   <small>the duel plays in landscape</small>
 </div>
@@ -2014,7 +2310,7 @@
   </h1>
   <div id="ovSub">THE PAGE REMEMBERS</div>
   <div id="ovCause" hidden></div>
-  <div id="ovPoem" hidden><span id="ovPoemText"></span><span id="ovSeal" aria-label="record seal">極</span></div>
+  <div id="ovPoem" hidden><span id="ovPoemText"></span><span id="ovSeal" aria-label="record seal">BEST</span></div>
   <p id="ovText">
     One blade against a page that remembers every wound.<br />
     Read the white steel. Break the line. Leave only ink.
@@ -2047,11 +2343,11 @@
     <div id="weaponOptions" role="group" aria-label="Weapons">
       <button class="weaponOption" type="button" data-weapon="katana" aria-pressed="true">
         <span class="weaponFigure" aria-hidden="true"><i class="weaponBlade"></i><i class="weaponGuard"></i><i class="weaponHilt"></i></span>
-        <span class="weaponCopy"><strong>KATANA</strong><small>THE DRAWN LINE</small></span>
+        <span class="weaponCopy"><strong>KATANA</strong><small>THE DRAWN LINE</small><span class="weaponMove">3 QUICK · IAI</span></span>
       </button>
       <button class="weaponOption" type="button" data-weapon="nodachi" aria-pressed="false">
         <span class="weaponFigure" aria-hidden="true"><i class="weaponBlade"></i><i class="weaponGuard"></i><i class="weaponHilt"></i></span>
-        <span class="weaponCopy"><strong>NODACHI</strong><small>THE GREAT BLADE</small></span>
+        <span class="weaponCopy"><strong>NODACHI</strong><small>THE GREAT BLADE</small><span class="weaponMove">2 HEAVY · TSUNAMI</span></span>
       </button>
     </div>
   </section>
@@ -2063,15 +2359,15 @@
   <div id="controls">
     <span>WASD</span><span>move</span>
     <span>MOUSE</span><span>aim the cut</span>
-    <span>CLICK</span><span>cut, third cut cleaves</span>
+    <span>CLICK</span><span id="controlCutDetail">cut, third cut cleaves</span>
     <span>SHIFT</span><span>dash, no damage</span>
     <span>DASH → CUT</span><span>a lunging strike, or a cross-cut</span>
-    <span>SPACE</span><span>parry the white blade — dash the red</span>
+    <span>SPACE</span><span>parry the white blade, dash the red</span>
     <span>F</span><span>signature strike, charged by skill</span>
   </div>
   <div id="touchControls">
-    LEFT THUMB MOVES · <b>斬</b> CUT · <b>受</b> PARRY · <b>疾</b> DASH · <b>疾→斬</b> LUNGE · <b>抜</b> SIGNATURE
-    <small>white blade — parry · red blade — dash</small>
+    LEFT THUMB MOVES · CUT ATTACKS · PARRY DEFLECTS · DASH EVADES · DASH→CUT LUNGES · SIGNATURE SPENDS FULL CHARGE
+    <small>white blade: parry · red blade: dash</small>
   </div>
 </div>
 
@@ -2082,7 +2378,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=63"></script>
+<script type="module" src="./src/main.js?v=93"></script>
 
 </body>
 </html>

@@ -25,6 +25,9 @@ const DASH_TIME = 0.20;
 // Short cooldown so dashes chain — the dash is the connective tissue of the
 // flow, not a rationed escape. Lockout between dashes is DASH_TIME + this.
 const DASH_COOLDOWN = 0.12;
+const MAX_WAVE_ENEMIES = 18;
+const SIGNATURE_BODIES_PER_FRAME = 2;
+const SIGNATURE_BODY_DELAY = 0.10;
 
 // Attack phases, in seconds. Short wind-up, brief active window, longer
 // recovery — committing to a swing should feel like a decision.
@@ -65,8 +68,23 @@ const FLOW_WINDOW = 5.5;
 const app = document.getElementById('app');
 const buildTagEl = document.getElementById('buildTag');
 const buildVersionEl = document.getElementById('buildVersion');
+const dailyDateFullEl = document.getElementById('dailyDateFull');
+const dailyDateShortEl = document.getElementById('dailyDateShort');
 buildVersionEl.textContent = `${GAME_VERSION}`;
 buildTagEl.setAttribute('aria-label', `Onisolo build ${GAME_VERSION}`);
+
+function updateRunModeTag() {
+  buildTagEl.classList.toggle('daily', run.daily);
+  if (run.daily) {
+    dailyDateFullEl.textContent = run.dateStr;
+    dailyDateShortEl.textContent = run.dateStr.slice(5).replace('-', '.');
+    buildTagEl.setAttribute('aria-label', `Onisolo Daily Trial ${run.dateStr}, build ${GAME_VERSION}`);
+  } else {
+    dailyDateFullEl.textContent = '';
+    dailyDateShortEl.textContent = '';
+    buildTagEl.setAttribute('aria-label', `Onisolo build ${GAME_VERSION}`);
+  }
+}
 
 // Brush marks on the chrome, injected from glyphs.js so every piece of ink in
 // the game has one source: a drop of ink for life, the drawn blade for iai,
@@ -293,7 +311,8 @@ function todayStamp() {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-const run = { daily: false, dateStr: '', rng: Math.random };
+const run = { daily: false, dateStr: '', rng: Math.random, generation: 0, weaponIntro: '' };
+updateRunModeTag();
 
 // Reusable scratch vectors — the update loop allocates nothing.
 const vMove = new THREE.Vector3();
@@ -402,9 +421,10 @@ function parryFlash() { invertT = 0.09; }
 const combatCalloutEl = document.getElementById('combatCallout');
 const boonNoticeEl = document.getElementById('boonNotice');
 const damageFlashEl = document.getElementById('damageFlash');
-function showCombatCallout(mark, meaning) {
+function showCombatCallout(mark, meaning, teach = false) {
   combatCalloutEl.querySelector('.mark').textContent = mark;
   combatCalloutEl.querySelector('.meaning').textContent = meaning;
+  combatCalloutEl.classList.toggle('teach', teach);
   combatCalloutEl.classList.remove('show');
   void combatCalloutEl.offsetWidth;
   combatCalloutEl.classList.add('show');
@@ -415,6 +435,22 @@ function showBoonNotice(upgrade, rank, effect, mastered = false) {
   boonNoticeEl.querySelector('.eyebrow').textContent = mastered ? 'MASTERY REWARD' : `DISCIPLINE ACTIVE · RANK ${rank}`;
   boonNoticeEl.querySelector('.name').textContent = upgrade.name;
   boonNoticeEl.querySelector('.effect').textContent = effect;
+  boonNoticeEl.classList.remove('show');
+  void boonNoticeEl.offsetWidth;
+  boonNoticeEl.classList.add('show');
+}
+
+function showWeaponNotice(weapon) {
+  boonNoticeEl.querySelector('.sigil').innerHTML = `
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M8 27L23 4l3 1-13 24z" fill="currentColor"/>
+      <path d="M5 23l10 6-2 3-10-6z" fill="currentColor" opacity=".66"/>
+    </svg>`;
+  boonNoticeEl.querySelector('.eyebrow').textContent = 'NEW BLADE IN HAND';
+  boonNoticeEl.querySelector('.name').textContent = weapon.roman;
+  boonNoticeEl.querySelector('.effect').textContent = weapon.skill === 'tsunami'
+    ? 'TWO HEAVY CUTS · WIDE ARC · F: TSUNAMI CUT'
+    : 'THREE FAST CUTS · F: IAI';
   boonNoticeEl.classList.remove('show');
   void boonNoticeEl.offsetWidth;
   boonNoticeEl.classList.add('show');
@@ -633,7 +669,7 @@ function getFlowTier(chain = state.chain) {
 
 let flowWarningPlayed = false;
 
-function addFlow(amount = 1) {
+function addFlow(amount = 1, refreshHUD = true, announce = true) {
   const previousTier = getFlowTier();
   state.chain += amount;
   state.chainTimer = FLOW_WINDOW;
@@ -641,14 +677,14 @@ function addFlow(amount = 1) {
   state.bestChain = Math.max(state.bestChain, state.chain);
   const nextTier = getFlowTier();
   audio.setFlowTier(nextTier);
-  if (nextTier > previousTier) {
+  if (announce && nextTier > previousTier) {
     audio.flowTier(nextTier);
     if (nextTier === 3) {
       flash(0.42);
       shake(0.62);
     }
   }
-  updateHUD();
+  if (refreshHUD) updateHUD();
 }
 
 function breakFlow() {
@@ -682,7 +718,7 @@ function updateFlow(dt) {
 
 function waveComposition(n) {
   const list = [];
-  // Every count is capped so the field plateaus around two dozen instead of
+  // Every count is capped so the field plateaus instead of
   // ballooning past forty — a clear frame, not a slog. Chaff (ronin, hunters)
   // is capped hardest so late waves become a denser mix of real threats rather
   // than a sea of the weakest enemy. Escalation past the caps comes from the
@@ -698,6 +734,21 @@ function waveComposition(n) {
   for (let i = 0; i < brutes; i++) list.push('brute');
   for (let i = 0; i < yumi; i++) list.push('yumi');
   if (n % 5 === 0) list.push('oni');
+  // Keep the dangerous mix and remove excess chaff first. A hard total cap is
+  // also the performance budget for full-field signature kills.
+  const minimum = { ronin: 2, hunter: 3, yari: 2, brute: 2, yumi: 1, oni: 1 };
+  const trimOrder = ['ronin', 'hunter', 'yari', 'brute', 'yumi'];
+  while (list.length > MAX_WAVE_ENEMIES) {
+    let removed = false;
+    for (const type of trimOrder) {
+      const count = list.reduce((total, entry) => total + (entry === type ? 1 : 0), 0);
+      if (count <= minimum[type]) continue;
+      list.splice(list.indexOf(type), 1);
+      removed = true;
+      break;
+    }
+    if (!removed) list.pop();
+  }
   return list;
 }
 
@@ -743,6 +794,11 @@ function spawnEnemy(type, options = {}) {
   // the waves climb, not less.
   const hpScale = 1 + state.wave * 0.05;
   const dmgScale = 1 + state.wave * 0.04;
+  // Enemies do not pop into the scene as ordinary objects. Each one waits for
+  // its place in the wave, then rises through a wet mark in the paper. Keep
+  // this entry state in the normal enemy list so wave completion remains
+  // correct while a later group is still below the page.
+  actor.root.visible = false;
   enemies.push({
     type, spec, actor, bladeMats, bladeGlow,
     aimLine,
@@ -751,11 +807,15 @@ function spawnEnemy(type, options = {}) {
     rivalName: options.rivalName || '',
     grudge: Boolean(options.grudge),
     rivalFollowup: false,
+    rivalChain: 0,
+    awakened: false,
+    attackScale: 1,
     hp: spec.hp * hpScale,
     maxHp: spec.hp * hpScale,
     damage: spec.damage * dmgScale,
-    state: 'approach',
-    t: 0,
+    state: 'enter',
+    t: -Math.max(0, options.delay || 0),
+    entered: false,
     phase: Math.random() * 10,
     speed: spec.speed,
     hasSlot: false,
@@ -765,6 +825,8 @@ function spawnEnemy(type, options = {}) {
     circleFor: 0.5 + Math.random() * 0.7,
     lunge: new THREE.Vector3(),
     fierce: false,
+    teachingStrike: false,
+    teachingBaseScale: 1,
     dead: false,
   });
 }
@@ -781,9 +843,29 @@ function rollFierce(e) {
 
 // Decide a strike's kind as its wind-up begins, and sound the unblockable's
 // warning the instant it commits so the ear has the whole wind-up to react.
+let parryTellShown = false;
+let parryMissHintShown = false;
+
 function commitStrike(e) {
   e.fierce = rollFierce(e);
+  const teachParry = !parryTellShown && state.wave === 1 && !e.fierce && !e.rival;
+  const teachFierce = e.fierce && !state.seenFierce;
+  if (teachParry || teachFierce) {
+    e.teachingStrike = true;
+    e.teachingBaseScale = e.attackScale;
+    e.attackScale *= teachParry ? 2.2 : 1.65;
+  }
   if (e.fierce) audio.fierce();
+}
+
+function restoreStrikeTiming(e) {
+  if (!e.teachingStrike) return;
+  e.teachingStrike = false;
+  e.attackScale = e.teachingBaseScale;
+}
+
+function enemyWindup(e) {
+  return e.spec.windup * e.attackScale;
 }
 
 function startWave() {
@@ -791,25 +873,47 @@ function startWave() {
   // How many enemies may commit an attack at once. Climbs past the old cap of
   // 4 so the pressure keeps rising after the crowd size has plateaued —
   // intensity from simultaneity, not from a bigger pool of idle bodies.
-  state.slots = Math.min(5, 2 + Math.floor(state.wave / 3));
+  // Wave 1 teaches one readable exchange at a time. From Wave 2 onward the
+  // normal pressure curve takes over, so the opening is clear without making
+  // the rest of the run easier.
+  state.slots = state.wave === 1 ? 1 : Math.min(5, 2 + Math.floor(state.wave / 3));
   const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
   if (rivalName) audio.silenceMusic(0.82, 0.002);
   const grudge = Boolean(rivalName) && loadGrudge() === rivalName;
   const composition = waveComposition(state.wave);
-  for (const type of composition) {
-    spawnEnemy(type, { rival: type === 'oni', rivalName, grudge: type === 'oni' && grudge });
-  }
+  composition.forEach((type, index) => {
+    // A short stagger lets the eye count silhouettes as they bleed onto the
+    // page. Cap it so a large late wave still begins as one decisive beat.
+    const delay = state.wave === 1
+      ? 0.08 + index * 0.72
+      : type === 'oni'
+        ? 0.08
+        : rivalName
+          ? 0.72 + Math.min(index * 0.04, 0.5)
+          : 0.08 + Math.min(index * 0.055, 0.58);
+    spawnEnemy(type, {
+      delay,
+      rival: type === 'oni',
+      rivalName,
+      grudge: type === 'oni' && grudge,
+    });
+  });
   audio.taiko(state.wave % 5 === 0 ? 58 : 82, 0.55);
   showWaveTitle(state.wave);
+  const generation = run.generation;
   // The spearman gets a name the first time it walks on — a new silhouette is
   // worth a beat of attention.
   if (!state.seenYari && composition.includes('yari')) {
     state.seenYari = true;
-    setTimeout(() => { if (state.running) showCombatCallout('槍', 'YARI · STRIKES FROM RANGE'); }, 1600);
+    setTimeout(() => {
+      if (state.running && run.generation === generation) showCombatCallout('YARI', 'STRIKES FROM RANGE');
+    }, 1600);
   }
   if (!state.seenYumi && composition.includes('yumi')) {
     state.seenYumi = true;
-    setTimeout(() => { if (state.running) showCombatCallout('弓', 'YUMI · MOVE OFF THE LINE'); }, 1600);
+    setTimeout(() => {
+      if (state.running && run.generation === generation) showCombatCallout('YUMI', 'MOVE OFF THE LINE');
+    }, 1600);
   }
   updateHUD();
 }
@@ -871,7 +975,7 @@ const UPGRADE_DEFS = [
   },
   {
     id: 'finalStroke', mark: 'EDGE', name: 'FINAL STROKE',
-    describe: (level) => `The third cut deals ${level * 25}% more damage.`,
+    describe: (level) => `Your combo finisher deals ${level * 25}% more damage.`,
   },
   {
     id: 'stillWater', mark: 'CALM', name: 'STILL WATER',
@@ -879,7 +983,9 @@ const UPGRADE_DEFS = [
   },
   {
     id: 'longShadow', mark: 'REACH', name: 'LONG SHADOW',
-    describe: (level) => `Iai reaches ${level * 6} units farther and ${level * 0.6} wider.`,
+    describe: (level) => activeWeapon.skill === 'tsunami'
+      ? `Tsunami Cut reaches ${(level * 1.2).toFixed(1)} units farther.`
+      : `Iai reaches ${level * 6} units farther and ${(level * 0.6).toFixed(1)} wider.`,
   },
   {
     id: 'fallingLeaf', mark: 'RISE', name: 'FALLING LEAF',
@@ -1097,8 +1203,10 @@ function playerAttackHits() {
   }
 }
 
-function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
+function damageEnemy(e, amount, dirX, dirZ, severity = 'limb', options = {}) {
+  if (e.dead) return false;
   e.hp -= amount;
+  restoreStrikeTiming(e);
   const tier = getFlowTier();
   e.stagger = Math.max(e.stagger, 0.22 + tier * 0.035);
   const p = e.actor.root.position;
@@ -1108,39 +1216,92 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb') {
 
   if (e.hp <= 0) {
     if (enemies.filter((enemy) => !enemy.dead).length === 1) audio.silenceMusic(0.72);
-    killEnemy(e, dirX, dirZ, severity);
-    return;
+    return killEnemy(e, dirX, dirZ, severity, options);
   }
 
   // A wound throws ink in the direction of the cut.
   ink.spray(p.x, h, p.z, 9, { dirX, dirZ, force: 1.2, up: 0.6 });
   ink.flick(p.x, p.z, dirX, dirZ, 0.55);
+  if (e.rival && !e.awakened && e.hp <= e.maxHp * 0.5) {
+    awakenRival(e);
+    return;
+  }
+  // Further hits can still kill the rival during the transformation, but an
+  // ordinary hit reaction must not cancel the second-form pose and warning.
+  if (e.state === 'awaken') return;
   const reaction = 0.35 * (1 + tier * 0.12);
   e.actor.root.position.x += dirX * reaction;
   e.actor.root.position.z += dirZ * reaction;
   if (e.hasSlot) { releaseSlot(e); }
   e.state = 'stagger';
   e.t = 0;
+  return false;
 }
 
-function killEnemy(e, dirX, dirZ, severity = 'limb') {
-  e.dead = true;
-  if (e.rival) severity = 'bisect';
+function awakenRival(e) {
+  e.awakened = true;
+  e.attackScale = e.grudge ? 0.72 : 0.8;
+  e.speed *= e.grudge ? 1.22 : 1.15;
+  e.damage *= e.grudge ? 1.16 : 1.1;
+  e.rivalChain = 0;
+  e.fierce = false;
   if (e.hasSlot) releaseSlot(e);
+  e.state = 'awaken';
+  e.t = 0;
+  e.cooldown = 0;
+
+  const p = e.actor.root.position;
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2;
+    const radius = 1.5 + (i % 3) * 0.38;
+    ink.addStain(
+      p.x + Math.cos(a) * radius,
+      p.z + Math.sin(a) * radius,
+      0.42 + (i % 2) * 0.16,
+      { alpha: 0.56, bleed: 0.62, aspect: 1.4, rot: a },
+    );
+  }
+  spawnImpactBurst(p, 1.8);
+  ink.splashScreen(5, 0.72);
+  hitstop(0.16, 0.05);
+  shake(0.95);
+  flash(0.55);
+  audio.silenceMusic(0.72, 0.01);
+  audio.taiko(46, 0.72);
+  showCombatCallout(e.rivalName, e.grudge ? 'GRUDGE FORM · THREE CUTS' : 'SECOND FORM · THREE CUTS');
+}
+
+function releaseEnemyBody(e, dirX, dirZ, severity = 'limb', synchronized = false) {
   const p = e.actor.root.position;
   const h = 1.0 * e.spec.height;
   const big = e.type === 'oni' || e.type === 'brute';
+  const sprayCount = synchronized ? (big ? 12 : 8) : (big ? 26 : 14);
+  const gibCount = synchronized ? (big ? 13 : 9) : (severity === 'bisect' ? 26 : 13);
 
-  ink.spray(p.x, h, p.z, big ? 26 : 14, { dirX, dirZ, force: big ? 1.8 : 1.3 });
+  ink.spray(p.x, h, p.z, sprayCount, { dirX, dirZ, force: big ? 1.8 : 1.3 });
   ink.flick(p.x, p.z, dirX, dirZ, big ? 1.4 : 0.9);
   ink.pool(p.x, p.z, big ? 1.1 : 0.55);
-  ink.splashScreen(big ? 9 : 4, big ? 1.4 : 0.8);
+  if (!synchronized) ink.splashScreen(big ? 9 : 4, big ? 1.4 : 0.8);
 
-  hitstop(big ? 0.22 : 0.14, 0.04);
-  shake(big ? 1.2 : 0.7);
-  flash(big ? 0.4 : 0.18);
-  gibs.burst(p.x, h, p.z, severity === 'bisect' ? 26 : 13, dirX, dirZ, big ? 1.5 : 1.0);
-  audio.kill(severity === 'bisect' || big);
+  if (!synchronized) {
+    hitstop(big ? 0.22 : 0.14, 0.04);
+    shake(big ? 1.2 : 0.7);
+    flash(big ? 0.4 : 0.18);
+    audio.kill(severity === 'bisect' || big);
+  }
+  gibs.burst(p.x, h, p.z, gibCount, dirX, dirZ, big ? 1.5 : 1.0);
+
+  vCut.set(dirX, 0, dirZ);
+  ragdolls.spawn(e.actor, e.spec, vCut, severity);
+}
+
+function killEnemy(e, dirX, dirZ, severity = 'limb', options = {}) {
+  if (e.dead) return false;
+  const { deferBody = false, batch = false } = options;
+  e.dead = true;
+  if (e.rival) severity = 'bisect';
+  if (e.hasSlot) releaseSlot(e);
+  const big = e.type === 'oni' || e.type === 'brute';
 
   state.kills++;
   if (e.rival) {
@@ -1154,7 +1315,7 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
     }
     audio.taiko(48, 0.72);
   }
-  addFlow();
+  addFlow(1, false, !batch);
   state.focus = Math.min(FOCUS_MAX, state.focus + (big ? 20 : 9) * flowMultiplier());
 
   // A dead archer's aim line goes with it.
@@ -1162,14 +1323,23 @@ function killEnemy(e, dirX, dirZ, severity = 'limb') {
     scene.remove(e.aimLine);
     e.aimLine.geometry.dispose();
     e.aimLine.material.dispose();
+    e.aimLine = null;
   }
 
-  // Hand the body to the physics: it keeps the pose it died in, and the blow
-  // decides how much of it stays attached.
-  vCut.set(dirX, 0, dirZ);
-  ragdolls.spawn(e.actor, e.spec, vCut, severity);
-  enemies = enemies.filter((x) => x !== e);
-  updateHUD();
+  if (e.bladeGlow) e.bladeGlow.material.opacity = 0;
+  for (const material of e.bladeMats) {
+    material.emissive.setScalar(0);
+    material.emissiveIntensity = 0;
+  }
+
+  if (deferBody) pendingSignatureBodies.push({ e, dirX, dirZ, severity });
+  else releaseEnemyBody(e, dirX, dirZ, severity);
+
+  if (!batch) {
+    enemies = enemies.filter((enemy) => enemy !== e);
+    updateHUD();
+  }
+  return true;
 }
 
 // How to name a death on the defeat scroll: who struck, and what the samurai
@@ -1190,6 +1360,7 @@ function deathCause(source, action) {
 function damagePlayer(amount, source = null) {
   if (state.invuln > 0 || state.over) return;
   const actionAtHit = state.action;
+  const parryTimeAtHit = actionAtHit === 'parry' ? state.actionT : -1;
   if (amount >= state.hp && state.escapeCharges > 0) {
     state.escapeCharges--;
     state.hp = 1;
@@ -1217,7 +1388,7 @@ function damagePlayer(amount, source = null) {
     ink.splashScreen(14, 1.7);
     shake(1.0);
     audio.silenceMusic(1.2, 0.001);
-    showCombatCallout('一命', 'LAST STAND');
+    showCombatCallout('LAST', 'LAST STAND');
     audio.perfectParry();
     updateHUD();
     return;
@@ -1234,6 +1405,17 @@ function damagePlayer(amount, source = null) {
   shake(0.9);
   hitstop(0.08, 0.1);
   audio.hurt(1 - Math.max(0, state.hp) / PLAYER_MAX_HP);
+  if (!parryMissHintShown && actionAtHit === 'parry' && !source?.fierce) {
+    const activeEnd = PARRY_STARTUP + parryDuration();
+    const tooLate = parryTimeAtHit < PARRY_STARTUP;
+    const tooEarly = parryTimeAtHit >= activeEnd;
+    if (tooLate || tooEarly) {
+      parryMissHintShown = true;
+      showCombatCallout(tooLate ? 'LATE' : 'EARLY', tooLate
+        ? 'BLADE ROSE AFTER THE STRIKE'
+        : 'PARRY ENDED BEFORE THE STRIKE', true);
+    }
+  }
   state.action = 'hurt';
   state.actionT = 0.26;
   updateHUD();
@@ -1281,6 +1463,7 @@ function playerDashHits() {
 
 function rewardDashRead() {
   let read = false;
+  let fierceRead = false;
   for (const e of enemies) {
     if (e.dead || e.state !== 'strike' || e.resolved) continue;
     const dx = e.actor.root.position.x - player.root.position.x;
@@ -1288,14 +1471,17 @@ function rewardDashRead() {
     const reach = e.spec.reach * e.spec.height * 1.45;
     if (dx * dx + dz * dz <= reach * reach) {
       read = true;
+      fierceRead ||= e.fierce;
       e.resolved = true;
     }
   }
   if (!read) return;
   state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
   state.focus = Math.min(FOCUS_MAX, state.focus + 10 * flowMultiplier());
-  showCombatCallout('EVADE', 'ATTACK READ · FLOW HELD');
-  audio.parry();
+  showCombatCallout('EVADE', fierceRead
+    ? 'RED BLADE READ · FOCUS +10'
+    : 'ATTACK READ · FLOW HELD');
+  audio.evade();
   updateHUD();
 }
 
@@ -1309,22 +1495,61 @@ const iaiScreenA = new THREE.Vector3();
 const iaiScreenB = new THREE.Vector3();
 let iaiFacing = 0;
 let iaiCutFired = false;
+const pendingSignatureBodies = [];
+let signatureBodyDelay = 0;
+
+function finishSignatureKillBatch(killedAny) {
+  if (!killedAny) return;
+  enemies = enemies.filter((enemy) => !enemy.dead);
+  signatureBodyDelay = Math.max(signatureBodyDelay, SIGNATURE_BODY_DELAY);
+  audio.setFlowTier(getFlowTier());
+  updateHUD();
+}
+
+function updateSignatureBodies(dt) {
+  if (!pendingSignatureBodies.length) return;
+  if (signatureBodyDelay > 0) {
+    signatureBodyDelay -= dt;
+    if (signatureBodyDelay > 0) return;
+  }
+  const batch = pendingSignatureBodies.splice(0, SIGNATURE_BODIES_PER_FRAME);
+  for (const body of batch) {
+    releaseEnemyBody(body.e, body.dirX, body.dirZ, body.severity, true);
+  }
+  if (!pendingSignatureBodies.length) signatureBodyDelay = 0;
+}
+
+function clearPendingSignatureBodies() {
+  for (const body of pendingSignatureBodies) {
+    scene.remove(body.e.actor.root);
+    body.e.actor.root.traverse((object) => {
+      if (!object.isMesh || !object.material) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) material.dispose();
+    });
+  }
+  pendingSignatureBodies.length = 0;
+  signatureBodyDelay = 0;
+}
 
 function fireIaiCut() {
   iaiCutFired = true;
   const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
   const reach = 30 + state.upgrades.longShadow * 6;
   const width = 4.2 + state.upgrades.longShadow * 0.6;
+  let killedAny = false;
 
   for (const e of [...enemies]) {
+    if (e.dead || !e.actor.root.visible) continue;
     const dx = e.actor.root.position.x - iaiOrigin.x;
     const dz = e.actor.root.position.z - iaiOrigin.z;
     const along = dx * fx + dz * fz;
     const across = Math.abs(dx * fz - dz * fx);
     if (along > -1 && along < reach && across < width) {
-      damageEnemy(e, 9999, fx, fz, 'bisect');
+      killedAny = killEnemy(e, fx, fz, 'bisect', { deferBody: true, batch: true }) || killedAny;
     }
   }
+  finishSignatureKillBatch(killedAny);
 
   vTmp.lerpVectors(iaiOrigin, iaiEnd, 0.45); vTmp.y = 0.2;
   iaiTrail.fire(vTmp, iaiFacing, { duration: 0.56, scale: 1.2, style: 2 });
@@ -1350,7 +1575,7 @@ function fireIaiCut() {
 // state machine needs no new branch; the weapon only decides which stroke fills
 // the window. The katana draws its iai; the nodachi drops a tsunami cut.
 function trySignature() {
-  if (!state.running || iaiT > 0) return;
+  if (!state.running || iaiT > 0 || pendingSignatureBodies.length) return;
   if (state.focus < FOCUS_MAX) {
     showIaiNotice(`${activeWeapon.skillRoman} NOT READY`, 'CHARGE: KILLS + PERFECT PARRIES', 1500);
     audio.denied();
@@ -1399,18 +1624,20 @@ function fireTsunamiCut() {
   const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
   const reach = 7.4 + state.upgrades.longShadow * 1.2;
   const ox = player.root.position.x, oz = player.root.position.z;
+  let killedAny = false;
   // A wide close crescent — the opposite of iai's far, narrow lane. Everything
   // in a ~150° forward fan inside reach is cleaved and thrown outward.
   for (const e of [...enemies]) {
-    if (e.dead) continue;
+    if (e.dead || !e.actor.root.visible) continue;
     const dx = e.actor.root.position.x - ox;
     const dz = e.actor.root.position.z - oz;
     const dist = Math.hypot(dx, dz);
     if (dist > reach + e.spec.height * 0.4) continue;
     if ((dx * fx + dz * fz) / (dist || 1) < -0.32) continue;
     const nx = dx / (dist || 1), nz = dz / (dist || 1);
-    damageEnemy(e, 180, nx, nz, 'bisect');
+    killedAny = damageEnemy(e, 180, nx, nz, 'bisect', { deferBody: true, batch: true }) || killedAny;
   }
+  finishSignatureKillBatch(killedAny);
 
   // The crescent stroke, a ground shockwave of ink, and the heavy contact
   // grammar the iai cut already speaks (respecting reduce-shake downstream).
@@ -1508,6 +1735,7 @@ function updatePlayer(dt) {
       state.action = 'parry';
       state.actionT = 0;
       state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + parryDuration() + PARRY_RECOVER;
+      audio.guard();
     } else if (input.take('attack')) {
       beginAttack();
     }
@@ -1529,7 +1757,7 @@ function updatePlayer(dt) {
       beginAttack(false, kind);
       if (!state.seenDashCut) {
         state.seenDashCut = true;
-        showCombatCallout('抜', kind === 'thrust' ? 'DASH THRUST' : 'DASH CUT');
+        showCombatCallout('DRAW', kind === 'thrust' ? 'DASH THRUST' : 'DASH CUT');
       }
     }
   }
@@ -1658,7 +1886,8 @@ function beginAttack(chain = false, kind = 'arc') {
   state.hitThisSwing = new Set();
   state.comboTimer = COMBO_WINDOW;
   const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
-  audio.swing(heavyArc ? 3 : kind === 'thrust' ? 2 : state.comboIndex);
+  if (heavyArc) audio.heavyWindup();
+  else audio.swing(kind === 'thrust' ? 2 : state.comboIndex);
 }
 
 function updateAttack(dt) {
@@ -1677,12 +1906,13 @@ function updateAttack(dt) {
       vTmp.copy(player.root.position); vTmp.y = 0.1;
       const tier = getFlowTier();
       const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
+      if (heavyArc) audio.swing(3);
       const baseScale = kind === 'thrust' ? 1.12 : heavyArc ? 1.6 : state.comboIndex === 2 ? 1.28 : 1;
       trail.fire(vTmp, state.facing, {
         mirror: kind === 'dashcut' || (kind === 'arc' && state.comboIndex === 1),
         duration: cfg.active + cfg.recover * (heavyArc ? 1.0 : 0.8) + tier * 0.018,
         scale: baseScale * (1 + tier * 0.06),
-        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : heavyArc ? 2 : state.comboIndex,
+        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : heavyArc ? 3 : state.comboIndex,
         energy: tier,
       });
     }
@@ -1930,8 +2160,17 @@ function poseArms(dt) {
 
   // Smear: the blade stretches along its length at peak speed and thins edge-on,
   // a hand-drawn motion streak rather than a rigid prop photographed mid-arc.
-  const stretch = 1 + smear * 0.85;
-  a.katana.scale.set(1 / (1 + smear * 0.25), stretch, 1 / (1 + smear * 0.25));
+  const heavyBlade = activeWeapon.skill === 'tsunami';
+  const stretch = 1 + smear * (heavyBlade ? 0.42 : 0.85);
+  const edgeThin = 1 + smear * (heavyBlade ? 0.10 : 0.25);
+  // Keep the selected weapon's base silhouette. The old pose loop replaced
+  // this scale every frame, which made the nodachi collapse back toward the
+  // katana as soon as play began.
+  a.katana.scale.set(
+    activeWeapon.blade.widthMul / edgeThin,
+    activeWeapon.blade.lengthMul * stretch,
+    activeWeapon.blade.widthMul / edgeThin,
+  );
 }
 
 const parryActive = () => state.action === 'parry'
@@ -1946,8 +2185,16 @@ function updateEnemyBladeTelegraph(e) {
   const winding = e.state === 'windup' || (e.state === 'strike' && !e.resolved);
 
   if (e.state === 'windup') {
-    const progress = THREE.MathUtils.clamp(e.t / e.spec.windup, 0, 1);
-    const eta = e.spec.windup - e.t + ENEMY_STRIKE_TIME;
+    const windup = enemyWindup(e);
+    const progress = THREE.MathUtils.clamp(e.t / windup, 0, 1);
+    const eta = windup - e.t + ENEMY_STRIKE_TIME;
+    if (!parryTellShown && !e.fierce && progress >= 0.12) {
+      parryTellShown = true;
+      const touch = document.body.classList.contains('touch');
+      showCombatCallout('PARRY', touch
+        ? 'WHITE BLADE · TAP PARRY WHEN IT FLASHES'
+        : 'WHITE BLADE · PRESS SPACE WHEN IT FLASHES', true);
+    }
     // A fierce strike never offers the white parry-ready flash — there is no
     // frame to meet it on.
     ready = !e.fierce && eta >= PARRY_STARTUP && eta < PARRY_STARTUP + parryDuration();
@@ -1974,7 +2221,10 @@ function updateEnemyBladeTelegraph(e) {
     }
     if (!state.seenFierce) {
       state.seenFierce = true;
-      showCombatCallout('避', 'UNBLOCKABLE · DASH THROUGH IT');
+      const touch = document.body.classList.contains('touch');
+      showCombatCallout('DASH', touch
+        ? 'RED BLADE · TAP DASH THROUGH IT'
+        : 'RED BLADE · PRESS SHIFT TO DASH THROUGH', true);
     }
     return;
   }
@@ -2001,6 +2251,41 @@ function updateEnemies(dt) {
 
   for (const e of enemies) {
     const pos = e.actor.root.position;
+
+    // Ink entrance. Hidden enemies wait below the page, then rise through a
+    // stain that keeps bleeding after they move away. This uses real enemy
+    // geometry, not a detached spawn marker, so the warning and the threat are
+    // the same object. No combat slot is taken until the entrance completes.
+    if (e.state === 'enter') {
+      e.t += dt;
+      if (e.t < 0) {
+        e.actor.root.visible = false;
+        continue;
+      }
+      if (!e.entered) {
+        e.entered = true;
+        e.actor.root.visible = true;
+        ink.addStain(pos.x, pos.z, e.rival ? 2.2 : 1.15 * e.spec.height, {
+          alpha: e.rival ? 0.94 : 0.72,
+          bleed: e.rival ? 1.05 : 0.7,
+        });
+        if (e.rival) {
+          ink.addStain(pos.x, pos.z, 3.1, { alpha: 0.34, bleed: 1.45, aspect: 1.5 });
+          spawnImpactBurst(pos, 0.65);
+        }
+      }
+      const k = THREE.MathUtils.clamp(e.t / (e.rival ? 0.62 : 0.42), 0, 1);
+      const rise = 1 - (1 - k) ** 3;
+      e.actor.root.position.y = -0.62 * e.spec.height * (1 - rise);
+      e.actor.root.rotation.y += dt * (e.rival ? 1.4 : 0.8) * (1 - k);
+      poseEnemy(e, dt);
+      if (k >= 1) {
+        e.actor.root.position.y = 0;
+        e.state = 'approach';
+        e.t = 0;
+      }
+      continue;
+    }
 
     // The land is endless, so a sprinting player can leave pursuers arbitrarily
     // far behind — and a wave that can never catch up stalls the game. Anyone
@@ -2089,7 +2374,8 @@ function updateEnemies(dt) {
         // off it. Dodging the arrow is positional, not a parry read — though a
         // parry held on release still turns it away.
         turn = false;
-        const k = Math.min(1, e.t / e.spec.windup);
+        const windup = enemyWindup(e);
+        const k = Math.min(1, e.t / windup);
         const locked = k >= 0.55;
         if (!locked) { e.aimDir.set(nx, 0, nz); turn = true; }
         const L = 17;
@@ -2100,7 +2386,7 @@ function updateEnemies(dt) {
         line.material.opacity = locked
           ? 0.42 + Math.sin(state.time * 26) * 0.16
           : 0.05 + k * 0.1;
-        if (e.t >= e.spec.windup) {
+        if (e.t >= windup) {
           e.state = 'loose';
           e.t = 0;
           audio.swing(1);
@@ -2119,7 +2405,7 @@ function updateEnemies(dt) {
               flash(0.7);
               hitstop(0.1, 0.1);
               shake(0.5);
-              showCombatCallout('返', 'ARROW TURNED');
+              showCombatCallout('TURN', 'ARROW TURNED');
               audio.parry();
               updateHUD();
             } else if (state.invuln <= 0) {
@@ -2145,7 +2431,8 @@ function updateEnemies(dt) {
       case 'windup': {
         // Telegraph. Blade lit, edging forward, then committing.
         move = e.speed * 0.25;
-        if (e.t >= e.spec.windup) {
+        if (e.t >= enemyWindup(e)) {
+          restoreStrikeTiming(e);
           e.state = 'strike';
           e.t = 0;
           e.lunge.set(nx, 0, nz);
@@ -2178,21 +2465,34 @@ function updateEnemies(dt) {
       case 'recover': {
         turn = false;
         if (e.t >= 0.42) {
-          if (e.rival && !e.rivalFollowup && dist < reach * 1.8) {
+          const chainLimit = e.rival ? (e.awakened ? 2 : 1) : 0;
+          if (e.rival && e.rivalChain < chainLimit && dist < reach * 1.8) {
+            e.rivalChain++;
             e.rivalFollowup = true;
             e.state = 'windup';
             commitStrike(e);
             // A grudge shortens the pause before the follow-up: the rival that
             // remembers you presses where a first meeting would breathe.
-            e.t = Math.max(0, e.spec.windup - (e.grudge ? 0.32 : 0.24));
+            e.t = Math.max(0, enemyWindup(e) - (e.grudge ? 0.32 : 0.24));
             e.circleDir *= -1;
           } else {
             e.rivalFollowup = false;
+            e.rivalChain = 0;
             releaseSlot(e);
             e.cooldown = e.rival ? (e.grudge ? 0.4 : 0.55) : 0.8 + Math.random() * 1.6;
             e.state = dist > reach * 1.6 ? 'approach' : 'circle';
             e.t = 0;
           }
+        }
+        break;
+      }
+      case 'awaken': {
+        turn = false;
+        if (e.t >= 0.72) {
+          e.state = 'circle';
+          e.t = 0;
+          e.cooldown = 0.18;
+          e.circleFor = 0.18;
         }
         break;
       }
@@ -2221,7 +2521,7 @@ function updateEnemies(dt) {
     poseEnemy(e, dt);
   }
 
-  separate(dt);
+  separate();
 
 }
 
@@ -2236,7 +2536,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
       // Read and slipped it: the reward the parry cannot give against a fierce
       // strike. Cheaper than a perfect parry, but it keeps the aggression fed.
       state.focus = Math.min(FOCUS_MAX, state.focus + 12 * flowMultiplier());
-      showCombatCallout('見切', 'READ · SLIPPED');
+      showCombatCallout('READ', 'READ · SLIPPED');
       updateHUD();
     } else {
       damagePlayer(e.damage, e);
@@ -2285,23 +2585,63 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
 
 // Push overlapping enemies apart so a crowd stays legible instead of merging
 // into one blob.
-function separate(dt) {
+function separate() {
+  // Resolve the crowd first. The player clearance pass runs last so one enemy
+  // cannot be pushed back through the player while separating from another.
   for (let i = 0; i < enemies.length; i++) {
+    if (enemies[i].dead || enemies[i].state === 'enter') continue;
     const a = enemies[i].actor.root.position;
     const ra = 0.55 * enemies[i].spec.height;
     for (let j = i + 1; j < enemies.length; j++) {
+      if (enemies[j].dead || enemies[j].state === 'enter') continue;
       const b = enemies[j].actor.root.position;
       const rb = 0.55 * enemies[j].spec.height;
       const dx = b.x - a.x, dz = b.z - a.z;
       const d2 = dx * dx + dz * dz;
       const min = ra + rb;
-      if (d2 > min * min || d2 < 1e-6) continue;
-      const d = Math.sqrt(d2);
+      if (d2 > min * min) continue;
+      let d = Math.sqrt(d2), ux, uz;
+      if (d < 1e-4) {
+        const angle = (i * 17 + j * 31 + 1) * 1.618034;
+        ux = Math.cos(angle);
+        uz = Math.sin(angle);
+        d = 0;
+      } else {
+        ux = dx / d;
+        uz = dz / d;
+      }
       const push = (min - d) * 0.5;
-      const ux = dx / d, uz = dz / d;
       a.x -= ux * push; a.z -= uz * push;
       b.x += ux * push; b.z += uz * push;
     }
+  }
+
+  // Keep each attacker outside the player's silhouette. They remain well
+  // inside melee reach, but their torso, blade, and telegraph no longer vanish
+  // inside the player model. A fixed fallback angle resolves exact overlaps
+  // without adding random motion or frame-to-frame jitter.
+  const playerPos = player.root.position;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.dead || e.state === 'enter') continue;
+    const pos = e.actor.root.position;
+    const min = 0.46 + 0.48 * e.spec.height;
+    const dx = pos.x - playerPos.x, dz = pos.z - playerPos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= min * min) continue;
+    let d = Math.sqrt(d2), ux, uz;
+    if (d < 1e-4) {
+      const angle = (i + 1) * 2.399963;
+      ux = Math.cos(angle);
+      uz = Math.sin(angle);
+      d = 0;
+    } else {
+      ux = dx / d;
+      uz = dz / d;
+    }
+    const push = min - d;
+    pos.x += ux * push;
+    pos.z += uz * push;
   }
 }
 
@@ -2312,7 +2652,7 @@ function poseEnemy(e, dt) {
 
   let armX = -0.3, torsoY = 0;
   if (e.state === 'windup') {
-    const k = Math.min(1, e.t / e.spec.windup);
+    const k = Math.min(1, e.t / enemyWindup(e));
     armX = -0.3 - 2.3 * k;
     torsoY = -0.5 * k;
     a.hips.position.y = a.baseHipY - 0.06 * k;
@@ -2322,7 +2662,7 @@ function poseEnemy(e, dt) {
     torsoY = -0.5 + 0.9 * Math.pow(k, 0.5);
   } else if (e.state === 'aim') {
     // The draw: bow raised, body turning side-on behind it.
-    const k = Math.min(1, e.t / e.spec.windup);
+    const k = Math.min(1, e.t / enemyWindup(e));
     armX = -0.3 - 1.3 * k;
     torsoY = -0.4 * k;
   } else if (e.state === 'loose') {
@@ -2331,6 +2671,12 @@ function poseEnemy(e, dt) {
   } else if (e.state === 'stagger') {
     armX = 0.5;
     torsoY = Math.sin(e.t * 30) * 0.2;
+  } else if (e.state === 'awaken') {
+    const k = Math.min(1, e.t / 0.72);
+    const heave = Math.sin(k * Math.PI);
+    armX = -0.3 - heave * 2.1;
+    torsoY = heave * 0.7;
+    a.hips.position.y = a.baseHipY - heave * 0.18;
   }
 
   const lerp = 1 - Math.exp(-22 * dt);
@@ -2633,8 +2979,8 @@ function renderWeaponLocks(records) {
   }
 }
 
-function selectWeapon(weaponId, { persist = true } = {}) {
-  if (!isWeaponUnlocked(weaponId, loadRecords())) weaponId = selectedWeaponId || 'katana';
+function selectWeapon(weaponId, { persist = true, force = false } = {}) {
+  if (!force && !isWeaponUnlocked(weaponId, loadRecords())) weaponId = selectedWeaponId || 'katana';
   activeWeapon = applyWeapon(player, weaponId);
   selectedWeaponId = activeWeapon.id;
   weaponCurrentEl.textContent = `${activeWeapon.roman} · ${activeWeapon.epithet}`;
@@ -2643,10 +2989,20 @@ function selectWeapon(weaponId, { persist = true } = {}) {
   // room for the full move name.
   const gaugeLabel = vitalLabels[1].querySelector('span');
   if (gaugeLabel) gaugeLabel.textContent = activeWeapon.gaugeLabel;
+  iaiGauge.setAttribute('aria-label', `${activeWeapon.gaugeLabel} charge`);
   const cueSig = document.getElementById('cueSignature');
   if (cueSig) cueSig.textContent = activeWeapon.skillRoman;
+  const cutDetail = document.getElementById('controlCutDetail');
+  if (cutDetail) {
+    cutDetail.textContent = activeWeapon.skill === 'tsunami'
+      ? 'cut, second heavy cut cleaves'
+      : 'cut, third cut cleaves';
+  }
   const touchSig = document.getElementById('touchSignature');
-  if (touchSig) touchSig.textContent = activeWeapon.gaugeLabel;
+  if (touchSig) {
+    touchSig.textContent = activeWeapon.gaugeLabel;
+    touchSig.closest('button')?.setAttribute('aria-label', `Use ${activeWeapon.skillRoman}`);
+  }
   for (const button of weaponButtons) {
     const selected = button.dataset.weapon === activeWeapon.id;
     button.setAttribute('aria-pressed', `${selected}`);
@@ -2755,9 +3111,9 @@ function renderTitleScreen() {
   }
   // The next legend to earn: shown before the run so the goal is already in mind.
   const nextSkin = nextLockedSkin(records);
-  if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b> — ${nextSkin.label}`);
+  if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b>: ${nextSkin.label}`);
   const nextWeapon = nextLockedWeapon(records);
-  if (nextWeapon) chaseLines.push(`NEXT BLADE · <b>${nextWeapon.roman}</b> — ${nextWeapon.label}`);
+  if (nextWeapon) chaseLines.push(`NEXT BLADE · <b>${nextWeapon.roman}</b>: ${nextWeapon.label}`);
   ovChase.hidden = chaseLines.length === 0;
   ovChase.innerHTML = chaseLines.join('<br />');
   renderLedger(ledger);
@@ -2821,7 +3177,9 @@ function composeDeathPoem(record) {
     dash: 'caught between two footfalls',
     attack: 'my own cut left the door open',
     parry: 'a breath behind the steel',
-    iai: 'cut down mid-draw, sword half-born',
+    iai: activeWeapon.skill === 'tsunami'
+      ? 'crushed mid-heave, great blade still high'
+      : 'cut down mid-draw, sword half-born',
   }[info.action];
   if (caught) deaths.push(caught);
   if (who && loadGrudge() === info.rival) deaths.push(`twice now, ${who}`);
@@ -2917,13 +3275,27 @@ function gameOver() {
     chaseLines.push(`NEW LEGEND · <b>${earned.map((s) => s.name).join(' · ')}</b> ANSWERS THE PAGE`);
   } else {
     const nextSkin = nextLockedSkin(newRecords);
-    if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b> — ${nextSkin.label}`);
+    if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b>: ${nextSkin.label}`);
+  }
+  const earnedWeapons = WEAPONS.filter(
+    (weapon) => isWeaponUnlocked(weapon.id, newRecords) && !isWeaponUnlocked(weapon.id, records),
+  );
+  if (earnedWeapons.length) {
+    const names = earnedWeapons.map((weapon) => weapon.roman).join(' · ');
+    chaseLines.push(`<span class="bladeUnlock">BLADE UNSEALED · <b>${names}</b><small>EQUIPPED FOR THE NEXT RUN</small></span>`);
   }
 
   // Compose the poem before recording the new grudge, so a repeat killing by
   // the same rival can read as one ("twice now") — then the debt is written.
   lastPoem = composeDeathPoem(record);
   if (state.deathInfo && state.deathInfo.rival) saveGrudge(state.deathInfo.rival);
+  // The retry is immediate and does not visit the title picker. Equip the new
+  // steel once so the reward is felt in the next run, while the normal picker
+  // remains available after the player returns to the title page.
+  if (earnedWeapons.length) {
+    selectWeapon(earnedWeapons[0].id, { force: true });
+    run.weaponIntro = earnedWeapons[0].id;
+  }
 
   setTimeout(() => {
     overlay.classList.remove('intro');
@@ -2952,12 +3324,177 @@ function gameOver() {
   }, 1200);
 }
 
+function clearTransientMeshList(list, { geometry = false } = {}) {
+  for (const item of list) {
+    scene.remove(item.mesh);
+    if (geometry) item.mesh.geometry.dispose();
+    item.mesh.material.dispose();
+  }
+  list.length = 0;
+}
+
+function clearLivingEnemies() {
+  for (const e of enemies) {
+    if (e.aimLine) {
+      scene.remove(e.aimLine);
+      e.aimLine.geometry.dispose();
+      e.aimLine.material.dispose();
+    }
+    scene.remove(e.actor.root);
+    e.actor.root.traverse((object) => {
+      if (!object.isMesh || !object.material) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) material.dispose();
+    });
+  }
+  enemies.length = 0;
+}
+
+function restartRunInPlace() {
+  const daily = run.daily;
+  run.generation++;
+  run.daily = daily;
+  run.dateStr = todayStamp();
+  run.rng = daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
+  updateRunModeTag();
+
+  clearPendingSignatureBodies();
+  clearLivingEnemies();
+  ragdolls.clear();
+  gibs.clear();
+  ink.clear();
+  trail.clear();
+  enemyTrail.clear();
+  iaiTrail.clear();
+  clearTransientMeshList(parryRings);
+  clearTransientMeshList(impactBursts, { geometry: true });
+  clearTransientMeshList(dashWakes);
+
+  Object.assign(state, {
+    running: true,
+    over: false,
+    hp: PLAYER_MAX_HP,
+    kills: 0,
+    perfectParries: 0,
+    wave: 0,
+    focus: 0,
+    time: 0,
+    timeScale: 1,
+    hitstop: 0,
+    slowmo: 0,
+    slowmoScale: 1,
+    phase: 0,
+    facing: 0,
+    action: 'idle',
+    actionT: 0,
+    attackKind: 'arc',
+    comboIndex: 0,
+    comboTimer: 0,
+    attackPhase: '',
+    hitThisSwing: null,
+    dashCooldown: 0,
+    parryCooldown: 0,
+    invuln: 0,
+    waveBreak: 1.2,
+    slots: 2,
+    chain: 0,
+    chainTimer: 0,
+    bestChain: 0,
+    rivalKills: 0,
+    seenYari: false,
+    seenYumi: false,
+    seenFierce: false,
+    seenDashCut: false,
+    lastStandUsed: false,
+    deathBy: '',
+    deathInfo: null,
+    escapeCharges: 0,
+    pendingUpgrade: false,
+    choosingUpgrade: false,
+    upgrades: {
+      steelMind: 0,
+      bloodWind: 0,
+      finalStroke: 0,
+      stillWater: 0,
+      longShadow: 0,
+      fallingLeaf: 0,
+    },
+  });
+  state.vel.set(0, 0, 0);
+  state.dashDir.set(0, 0, 0);
+  state.dashHit.clear();
+
+  player.root.visible = true;
+  player.root.position.set(0, 0, 0);
+  player.root.rotation.set(0, 0, 0);
+  player.hips.position.y = player.baseHipY;
+  player.hips.rotation.set(0, 0, 0);
+  player.torso.rotation.set(0, 0, 0);
+  player.armL.rotation.set(0, 0, 0);
+  player.armR.rotation.set(0, 0, 0);
+  player.legL.rotation.set(0, 0, 0);
+  player.legR.rotation.set(0, 0, 0);
+  player.head.rotation.set(0, 0, 0);
+  player.katana.rotation.set(1.05, 0, 0);
+
+  shakeAmount = 0;
+  camPunch.set(0, 0, 0);
+  whiteFlash = 0;
+  deathCrush = 0;
+  invertT = 0;
+  iaiT = 0;
+  iaiCutFired = false;
+  idleFor = 0;
+  sheathK = 0;
+  sheathed = false;
+  iaiWasReady = false;
+  shownFlowChain = 0;
+  flowGhostLevel = 0;
+  flowWarningPlayed = false;
+  offeredUpgrades.length = 0;
+  flowOutlineOpacity = 0;
+  flowOutlineMaterial.opacity = 0;
+  for (const shell of flowOutlineMeshes) shell.visible = false;
+  iaiAura.visible = false;
+
+  clearTimeout(iaiNoticeTimer);
+  iaiReadyNoticeEl.classList.remove('show');
+  waveTitleEl.classList.remove('show');
+  combatCalloutEl.classList.remove('show');
+  boonNoticeEl.classList.remove('show');
+  damageFlashEl.classList.remove('show');
+  upgradeOverlayEl.classList.add('hidden');
+  upgradeOverlayEl.setAttribute('aria-hidden', 'true');
+  overlay.classList.remove('intro', 'leaving');
+  overlay.classList.add('hidden');
+  input.keys.clear();
+  for (const key in input.buffers) input.buffers[key] = 0;
+  input.enabled = true;
+  audio.setFlowTier(0);
+  audio.setCriticalHealth(0);
+  audio.begin();
+  updateHUD();
+  if (run.weaponIntro) {
+    const weapon = WEAPON_META[run.weaponIntro];
+    run.weaponIntro = '';
+    if (weapon) showWeaponNotice(weapon);
+  }
+}
+
 let beginPending = false;
 function beginGame(opts = {}) {
   if (state.running || beginPending) return;
+  // A retry keeps the mode of the run that just ended. Handle it before
+  // `opts.daily` can replace that mode, and reset the loaded scene at once.
+  if (state.over) {
+    restartRunInPlace();
+    return;
+  }
+  run.generation++;
   run.daily = Boolean(opts.daily);
   run.dateStr = todayStamp();
   run.rng = run.daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
+  updateRunModeTag();
   audio.start();
   audio.begin();
 
@@ -2966,11 +3503,6 @@ function beginGame(opts = {}) {
     overlay.classList.remove('leaving');
     overlay.classList.add('hidden');
     input.enabled = true;
-    if (state.over) {
-      try { sessionStorage.setItem('samurai-restart', run.daily ? 'daily' : 'normal'); } catch { /* ignore */ }
-      location.reload();
-      return;
-    }
     state.running = true;
     state.waveBreak = 1.2;
     updateHUD();
@@ -3026,6 +3558,7 @@ function applyMuteUI() {
   muteBtn.classList.toggle('muted', settings.muted);
   muteBtn.setAttribute('aria-pressed', String(settings.muted));
   muteBtn.setAttribute('aria-label', settings.muted ? 'Unmute' : 'Mute');
+  muteBtn.querySelector('span').textContent = settings.muted ? 'UNMUTE' : 'MUTE';
   pauseMute.setAttribute('aria-pressed', String(settings.muted));
   pauseMute.querySelector('.optState').textContent = settings.muted ? 'MUTED' : 'ON';
 }
@@ -3068,8 +3601,8 @@ audio.setMuted(settings.muted);   // stored now; applied when the context starts
 applyMuteUI();
 applyShakeUI();
 
-// A fresh run's title screen, and the snappy path back in after a defeat: if
-// DRAW AGAIN reloaded the page, drop straight into a new run in the same mode.
+// A fresh run's title screen. The session marker is kept as a compatibility
+// path for a retry started by an older cached build before this script loaded.
 // The installed game keeps working offline. Skipped on localhost so the dev
 // loop never fights a cache; deploy.mjs stamps the worker per build.
 if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
@@ -3175,6 +3708,7 @@ function step(dt) {
   }
 
   if (iaiT > 0) iaiT -= dt;
+  updateSignatureBodies(dt);
   iaiTrail.update(sdt);
   trail.update(sdt);
   enemyTrail.update(sdt);
@@ -3202,14 +3736,24 @@ function step(dt) {
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
+  const criticalK = state.running && !state.over
+    ? THREE.MathUtils.clamp((0.35 - (1 - hurtK)) / 0.35, 0, 1)
+    : 0;
+  audio.setCriticalHealth(criticalK);
   const flowK = Math.min(1, state.chain / 15);
+  // A small pulse at the page edge carries the same cadence as the low double
+  // beat. It never changes the centre of the frame, so blade telegraphs keep
+  // their contrast. Reduced-shake mode holds it still.
+  const criticalPulse = settings.reduceShake
+    ? 0
+    : criticalK * Math.pow(0.5 + Math.sin(state.time * 8.2) * 0.5, 6);
   // On death the print is crushed rather than faded: contrast and vignette
   // climb on real time while scaled time stands still, so the held final frame
   // visibly hardens into its last image.
   deathCrush += ((state.over ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
   film.uniforms.uGrain.value = 0.05 + hurtK * 0.06 + act.grain;
-  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + flowK * 0.05 + deathCrush * 0.3 + act.vig;
-  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + flowK * 0.10 + deathCrush * 0.55 + act.con;
+  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + criticalPulse * 0.1 + flowK * 0.05 + deathCrush * 0.3 + act.vig;
+  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + criticalPulse * 0.035 + flowK * 0.10 + deathCrush * 0.55 + act.con;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash * (settings.reduceShake ? 0.6 : 1);
   invertT = Math.max(0, invertT - dt);
