@@ -9,12 +9,14 @@
 // rigid bodies. Both kinds of debris bleed onto the paper as they go.
 
 import * as THREE from 'three';
+import { RAGDOLL_LIMITS, pushBounded } from './bounded-pool.js';
+export { RAGDOLL_LIMITS } from './bounded-pool.js';
 
 const GRAVITY = -26;
 const SUBSTEP = 1 / 120;
 const ITERATIONS = 7;
 const GROUND = 0.0;
-const MAX_DEBRIS = 60;
+const MAX_DEBRIS = RAGDOLL_LIMITS.debris;
 const MAX_SPEED = 12;   // units/second, per particle
 
 const _v = new THREE.Vector3();
@@ -213,7 +215,9 @@ export class RagdollSystem {
     // Anything still parented to the actor (the empty root, stray bits) goes.
     if (actor.root.parent) actor.root.parent.remove(actor.root);
 
-    this.bodies.push(body);
+    pushBounded(this.bodies, body, RAGDOLL_LIMITS.bodies, (oldest) => {
+      for (const b of oldest.bones) this.dispose(b.obj);
+    });
     return body;
   }
 
@@ -246,12 +250,9 @@ export class RagdollSystem {
   addDebris(obj, cut, force = 1, isProp = false) {
     if (!obj) return;
     // Retire the oldest rather than letting a long fight accumulate limbs.
-    while (this.debris.length >= MAX_DEBRIS) {
-      this.dispose(this.debris.shift().obj);
-    }
     if (obj.parent) this.scene.attach(obj);
     obj.getWorldPosition(_v);
-    this.debris.push({
+    pushBounded(this.debris, {
       obj,
       vel: new THREE.Vector3(
         cut.x * 2.6 * force + (Math.random() - 0.5) * 1.8,
@@ -269,7 +270,7 @@ export class RagdollSystem {
       bleed: isProp ? 0 : 0.045,
       bleedT: 0,
       y0: Math.max(0.06, _v.y * 0.02 + 0.09),
-    });
+    }, MAX_DEBRIS, (oldest) => this.dispose(oldest.obj));
   }
 
   // ----------------------------------------------------------------- update

@@ -7,6 +7,9 @@ export class Audio {
   constructor() {
     this.ctx = null;
     this.master = null;
+    this.sfxBus = null;
+    this.ambienceBus = null;
+    this.accentBus = null;
     this.muteGain = null;   // sits after master so ducking never un-mutes
     this.muted = false;
     this.noiseBuf = null;
@@ -27,6 +30,7 @@ export class Audio {
     this.musicSilenceUntil = 0;
     this.criticalLevel = 0;
     this.criticalNextTime = 0;
+    this.lastPerfectParryAt = -1;
   }
 
   // Must be called from a user gesture.
@@ -37,9 +41,17 @@ export class Audio {
     this.ctx = new AC();
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.55;
-    // A second gain after the master carries the mute. The master is ducked
-    // and ramped by effects (perfectParry, silenceMusic), so muting it there
-    // would be undone on the next ramp; the mute node stays untouched.
+    // Keep decisive contact on its own path. A perfect deflect can pull the
+    // score, wind, and ordinary action away without attenuating the steel hit
+    // that the player is meant to hear on the exact contact frame.
+    this.sfxBus = this.ctx.createGain();
+    this.ambienceBus = this.ctx.createGain();
+    this.accentBus = this.ctx.createGain();
+    this.sfxBus.connect(this.master);
+    this.ambienceBus.connect(this.master);
+    this.accentBus.connect(this.master);
+    // A second gain after the master carries the mute. Accent and score buses
+    // are ramped independently, so the persisted mute stays untouched.
     this.muteGain = this.ctx.createGain();
     this.muteGain.gain.value = this.muted ? 0 : 1;
     this.master.connect(this.muteGain);
@@ -77,7 +89,9 @@ export class Audio {
     else this.ctx.resume();
   }
 
-  noise(dur, { type = 'bandpass', freq = 1200, q = 1, gain = 0.3, sweep = 0, delay = 0 } = {}) {
+  noise(dur, {
+    type = 'bandpass', freq = 1200, q = 1, gain = 0.3, sweep = 0, delay = 0, output = null,
+  } = {}) {
     if (!this.ctx) return;
     const start = this.t + delay;
     const src = this.ctx.createBufferSource();
@@ -91,12 +105,14 @@ export class Audio {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(gain, start);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(output || this.sfxBus || this.master);
     src.start(start);
     src.stop(start + dur + 0.02);
   }
 
-  tone(freq, dur, { type = 'sine', gain = 0.3, to = null, delay = 0 } = {}) {
+  tone(freq, dur, {
+    type = 'sine', gain = 0.3, to = null, delay = 0, output = null,
+  } = {}) {
     if (!this.ctx) return;
     const start = this.t + delay;
     const o = this.ctx.createOscillator();
@@ -106,7 +122,7 @@ export class Audio {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(gain, start);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-    o.connect(g).connect(this.master);
+    o.connect(g).connect(output || this.sfxBus || this.master);
     o.start(start);
     o.stop(start + dur + 0.02);
   }
@@ -128,7 +144,7 @@ export class Audio {
     lfoGain.gain.value = 0.035;
     lfo.connect(lfoGain).connect(g.gain);
     lfo.start();
-    src.connect(f).connect(g).connect(this.master);
+    src.connect(f).connect(g).connect(this.ambienceBus || this.master);
     src.start();
     this.windGain = g;
 
@@ -156,7 +172,7 @@ export class Audio {
     pitchLfo.connect(pitchDepth).connect(rF.frequency);
     ampLfo.start();
     pitchLfo.start();
-    rSrc.connect(rF).connect(rG).connect(this.master);
+    rSrc.connect(rF).connect(rG).connect(this.ambienceBus || this.master);
     rSrc.start();
     this.rustleGain = rG;
     this.rustleDepth = ampDepth;
@@ -191,7 +207,7 @@ export class Audio {
     glue.attack.value = 0.012;
     glue.release.value = 0.24;
     output.gain.value = 0.22;
-    input.connect(color).connect(glue).connect(output).connect(this.master);
+    input.connect(color).connect(glue).connect(output).connect(this.ambienceBus || this.master);
 
     const vinyl = this.ctx.createBufferSource();
     const vinylHigh = this.ctx.createBiquadFilter();
@@ -253,7 +269,7 @@ export class Audio {
       .catch(() => { /* synth fallback */ });
   }
 
-  playSample(name, { gain = 0.5, rate = 1, delay = 0 } = {}) {
+  playSample(name, { gain = 0.5, rate = 1, delay = 0, output = null } = {}) {
     const buf = this.samples[name];
     if (!buf || !this.ctx) return false;
     const src = this.ctx.createBufferSource();
@@ -261,16 +277,25 @@ export class Audio {
     src.playbackRate.value = rate;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(this.master);
+    src.connect(g).connect(output || this.sfxBus || this.master);
     src.start(this.t + delay);
     return true;
   }
 
   scheduleMusic() {
     if (!this.ctx || !this.music) return;
-    if (this.musicNextTime < this.t - 0.25) this.musicNextTime = this.t + 0.05;
     const sixteenth = 60 / 84 / 4;
     const swing = 0.16;
+    // Never backfill notes after a rendering hitch. Web Audio starts events
+    // scheduled in the past immediately, so even a short stall used to dump a
+    // cluster of missed drums into the recovery frame and compound the hitch.
+    // Advance the transport silently until it is just ahead of the audio clock.
+    if (this.musicNextTime < this.t - 0.03) {
+      while (this.musicNextTime < this.t + 0.03) {
+        this.musicNextTime += sixteenth * (this.musicStep % 2 === 0 ? 1 + swing : 1 - swing);
+        this.musicStep++;
+      }
+    }
     while (this.musicNextTime < this.t + 0.16) {
       this.scheduleMusicStep(this.musicStep, this.musicNextTime);
       this.musicNextTime += sixteenth * (this.musicStep % 2 === 0 ? 1 + swing : 1 - swing);
@@ -645,27 +670,75 @@ export class Audio {
     this.tone(3600, 0.22, { type: 'sine', gain: 0.08, to: 2600 });
   }
 
-  perfectParry() {
+  duckForAccent(duration = 0.22) {
     if (!this.ctx) return;
     const now = this.t;
-    // Pull the whole soundscape away before the steel lands. The 38 ms gap is
-    // short enough to feel immediate and long enough for the strike to cut in.
-    this.master.gain.cancelScheduledValues(now);
-    this.master.gain.setValueAtTime(this.master.gain.value, now);
-    this.master.gain.linearRampToValueAtTime(0.08, now + 0.012);
-    this.master.gain.setValueAtTime(0.08, now + 0.038);
-    this.master.gain.exponentialRampToValueAtTime(0.55, now + 0.13);
-    // The strike itself: the recorded clash, slowed a touch so it rings
-    // bigger than an ordinary parry, over the same low body tone.
-    if (this.samples.clash) {
-      this.playSample('clash', { gain: 0.95, rate: 0.87 + Math.random() * 0.05, delay: 0.038 });
-      this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
-    } else {
-      this.noise(0.38, { freq: 5600, q: 7, gain: 0.38, sweep: 0.42, delay: 0.038 });
-      this.tone(2800, 0.34, { type: 'square', gain: 0.055, to: 1250, delay: 0.038 });
-      this.tone(4200, 0.26, { type: 'sine', gain: 0.11, to: 2400, delay: 0.038 });
-      this.tone(96, 0.32, { type: 'sine', gain: 0.34, to: 42, delay: 0.048 });
+    const duck = (bus, floor, release) => {
+      if (!bus) return;
+      const gain = bus.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(Math.max(0.0001, gain.value), now);
+      gain.linearRampToValueAtTime(floor, now + 0.006);
+      gain.setValueAtTime(floor, now + 0.032);
+      gain.exponentialRampToValueAtTime(1, now + release);
+    };
+    duck(this.sfxBus, 0.18, duration * 0.68);
+    duck(this.ambienceBus, 0.055, duration);
+  }
+
+  perfectParry(enemyHeight = 1) {
+    if (!this.ctx) return;
+    const now = this.t;
+    const out = this.accentBus || this.master;
+    // Two enemies can resolve inside the same parry window. Do not stack two
+    // full modal tails; the second contact contributes only a rebound tick.
+    if (now - this.lastPerfectParryAt < 0.05) {
+      this.noise(0.024, { type: 'bandpass', freq: 7100, q: 8, gain: 0.07, output: out });
+      return;
     }
+    this.lastPerfectParryAt = now;
+    this.duckForAccent(0.24);
+
+    const weight = 1 / Math.sqrt(Math.max(0.72, enemyHeight));
+    const jitter = 0.992 + Math.random() * 0.016;
+    // Split steel: dry contact, blade bite, an asymmetric ring, then the tiny
+    // rebound as the blades separate. Every layer begins on the visual frame;
+    // the old 38 ms silence made a correct read feel late.
+    this.playSample('clash', { gain: 0.56, rate: (0.96 + Math.random() * 0.035) * weight, output: out });
+    this.noise(0.016, { type: 'highpass', freq: 6200, q: 0.6, gain: 0.20, output: out });
+    this.noise(0.070, { type: 'bandpass', freq: 2900 * weight, q: 11, gain: 0.13, sweep: 0.60, delay: 0.003, output: out });
+    const modes = [
+      [1380, 0.13, 0.42, 0.004],
+      [2074, 0.085, 0.31, 0.006],
+      [3013, 0.052, 0.23, 0.008],
+      [4285, 0.028, 0.16, 0.011],
+    ];
+    for (const [freq, gain, dur, delay] of modes) {
+      const nominal = freq * weight * jitter;
+      this.tone(nominal * 1.025, dur, { type: 'sine', gain, to: nominal, delay, output: out });
+    }
+    const body = enemyHeight >= 1.35 ? 0.22 : 0.17;
+    this.tone(104, 0.13, { type: 'sine', gain: body, to: 61, delay: 0.001, output: out });
+    this.noise(0.020, { type: 'bandpass', freq: 7100, q: 8, gain: 0.06, delay: 0.028, output: out });
+  }
+
+  escape(lastStand = false) {
+    if (!this.ctx) return;
+    const out = this.accentBus || this.master;
+    this.duckForAccent(lastStand ? 0.62 : 0.46);
+    this.silenceMusic(lastStand ? 0.85 : 0.58, 0.002);
+    // A life-saving slip is breath and torn paper, not steel. Keeping it out
+    // of the parry vocabulary makes the real deflect unmistakable by ear.
+    this.noise(lastStand ? 0.52 : 0.36, {
+      type: 'bandpass', freq: lastStand ? 920 : 1280, q: 0.8,
+      gain: lastStand ? 0.28 : 0.20, sweep: 0.18, output: out,
+    });
+    this.tone(lastStand ? 58 : 76, lastStand ? 0.62 : 0.42, {
+      type: 'sine', gain: lastStand ? 0.30 : 0.22, to: lastStand ? 31 : 43, output: out,
+    });
+    this.tone(lastStand ? 196 : 294, 0.24, {
+      type: 'triangle', gain: 0.055, to: lastStand ? 98 : 147, delay: 0.055, output: out,
+    });
   }
 
   hurt(danger = 0.5) {

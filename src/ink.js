@@ -12,9 +12,11 @@ import { toon } from './actors.js';
 import {
   makeInkAtlas, cellUV, splatCell, flickCell, rng,
 } from './paper.js';
+import { INK_LIMITS, pushBounded } from './bounded-pool.js';
+export { INK_LIMITS } from './bounded-pool.js';
 
-const MAX_STAINS = 620;
-const MAX_DROPS = 420;
+const MAX_STAINS = INK_LIMITS.stains;
+const MAX_DROPS = INK_LIMITS.drops;
 
 const c0 = new THREE.Vector3(), c1 = new THREE.Vector3();
 const c2 = new THREE.Vector3(), c3 = new THREE.Vector3();
@@ -99,9 +101,8 @@ export class InkSystem {
   addStain(x, z, size, opts = {}) {
     const r = this.rnd;
     if (Math.abs(x) > this.arenaHalf + 6 || Math.abs(z) > this.arenaHalf + 6) return;
-    if (this.stains.length >= MAX_STAINS) this.stains.shift();
     const alpha = opts.alpha ?? (0.82 + r() * 0.18);
-    this.stains.push({
+    pushBounded(this.stains, {
       x, z,
       rot: opts.rot ?? r() * Math.PI * 2,
       uv: cellUV(opts.cell ?? splatCell(r)),
@@ -116,7 +117,7 @@ export class InkSystem {
       fade: opts.fade ?? 0.022,
       floor: alpha * 0.34,
       aspect: opts.aspect ?? 1,
-    });
+    }, MAX_STAINS);
   }
 
   // A directional throw of ink, as if off the blade. Reads as a brush flick.
@@ -162,10 +163,9 @@ export class InkSystem {
     const r = this.rnd;
     const { dirX = 0, dirZ = 0, force = 1, up = 1 } = opts;
     for (let i = 0; i < count; i++) {
-      if (this.drops.length >= MAX_DROPS) this.drops.shift();
       const a = r() * Math.PI * 2;
       const s = r() * 2.2 * force;
-      this.drops.push({
+      pushBounded(this.drops, {
         p: new THREE.Vector3(x, y, z),
         v: new THREE.Vector3(
           dirX * 7.0 * force + Math.cos(a) * s,
@@ -175,7 +175,7 @@ export class InkSystem {
         size: 0.06 + r() * 0.11,
         rx: r() * Math.PI, rz: r() * Math.PI,
         wx: (r() - 0.5) * 18, wz: (r() - 0.5) * 18,
-      });
+      }, MAX_DROPS);
     }
   }
 
@@ -183,7 +183,11 @@ export class InkSystem {
   // attached to a ragdoll joint follows the body down — the blood visibly
   // comes *from the wound*, not from the point in space where the hit landed.
   addJet(getPos, dirX, dirZ, { duration = 0.8, rate = 30, force = 1.2, up = 1.0 } = {}) {
-    this.jets.push({ getPos, dirX, dirZ, duration, rate, force, up, t: 0, acc: 0 });
+    pushBounded(
+      this.jets,
+      { getPos, dirX, dirZ, duration, rate, force, up, t: 0, acc: 0 },
+      INK_LIMITS.jets,
+    );
   }
 
   updateJets(dt) {
@@ -216,7 +220,7 @@ export class InkSystem {
   splashScreen(count = 6, power = 1) {
     const r = this.rnd;
     for (let i = 0; i < count; i++) {
-      this.screenMarks.push({
+      pushBounded(this.screenMarks, {
         x: r() * innerWidth,
         y: r() * innerHeight,
         s: (18 + r() * 90) * power,
@@ -225,7 +229,7 @@ export class InkSystem {
         age: 0,
         life: 2.6 + r() * 3.0,
         alpha: 0.35 + r() * 0.45,
-      });
+      }, INK_LIMITS.screenMarks);
     }
   }
 
@@ -233,12 +237,12 @@ export class InkSystem {
   // at `angle` (screen-space radians), then the sheet parts into two dark ink
   // lips that drift open and fade. The iai's signature — one decisive stroke.
   slashWipe(angle, { life = 0.52 } = {}) {
-    this.slashes.push({
+    pushBounded(this.slashes, {
       angle,
       age: 0,
       life,
       reach: Math.hypot(innerWidth, innerHeight) * 0.62,
-    });
+    }, INK_LIMITS.slashes);
   }
 
   drawSlashes(dt) {

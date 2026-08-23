@@ -62,4 +62,4 @@ createServer(async (req, res) => {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   }
-}).listen(PORT, () => console.log(`dev server on http://localhost:${PORT}`));
+}).listen(PORT, '127.0.0.1', () => console.log(`dev server on http://127.0.0.1:${PORT}`));

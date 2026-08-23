@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FilmRenderer, applyLetterbox, viewportSize } from './render.js';
 import { DISCIPLINE_ART, HUD_LIFE, HUD_IAI, MASTERY_SEAL, POEM_FLOURISH } from './glyphs.js';
-import { InkSystem } from './ink.js';
+import { INK_LIMITS, InkSystem } from './ink.js';
 import { buildWorld, ARENA, Rain } from './world.js';
 import {
   makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion,
@@ -11,57 +11,33 @@ import {
 import { SlashTrail } from './trail.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
-import { RagdollSystem } from './ragdoll.js';
-import { VoxelGibs } from './voxel.js';
+import { RAGDOLL_LIMITS, RagdollSystem } from './ragdoll.js';
+import { DEFAULT_GIB_POOL, VoxelGibs } from './voxel.js';
 import { toon } from './actors.js';
+import {
+  PLAYER_MAX_HP,
+  DASH_DISTANCE, DASH_TIME,
+  PARRY_STARTUP,
+  FOCUS_MAX, FLOW_WINDOW, ENEMY_STRIKE_TIME,
+  attackSpecFor, parryDurationFor, parryWindowActive,
+  weaponComboFor,
+} from './combat.js';
+import {
+  enemyScalingForWave, isRivalWave,
+} from './waves.js';
+import { WAVE_EVENT, WaveDirector } from './wave-director.js';
+import { FrameProfiler } from './profiler.js';
+import { FixedStepClock } from './simulation-clock.js';
+import { PlayerController } from './player-controller.js';
+import { CombatSystem } from './combat-system.js';
+import { EnemyDirector } from './enemy-director.js';
+import { TRANSIENT_EFFECT_LIMITS, pushBounded } from './bounded-pool.js';
 
 // ---------------------------------------------------------------- constants
 
-const PLAYER_SPEED = 7.6;
-const PLAYER_MAX_HP = 100;
 const GAME_VERSION = new URL(import.meta.url).searchParams.get('v') || 'DEV';
-const DASH_DISTANCE = 4.2;
-const DASH_TIME = 0.20;
-// Short cooldown so dashes chain — the dash is the connective tissue of the
-// flow, not a rationed escape. Lockout between dashes is DASH_TIME + this.
-const DASH_COOLDOWN = 0.12;
-const MAX_WAVE_ENEMIES = 18;
 const SIGNATURE_BODIES_PER_FRAME = 2;
 const SIGNATURE_BODY_DELAY = 0.10;
-
-// Attack phases, in seconds. Short wind-up, brief active window, longer
-// recovery — committing to a swing should feel like a decision.
-// Active windows sit at 7-10 frames: shorter and the swing arc is over before
-// the eye registers it, which reads as the katana not moving at all.
-const ATTACK = [
-  { windup: 0.09, active: 0.12, recover: 0.20, damage: 34, reach: 3.1, arc: 0.05 },
-  { windup: 0.07, active: 0.12, recover: 0.22, damage: 38, reach: 3.2, arc: -0.15 },
-  { windup: 0.13, active: 0.16, recover: 0.34, damage: 62, reach: 3.6, arc: 0.30 },
-];
-// Dash-cancel strikes turn the evade into an opening: attack out of a dash and
-// the direction of the dash decides the cut. Driving forward yields a piercing
-// thrust that closes the gap; a side or back dash whips a fast cross cut.
-// Neither chains — each is one committed read spent from a dash.
-const THRUST  = { windup: 0.06, active: 0.12, recover: 0.24, damage: 48, reach: 4.7 };
-const DASHCUT = { windup: 0.04, active: 0.11, recover: 0.20, damage: 40, reach: 3.4 };
-// The nodachi combo: two heavy horizontal sweeps, not three quick cuts. Authored
-// slow on purpose — a wind-up long enough to read as commitment (0.20s vs the
-// katana's 0.09s) and a long follow-through — so the weight is felt in the swing,
-// not asserted in the stats. Each sweep reaches far and catches a wide forward
-// fan; playerAttackHits throws the whole crowd back off it.
-const NODACHI_COMBO = [
-  { windup: 0.20, active: 0.15, recover: 0.30, damage: 60, reach: 4.8, arc: 0.4 },
-  { windup: 0.22, active: 0.17, recover: 0.44, damage: 108, reach: 5.2, arc: -0.5 },
-];
-const COMBO_WINDOW = 0.42;
-
-const PARRY_STARTUP = 0.03;
-const PARRY_ACTIVE = 0.24;
-const PARRY_RECOVER = 0.26;
-const PARRY_COOLDOWN = 0.5;
-
-const FOCUS_MAX = 100;
-const FLOW_WINDOW = 5.5;
 
 // ------------------------------------------------------------------- setup
 
@@ -125,11 +101,12 @@ const WORLD_BOUND = 1e9;   // the page never ends
 const ink = new InkSystem(scene, WORLD_BOUND);
 const ragdolls = new RagdollSystem(scene, ink, WORLD_BOUND);
 // Bodies are made of cubes now, so they come apart into cubes.
-const gibs = new VoxelGibs(scene, toon(0.07), 320, 0.13);
+const gibs = new VoxelGibs(scene, toon(0.07), DEFAULT_GIB_POOL, 0.13);
 const trail = new SlashTrail(scene, { radius: 2.7, width: 1.7, sweep: 3.0 });
 const enemyTrail = new SlashTrail(scene, { radius: 2.2, width: 1.0, sweep: 2.4, color: 0x101015 });
 
 const input = new Input(film.domElement);
+const simulationClock = new FixedStepClock();
 
 // Touch controls: shown once we know the device is touch-first (coarse pointer
 // at load) or the moment a real touch arrives. The stick and buttons feed the
@@ -311,11 +288,22 @@ function todayStamp() {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-const run = { daily: false, dateStr: '', rng: Math.random, generation: 0, weaponIntro: '' };
+// Repeatable runtime QA without a production cheat path. Localhost may begin
+// directly on a requested wave; deployed hosts always start from wave one.
+const LOCAL_QA = /^(localhost|127\.0\.0\.1|\[?::1\]?)$/.test(location.hostname);
+const QA_PARAMS = new URLSearchParams(location.search);
+const DEV_START_WAVE = LOCAL_QA
+  ? Math.max(1, Math.min(9999, Math.floor(Number(QA_PARAMS.get('qa-wave')) || 1)))
+  : 1;
+const DEV_QA_SCENARIO = LOCAL_QA ? QA_PARAMS.get('qa-scenario') : '';
+const run = {
+  daily: false, dateStr: '', rng: Math.random, generation: 0,
+  weaponIntro: '', skinIntro: '',
+};
+const waveDirector = new WaveDirector(state, { rng: run.rng });
 updateRunModeTag();
 
 // Reusable scratch vectors — the update loop allocates nothing.
-const vMove = new THREE.Vector3();
 const vAim = new THREE.Vector3();
 const vTmp = new THREE.Vector3();
 const vTmp2 = new THREE.Vector3();
@@ -404,8 +392,7 @@ let shakeAmount = 0;
 function shake(v) { shakeAmount = Math.min(1.4, shakeAmount + v); }
 
 function hitstop(duration, scale = 0.08) {
-  state.hitstop = Math.max(state.hitstop, duration);
-  state.timeScale = scale;
+  combatSystem.hitstop(duration, scale);
 }
 
 let whiteFlash = 0;
@@ -456,6 +443,36 @@ function showWeaponNotice(weapon) {
   boonNoticeEl.classList.add('show');
 }
 
+const LEGEND_NOTICE_ART = {
+  hitokiri: `
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M9 8h14l3 7-4 11H10L6 15z" fill="currentColor"/>
+      <path d="M21 10c7 2 8 8 5 14" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M5 13h22" stroke="currentColor" stroke-width="2"/>
+    </svg>`,
+  masamune: `
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M7 14h18l3 12H4z" fill="currentColor"/>
+      <path d="M5 12C8 2 21 0 28 7C20 4 13 7 10 13" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M16 13v13" stroke="currentColor" stroke-width="2"/>
+    </svg>`,
+  mibu: `
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M8 5h16l5 23-8-5-5 6-5-6-8 5z" fill="currentColor"/>
+      <path d="M9 13h14M11 18h10" stroke="#fff" stroke-width="2" opacity=".7"/>
+    </svg>`,
+};
+
+function showLegendNotice(skin) {
+  boonNoticeEl.querySelector('.sigil').innerHTML = LEGEND_NOTICE_ART[skin.id] || '';
+  boonNoticeEl.querySelector('.eyebrow').textContent = 'NEW LEGEND ON THE PAGE';
+  boonNoticeEl.querySelector('.name').textContent = skin.name;
+  boonNoticeEl.querySelector('.effect').textContent = `${skin.epithet} · WORN FOR THIS RUN`;
+  boonNoticeEl.classList.remove('show');
+  void boonNoticeEl.offsetWidth;
+  boonNoticeEl.classList.add('show');
+}
+
 function showDamageFlash() {
   damageFlashEl.classList.remove('show');
   void damageFlashEl.offsetWidth;
@@ -485,6 +502,21 @@ const parryRingGeo = makeBrushRing();
 const parryRings = [];
 const impactBursts = [];
 const dashWakes = [];
+
+function disposeTransientEffect(item, { geometry = false } = {}) {
+  scene.remove(item.mesh);
+  if (geometry) item.mesh.geometry.dispose();
+  item.mesh.material.dispose();
+}
+
+function addTransientEffect(list, item, limit, options) {
+  return pushBounded(
+    list,
+    item,
+    limit,
+    (oldest) => disposeTransientEffect(oldest, options),
+  );
+}
 
 function makeDashWakeGeometry() {
   const positions = [];
@@ -521,7 +553,11 @@ function spawnDashWake(position, direction) {
   mesh.scale.set(1, 1, 0.02);
   mesh.renderOrder = 5;
   scene.add(mesh);
-  dashWakes.push({ mesh, age: 0, life: DASH_TIME + 0.24 });
+  addTransientEffect(
+    dashWakes,
+    { mesh, age: 0, life: DASH_TIME + 0.24 },
+    TRANSIENT_EFFECT_LIMITS.dashWakes,
+  );
 }
 
 function updateDashWakes(dt) {
@@ -570,7 +606,12 @@ function spawnImpactBurst(position, strength = 1) {
   mesh.scale.setScalar(0.42);
   mesh.renderOrder = 5;
   scene.add(mesh);
-  impactBursts.push({ mesh, age: 0, life: 0.24 + strength * 0.06 });
+  addTransientEffect(
+    impactBursts,
+    { mesh, age: 0, life: 0.24 + strength * 0.06 },
+    TRANSIENT_EFFECT_LIMITS.impactBursts,
+    { geometry: true },
+  );
 }
 
 function updateImpactBursts(dt) {
@@ -637,7 +678,11 @@ function spawnParryRing(position) {
   mesh.quaternion.copy(camera.quaternion);
   mesh.renderOrder = 8;
   scene.add(mesh);
-  parryRings.push({ mesh, age: 0, life: 0.42 });
+  addTransientEffect(
+    parryRings,
+    { mesh, age: 0, life: 0.42 },
+    TRANSIENT_EFFECT_LIMITS.parryRings,
+  );
 }
 
 function updateParryRings(dt) {
@@ -657,105 +702,33 @@ function updateParryRings(dt) {
 }
 
 function flowMultiplier() {
-  return 1 + Math.min(0.5, Math.floor(state.chain / 4) * 0.1);
+  return combatSystem.flowMultiplier();
 }
 
 function getFlowTier(chain = state.chain) {
-  if (chain >= 12) return 3;
-  if (chain >= 8) return 2;
-  if (chain >= 4) return 1;
-  return 0;
+  return combatSystem.getFlowTier(chain);
 }
 
-let flowWarningPlayed = false;
-
 function addFlow(amount = 1, refreshHUD = true, announce = true) {
-  const previousTier = getFlowTier();
-  state.chain += amount;
-  state.chainTimer = FLOW_WINDOW;
-  flowWarningPlayed = false;
-  state.bestChain = Math.max(state.bestChain, state.chain);
-  const nextTier = getFlowTier();
-  audio.setFlowTier(nextTier);
-  if (announce && nextTier > previousTier) {
-    audio.flowTier(nextTier);
-    if (nextTier === 3) {
-      flash(0.42);
-      shake(0.62);
-    }
-  }
-  if (refreshHUD) updateHUD();
+  combatSystem.addFlow(amount, refreshHUD, announce);
 }
 
 function breakFlow() {
-  if (state.chain > 0) audio.flowBreak();
-  state.chain = 0;
-  state.chainTimer = 0;
-  flowWarningPlayed = false;
-  audio.setFlowTier(0);
-  updateHUD();
+  combatSystem.breakFlow();
 }
 
 function updateFlow(dt) {
-  if (state.chain > 0) {
-    state.chainTimer -= dt;
-    if (state.chainTimer <= 0) breakFlow();
-  }
-  const target = state.chain > 0 ? THREE.MathUtils.clamp(state.chainTimer / FLOW_WINDOW, 0, 1) : 0;
-  if (target > 0.8) flowWarningPlayed = false;
-  if (state.chain > 0 && target <= 0.24 && !flowWarningPlayed) {
-    flowWarningPlayed = true;
-    audio.flowWarning();
-  }
-  flowEl.classList.toggle('expiring', state.chain > 0 && target <= 0.24);
-  flowChargeEl.style.transform = `scaleX(${target})`;
-  const followSpeed = target > flowGhostLevel ? 18 : 3.2;
-  flowGhostLevel += (target - flowGhostLevel) * Math.min(1, dt * followSpeed);
-  flowGhostEl.style.transform = `scaleX(${flowGhostLevel})`;
+  combatSystem.updateFlow(dt);
 }
 
 // -------------------------------------------------------------------- waves
 
-function waveComposition(n) {
-  const list = [];
-  // Every count is capped so the field plateaus instead of
-  // ballooning past forty — a clear frame, not a slog. Chaff (ronin, hunters)
-  // is capped hardest so late waves become a denser mix of real threats rather
-  // than a sea of the weakest enemy. Escalation past the caps comes from the
-  // HP/damage scaling and the rising attack-slot count, not from headcount.
-  const ronin = Math.min(7, 2 + Math.floor(n * 0.6));
-  const hunters = n >= 2 ? Math.min(6, Math.floor(n * 0.5)) : 0;
-  const yari = n >= 3 ? Math.min(4, 1 + Math.floor((n - 3) * 0.35)) : 0;
-  const brutes = n >= 4 ? Math.min(4, Math.floor((n - 2) / 3)) : 0;
-  const yumi = n >= 6 ? Math.min(3, 1 + Math.floor((n - 6) / 4)) : 0;
-  for (let i = 0; i < ronin; i++) list.push('ronin');
-  for (let i = 0; i < hunters; i++) list.push('hunter');
-  for (let i = 0; i < yari; i++) list.push('yari');
-  for (let i = 0; i < brutes; i++) list.push('brute');
-  for (let i = 0; i < yumi; i++) list.push('yumi');
-  if (n % 5 === 0) list.push('oni');
-  // Keep the dangerous mix and remove excess chaff first. A hard total cap is
-  // also the performance budget for full-field signature kills.
-  const minimum = { ronin: 2, hunter: 3, yari: 2, brute: 2, yumi: 1, oni: 1 };
-  const trimOrder = ['ronin', 'hunter', 'yari', 'brute', 'yumi'];
-  while (list.length > MAX_WAVE_ENEMIES) {
-    let removed = false;
-    for (const type of trimOrder) {
-      const count = list.reduce((total, entry) => total + (entry === type ? 1 : 0), 0);
-      if (count <= minimum[type]) continue;
-      list.splice(list.indexOf(type), 1);
-      removed = true;
-      break;
-    }
-    if (!removed) list.pop();
-  }
-  return list;
-}
-
 function spawnEnemy(type, options = {}) {
   const spec = ENEMY_TYPES[type];
-  const a = run.rng() * Math.PI * 2;
-  const r = 13 + run.rng() * 6;
+  // Normal wave spawns arrive with a seeded structural position from the Wave
+  // Director. The fallback keeps console-authored QA spawns convenient.
+  const a = options.angle ?? waveDirector.nextRandom() * Math.PI * 2;
+  const r = options.radius ?? 13 + waveDirector.nextRandom() * 6;
   const actor = makeEnemy(type);
   actor.baseHipY = actor.hips.position.y;
   actor.root.position.set(
@@ -792,8 +765,7 @@ function spawnEnemy(type, options = {}) {
   // kills stay snappy, while damage scales so a missed read stays lethal — the
   // whole point of the parry/dash game is that a hit should cost you more as
   // the waves climb, not less.
-  const hpScale = 1 + state.wave * 0.05;
-  const dmgScale = 1 + state.wave * 0.04;
+  const scaling = enemyScalingForWave(state.wave);
   // Enemies do not pop into the scene as ordinary objects. Each one waits for
   // its place in the wave, then rises through a wet mark in the paper. Keep
   // this entry state in the normal enemy list so wave completion remains
@@ -810,9 +782,9 @@ function spawnEnemy(type, options = {}) {
     rivalChain: 0,
     awakened: false,
     attackScale: 1,
-    hp: spec.hp * hpScale,
-    maxHp: spec.hp * hpScale,
-    damage: spec.damage * dmgScale,
+    hp: spec.hp * scaling.hp,
+    maxHp: spec.hp * scaling.hp,
+    damage: spec.damage * scaling.damage,
     state: 'enter',
     t: -Math.max(0, options.delay || 0),
     entered: false,
@@ -836,8 +808,11 @@ function spawnEnemy(type, options = {}) {
 // are the fair warning, and the vermilion tell tells you *this* one is coming.
 function rollFierce(e) {
   if (e.spec.bow) return false;
-  if (e.type === 'brute') return run.rng() < 0.75;
-  if (e.type === 'oni') return run.rng() < 0.5;
+  // Strike-to-strike variation is combat timing, not run structure. Keeping it
+  // on Math.random prevents a player's number of exchanges from consuming the
+  // Daily Trial stream that owns spawn positions and discipline offers.
+  if (e.type === 'brute') return Math.random() < 0.75;
+  if (e.type === 'oni') return Math.random() < 0.5;
   return false;
 }
 
@@ -869,47 +844,21 @@ function enemyWindup(e) {
 }
 
 function startWave() {
-  state.wave++;
-  // How many enemies may commit an attack at once. Climbs past the old cap of
-  // 4 so the pressure keeps rising after the crowd size has plateaued —
-  // intensity from simultaneity, not from a bigger pool of idle bodies.
-  // Wave 1 teaches one readable exchange at a time. From Wave 2 onward the
-  // normal pressure curve takes over, so the opening is clear without making
-  // the rest of the run easier.
-  state.slots = state.wave === 1 ? 1 : Math.min(5, 2 + Math.floor(state.wave / 3));
-  const rivalName = state.wave % 5 === 0 ? rivalNameForWave(state.wave) : '';
-  if (rivalName) audio.silenceMusic(0.82, 0.002);
-  const grudge = Boolean(rivalName) && loadGrudge() === rivalName;
-  const composition = waveComposition(state.wave);
-  composition.forEach((type, index) => {
-    // A short stagger lets the eye count silhouettes as they bleed onto the
-    // page. Cap it so a large late wave still begins as one decisive beat.
-    const delay = state.wave === 1
-      ? 0.08 + index * 0.72
-      : type === 'oni'
-        ? 0.08
-        : rivalName
-          ? 0.72 + Math.min(index * 0.04, 0.5)
-          : 0.08 + Math.min(index * 0.055, 0.58);
-    spawnEnemy(type, {
-      delay,
-      rival: type === 'oni',
-      rivalName,
-      grudge: type === 'oni' && grudge,
-    });
-  });
-  audio.taiko(state.wave % 5 === 0 ? 58 : 82, 0.55);
-  showWaveTitle(state.wave);
+  const plan = waveDirector.startNextWave({ grudgeName: loadGrudge() });
+  if (plan.rivalName) audio.silenceMusic(0.82, 0.002);
+  for (const enemy of plan.enemies) spawnEnemy(enemy.type, enemy);
+  audio.taiko(plan.rivalName ? 58 : 82, 0.55);
+  showWaveTitle(plan);
   const generation = run.generation;
   // The spearman gets a name the first time it walks on — a new silhouette is
   // worth a beat of attention.
-  if (!state.seenYari && composition.includes('yari')) {
+  if (!state.seenYari && plan.composition.includes('yari')) {
     state.seenYari = true;
     setTimeout(() => {
       if (state.running && run.generation === generation) showCombatCallout('YARI', 'STRIKES FROM RANGE');
     }, 1600);
   }
-  if (!state.seenYumi && composition.includes('yumi')) {
+  if (!state.seenYumi && plan.composition.includes('yumi')) {
     state.seenYumi = true;
     setTimeout(() => {
       if (state.running && run.generation === generation) showCombatCallout('YUMI', 'MOVE OFF THE LINE');
@@ -919,26 +868,21 @@ function startWave() {
 }
 
 const waveTitleEl = document.getElementById('waveTitle');
-function showWaveTitle(n) {
-  const boss = n % 5 === 0;
+function showWaveTitle(plan) {
+  const n = plan.wave;
+  const boss = Boolean(plan.rivalName);
   // A remembering rival trades the demon's 鬼 for 怨 — the grudge — and the
   // introduction stops being about the rival and starts being about you.
-  const grudge = boss && loadGrudge() === rivalNameForWave(n);
   waveTitleEl.innerHTML = boss
-    ? grudge
-      ? `<span class="kanji">怨</span><span class="latin">${rivalNameForWave(n)} REMEMBERS YOU</span>`
-      : `<span class="kanji">鬼</span><span class="latin">${rivalNameForWave(n)}: THE IRON DEMON</span>`
+    ? plan.grudge
+      ? `<span class="kanji">怨</span><span class="latin">${plan.rivalName} REMEMBERS YOU</span>`
+      : `<span class="kanji">鬼</span><span class="latin">${plan.rivalName}: THE IRON DEMON</span>`
     : (n - 1) % 5 === 0
       ? `<span class="kanji">${numberKanji(n)}</span><span class="latin">ACT ${['I', 'II', 'III', 'IV', 'V'][actIndex()]} · ${currentAct().name}</span>`
       : `<span class="kanji">${numberKanji(n)}</span><span class="latin">WAVE ${n}</span>`;
   waveTitleEl.classList.remove('show');
   void waveTitleEl.offsetWidth; // restart the animation
   waveTitleEl.classList.add('show');
-}
-
-function rivalNameForWave(n) {
-  const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
-  return names[(Math.floor(n / 5) - 1) % names.length];
 }
 
 // Every five waves is an act: a name for the title, and a slightly different
@@ -959,9 +903,31 @@ function currentAct() { return ACT_DEFS[actIndex()]; }
 
 function numberKanji(n) {
   const d = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
-  if (n < 10) return d[n];
-  if (n < 20) return n === 10 ? '十' : `十${d[n % 10]}`;
-  return `${d[Math.floor(n / 10)]}十${n % 10 ? d[n % 10] : ''}`;
+  const underTenThousand = (value) => {
+    if (value === 0) return '';
+    let result = '';
+    const places = [[1000, '千'], [100, '百'], [10, '十']];
+    let rest = value;
+    for (const [place, mark] of places) {
+      const digit = Math.floor(rest / place);
+      if (digit) result += `${digit === 1 ? '' : d[digit]}${mark}`;
+      rest %= place;
+    }
+    if (rest) result += d[rest];
+    return result;
+  };
+
+  const value = Math.max(0, Math.floor(Number(n) || 0));
+  if (value === 0) return d[0];
+  // The run is endless. Keep the act title valid after wave 99 instead of
+  // indexing past the single-digit table and printing "undefined十".
+  if (value < 10000) return underTenThousand(value);
+  if (value < 100000000) {
+    const high = Math.floor(value / 10000);
+    const low = value % 10000;
+    return `${underTenThousand(high)}万${underTenThousand(low)}`;
+  }
+  return String(value);
 }
 
 const UPGRADE_DEFS = [
@@ -1000,19 +966,11 @@ let offeredUpgrades = [];
 function chooseUpgradeSet() {
   const available = UPGRADE_DEFS.filter((u) => state.upgrades[u.id] < 3);
   const mastered = UPGRADE_DEFS.filter((u) => state.upgrades[u.id] >= 3);
-  const shuffle = (items) => {
-    const shuffled = [...items];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(run.rng() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
-  return [...shuffle(available), ...shuffle(mastered)].slice(0, 3);
+  return [...waveDirector.shuffle(available), ...waveDirector.shuffle(mastered)].slice(0, 3);
 }
 
 function showUpgradeChoice() {
-  state.choosingUpgrade = true;
+  waveDirector.beginUpgrade();
   input.enabled = false;
   offeredUpgrades = chooseUpgradeSet();
   upgradeChoicesEl.replaceChildren();
@@ -1053,9 +1011,7 @@ function takeUpgrade(upgrade) {
     state.upgrades[upgrade.id]++;
     if (upgrade.id === 'fallingLeaf') state.escapeCharges++;
   }
-  state.choosingUpgrade = false;
-  state.pendingUpgrade = false;
-  state.waveBreak = 1.1;
+  waveDirector.finishUpgrade();
   input.enabled = true;
   upgradeOverlayEl.classList.add('hidden');
   upgradeOverlayEl.setAttribute('aria-hidden', 'true');
@@ -1072,7 +1028,7 @@ addEventListener('keydown', (event) => {
 });
 
 function parryDuration() {
-  return PARRY_ACTIVE + state.upgrades.steelMind * 0.035;
+  return parryDurationFor(state.upgrades.steelMind);
 }
 
 // ------------------------------------------------------------------- combat
@@ -1082,13 +1038,11 @@ function parryDuration() {
 // The weapon supplies its own combo — its own timing and hit shape, authored
 // rather than scaled — while the dash-cancel strikes stay shared.
 function weaponCombo() {
-  return activeWeapon.skill === 'tsunami' ? NODACHI_COMBO : ATTACK;
+  return weaponComboFor(activeWeapon.skill);
 }
 
 function activeAttack() {
-  if (state.attackKind === 'thrust') return THRUST;
-  if (state.attackKind === 'dashcut') return DASHCUT;
-  return weaponCombo()[state.comboIndex];
+  return attackSpecFor(state.attackKind, state.comboIndex, activeWeapon.skill);
 }
 
 function playerAttackHits() {
@@ -1371,7 +1325,7 @@ function damagePlayer(amount, source = null) {
     hitstop(0.22, 0.035);
     shake(1.1);
     showCombatCallout('FALLING LEAF', 'DEATH ESCAPED');
-    audio.perfectParry();
+    audio.escape();
     updateHUD();
     return;
   }
@@ -1389,7 +1343,7 @@ function damagePlayer(amount, source = null) {
     shake(1.0);
     audio.silenceMusic(1.2, 0.001);
     showCombatCallout('LAST', 'LAST STAND');
-    audio.perfectParry();
+    audio.escape(true);
     updateHUD();
     return;
   }
@@ -1433,13 +1387,9 @@ function damagePlayer(amount, source = null) {
 // Attack slots keep the fight legible: only a couple of enemies may commit at
 // once, and the rest circle. Without this a crowd becomes a coin flip.
 function requestSlot(e) {
-  if (e.hasSlot) return true;
-  const used = enemies.reduce((n, x) => n + (x.hasSlot ? 1 : 0), 0);
-  if (used >= state.slots) return false;
-  e.hasSlot = true;
-  return true;
+  return enemyDirector.requestSlot(e);
 }
-function releaseSlot(e) { e.hasSlot = false; }
+function releaseSlot(e) { enemyDirector.releaseSlot(e); }
 
 function playerDashHits() {
   const level = state.upgrades.bloodWind;
@@ -1658,272 +1608,29 @@ function fireTsunamiCut() {
   audio.taiko(48, 0.4);
 }
 
-function beginDash(moving) {
-  state.action = 'dash';
-  state.actionT = 0;
-  state.dashCooldown = DASH_TIME + DASH_COOLDOWN;
-  state.dashDir.copy(moving ? vMove : vTmp.set(Math.sin(state.facing), 0, Math.cos(state.facing)));
-  state.dashHit.clear();
-  rewardDashRead();
-  spawnDashWake(player.root.position, state.dashDir);
-  spawnImpactBurst(player.root.position, 0.42);
-  camPunch.x += state.dashDir.x * 0.2;
-  camPunch.z += state.dashDir.z * 0.2;
-  shake(0.14);
-  audio.dash();
-}
-
-// ------------------------------------------------------------- player update
-
-// Idle sheathing: stand truly still with no blade near, and the samurai puts
-// the sword away. The first input draws it again with a cut of sound.
-let idleFor = 0;
-let sheathK = 0;
-let sheathed = false;
-
-function updatePlayer(dt) {
-  if (state.action !== 'iai') state.facing = aimYaw();
-
-  if (state.dashCooldown > 0) state.dashCooldown -= dt;
-  if (state.parryCooldown > 0) state.parryCooldown -= dt;
-  if (state.invuln > 0) state.invuln -= dt;
-  if (state.comboTimer > 0) state.comboTimer -= dt;
-  else state.comboIndex = 0;
-
-  const moving = input.moveVector(vMove);
-
-  if (state.action === 'idle' && !moving) idleFor += dt; else idleFor = 0;
-  let calm = idleFor > 3;
-  if (calm) {
-    for (const e of enemies) {
-      if (e.dead) continue;
-      const ex = e.actor.root.position.x - player.root.position.x;
-      const ez = e.actor.root.position.z - player.root.position.z;
-      if (ex * ex + ez * ez < 81) { calm = false; break; }
-    }
-  }
-  if (sheathed && !calm && sheathK > 0.5) audio.swing(1);   // the redraw
-  sheathed = calm;
-  sheathK += ((sheathed ? 1 : 0) - sheathK) * Math.min(1, dt * (sheathed ? 3 : 18));
-
-  // Rotate raw WASD into the isometric frame: W is up-screen, which under a
-  // 45-degree camera is the world diagonal, not the world -Z axis.
-  if (moving) {
-    const mx = vMove.x, mz = vMove.z;
-    const s = Math.sin(ISO_AZIMUTH), c = Math.cos(ISO_AZIMUTH);
-    vMove.x = mx * c + mz * s;
-    vMove.z = mz * c - mx * s;
-  }
-
-  // ---- action transitions
-  // Dash is the universal cancel: it breaks out of an attack (any phase) or a
-  // parry the instant it is pressed, so recovery never traps you — the core of
-  // the fluid feel. The committed iai and the hurt stagger are the exceptions.
-  const dashCancellable = state.action === 'idle' || state.action === 'attack' || state.action === 'parry';
-  // A landed hit lets the combo chain immediately, without waiting for the
-  // recovery window — kills flow straight into the next cut.
-  const hitConfirmed = state.action === 'attack'
-    && state.hitThisSwing && state.hitThisSwing.size > 0;
-  const canChain = state.action === 'attack'
-    && (state.attackPhase === 'recover' || (state.attackPhase === 'active' && hitConfirmed));
-
-  if (dashCancellable && state.dashCooldown <= 0 && input.take('dash')) {
-    beginDash(moving);
-  } else if (state.action === 'idle') {
-    if (input.take('focus')) trySignature();
-    else if (input.take('parry') && state.parryCooldown <= 0) {
-      state.action = 'parry';
-      state.actionT = 0;
-      state.parryCooldown = PARRY_COOLDOWN + PARRY_STARTUP + parryDuration() + PARRY_RECOVER;
-      audio.guard();
-    } else if (input.take('attack')) {
-      beginAttack();
-    }
-  } else if (canChain) {
-    // Chaining late in recovery (or the moment a hit confirms) is what makes the
-    // combo feel like one sequence rather than three separate swings.
-    if (input.take('attack') && state.comboIndex < weaponCombo().length - 1) {
-      state.comboIndex++;
-      beginAttack(true);
-    }
-  } else if (state.action === 'dash') {
-    // Dash-cancel: attack out of the evade. The dash direction relative to the
-    // aim decides the cut — driving in skewers with a thrust, cutting away or
-    // across whips a dash-cut. The dash has already spent its i-frames, so this
-    // is the aggressive continuation, not a second escape.
-    if (state.actionT > 0.02 && input.take('attack')) {
-      const fwd = state.dashDir.x * Math.sin(state.facing) + state.dashDir.z * Math.cos(state.facing);
-      const kind = fwd > 0.35 ? 'thrust' : 'dashcut';
-      beginAttack(false, kind);
-      if (!state.seenDashCut) {
-        state.seenDashCut = true;
-        showCombatCallout('DRAW', kind === 'thrust' ? 'DASH THRUST' : 'DASH CUT');
-      }
-    }
-  }
-
-  // ---- movement
-  let speed = 0;
-  if (state.action === 'dash') {
-    // Cover a fixed distance regardless of frame cadence. The old quadratic
-    // slowdown travelled only ~2 units — barely farther than normal running
-    // over the same 0.2 s — so the dash looked and felt like it did nothing.
-    const dashDt = Math.min(dt, Math.max(0, DASH_TIME - state.actionT));
-    state.actionT += dt;
-    state.invuln = Math.max(state.invuln, 0.02);
-    const travel = DASH_DISTANCE * (dashDt / DASH_TIME);
-    player.root.position.x += state.dashDir.x * travel;
-    player.root.position.z += state.dashDir.z * travel;
-    playerDashHits();
-    // A dash drags ink off the blade across the paper.
-    if (Math.random() < 0.6) {
-      ink.addStain(
-        player.root.position.x + (Math.random() - 0.5) * 0.8,
-        player.root.position.z + (Math.random() - 0.5) * 0.8,
-        0.18 + Math.random() * 0.25,
-        { alpha: 0.28 },
-      );
-    }
-    if (state.actionT >= DASH_TIME) { state.action = 'idle'; state.actionT = 0; }
-  } else if (state.action === 'attack') {
-    updateAttack(dt);
-    const heavyArc = state.attackKind === 'arc' && activeWeapon.skill === 'tsunami';
-    // Keep most of your footwork through a swing so you flow while cutting
-    // instead of planting — except the execution finisher and the heavy nodachi
-    // sweeps, which stay committed and weighty (peaks worth keeping).
-    speed = PLAYER_SPEED * (heavyArc ? 0.2
-      : state.attackKind === 'arc' && state.comboIndex === 2 ? 0.25 : 0.45);
-    // Root motion: the body drives the cut. A settle backward during the coil,
-    // then a hard step through the active frames — the swing carries the samurai
-    // forward instead of the sword waving from a planted figure.
-    if (state.action === 'attack') {   // updateAttack may have ended the swing
-      const cfg = activeAttack();
-      const t = state.actionT, wu = cfg.windup, act = cfg.active;
-      let drive = 0;
-      if (t < wu) {
-        // The great blade hauls the body back further as it loads — the coil is
-        // part of the weight you can see.
-        drive = (heavyArc ? -2.4 : -1.3) * (t / wu);
-      } else if (t < wu + act) {
-        const w = (t - wu) / act;
-        // The thrust launches the body forward far harder than a sweep — that
-        // lunge is the whole point of it as a gap-closer. The nodachi heaves a
-        // planted step through the sweep rather than lunging.
-        const peak = state.attackKind === 'thrust' ? 27
-          : state.attackKind === 'dashcut' ? 15
-          : heavyArc ? (state.comboIndex >= 1 ? 16 : 11)
-          : state.comboIndex === 2 ? 15 : 10.5;
-        drive = peak * Math.pow(1 - w, 1.4);
-      }
-      player.root.position.x += Math.sin(state.facing) * drive * dt;
-      player.root.position.z += Math.cos(state.facing) * drive * dt;
-    }
-  } else if (state.action === 'parry') {
-    state.actionT += dt;
-    speed = PLAYER_SPEED * 0.25;
-    if (state.actionT >= PARRY_STARTUP + parryDuration() + PARRY_RECOVER) {
-      state.action = 'idle'; state.actionT = 0;
-    }
-  } else if (state.action === 'iai') {
-    state.actionT += dt;
-    state.invuln = Math.max(state.invuln, 0.08);
-    if (activeWeapon.skill === 'tsunami') {
-      // A planted step through a heavy cleave: the cut lands after the coil.
-      if (!iaiCutFired && state.actionT >= 0.18) fireTsunamiCut();
-      const moveT = THREE.MathUtils.clamp((state.actionT - 0.12) / 0.18, 0, 1);
-      const moveEase = moveT * moveT * (3 - 2 * moveT);
-      player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
-      if (state.actionT >= 0.52) {
-        player.root.position.copy(iaiEnd);
-        state.action = 'idle';
-        state.actionT = 0;
-      }
-    } else {
-      if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
-      const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
-      const moveEase = moveT * moveT * (3 - 2 * moveT);
-      player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
-      if (state.actionT >= 0.54) {
-        player.root.position.copy(iaiEnd);
-        state.action = 'idle';
-        state.actionT = 0;
-      }
-    }
-  } else if (state.action === 'hurt') {
-    state.actionT -= dt;
-    speed = PLAYER_SPEED * 0.3;
-    if (state.actionT <= 0) { state.action = 'idle'; }
-  } else {
-    speed = PLAYER_SPEED;
-  }
-
-  if (moving && speed > 0) {
-    player.root.position.x += vMove.x * speed * dt;
-    player.root.position.z += vMove.z * speed * dt;
-  }
-
-  player.root.rotation.y = state.facing;
-
-  // ---- pose
-  const blend = moving && speed > PLAYER_SPEED * 0.5 ? 1 : 0;
-  const prevPhase = state.phase;
-  state.phase += dt * (blend ? 11 : 2.2);
-  // A footfall lands each time the gait swings through half a cycle. Tying it
-  // to the same phase that drives the legs keeps sound and animation in step.
-  if (blend && Math.floor(state.phase / Math.PI) !== Math.floor(prevPhase / Math.PI)) {
-    audio.step();
-  }
-  animateLocomotion(player, state.phase, blend, state.time);
-  poseArms(dt);
-}
-
-function beginAttack(chain = false, kind = 'arc') {
-  state.attackKind = kind;
-  if (kind !== 'arc' || !chain) state.comboIndex = 0;
-  state.action = 'attack';
-  state.actionT = 0;
-  state.attackPhase = 'windup';
-  state.hitThisSwing = new Set();
-  state.comboTimer = COMBO_WINDOW;
-  const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
-  if (heavyArc) audio.heavyWindup();
-  else audio.swing(kind === 'thrust' ? 2 : state.comboIndex);
-}
-
-function updateAttack(dt) {
-  const kind = state.attackKind;
-  const cfg = activeAttack();
+function updateSignatureAction(dt) {
   state.actionT += dt;
-  const wu = cfg.windup, act = wu + cfg.active, rec = act + cfg.recover;
-
-  if (state.actionT < wu) {
-    state.attackPhase = 'windup';
-  } else if (state.actionT < act) {
-    if (state.attackPhase !== 'active') {
-      state.attackPhase = 'active';
-      // The trail belongs to the cut itself. Firing it at wind-up start (as
-      // before) painted the stroke while the sword was still drawn back.
-      vTmp.copy(player.root.position); vTmp.y = 0.1;
-      const tier = getFlowTier();
-      const heavyArc = kind === 'arc' && activeWeapon.skill === 'tsunami';
-      if (heavyArc) audio.swing(3);
-      const baseScale = kind === 'thrust' ? 1.12 : heavyArc ? 1.6 : state.comboIndex === 2 ? 1.28 : 1;
-      trail.fire(vTmp, state.facing, {
-        mirror: kind === 'dashcut' || (kind === 'arc' && state.comboIndex === 1),
-        duration: cfg.active + cfg.recover * (heavyArc ? 1.0 : 0.8) + tier * 0.018,
-        scale: baseScale * (1 + tier * 0.06),
-        style: kind === 'thrust' ? 2 : kind === 'dashcut' ? 0 : heavyArc ? 3 : state.comboIndex,
-        energy: tier,
-      });
+  state.invuln = Math.max(state.invuln, 0.08);
+  if (activeWeapon.skill === 'tsunami') {
+    if (!iaiCutFired && state.actionT >= 0.18) fireTsunamiCut();
+    const moveT = THREE.MathUtils.clamp((state.actionT - 0.12) / 0.18, 0, 1);
+    const moveEase = moveT * moveT * (3 - 2 * moveT);
+    player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
+    if (state.actionT >= 0.52) {
+      player.root.position.copy(iaiEnd);
+      state.action = 'idle';
+      state.actionT = 0;
     }
-    playerAttackHits();
-  } else if (state.actionT < rec) {
-    state.attackPhase = 'recover';
   } else {
-    state.action = 'idle';
-    state.attackPhase = '';
-    state.actionT = 0;
-    state.comboTimer = COMBO_WINDOW;
+    if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
+    const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
+    const moveEase = moveT * moveT * (3 - 2 * moveT);
+    player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
+    if (state.actionT >= 0.54) {
+      player.root.position.copy(iaiEnd);
+      state.action = 'idle';
+      state.actionT = 0;
+    }
   }
 }
 
@@ -2134,9 +1841,9 @@ function poseArms(dt) {
     // Idle guard: blade low and slightly out, breathing — or, when the field
     // has been quiet long enough, at rest: arm dropped, blade rolled back.
     const breath = Math.sin(state.time * 1.9) * 0.05;
-    armX = (-0.35 + breath) * (1 - sheathK) + 0.14 * sheathK;
-    armZ = 0.28 * (1 - sheathK) + 0.04 * sheathK;
-    katanaRoll = 2.3 * sheathK;
+    armX = (-0.35 + breath) * (1 - playerController.sheathK) + 0.14 * playerController.sheathK;
+    armZ = 0.28 * (1 - playerController.sheathK) + 0.04 * playerController.sheathK;
+    katanaRoll = 2.3 * playerController.sheathK;
   }
 
   if (state.action === 'attack') twoHanded = true;
@@ -2173,11 +1880,35 @@ function poseArms(dt) {
   );
 }
 
-const parryActive = () => state.action === 'parry'
-  && state.actionT >= PARRY_STARTUP
-  && state.actionT < PARRY_STARTUP + parryDuration();
+const playerController = new PlayerController({
+  state, player, input, audio, ink, trail,
+  move: new THREE.Vector3(),
+  tmp: new THREE.Vector3(),
+  animateLocomotion,
+  isoAzimuth: ISO_AZIMUTH,
+  getEnemies: () => enemies,
+  getActiveWeapon: () => activeWeapon,
+  getFlowTier,
+  aimYaw,
+  trySignature,
+  rewardDashRead,
+  spawnDashWake,
+  spawnImpactBurst,
+  dashCameraPunch: (direction) => {
+    camPunch.x += direction.x * 0.2;
+    camPunch.z += direction.z * 0.2;
+  },
+  shake,
+  showCombatCallout,
+  playerDashHits,
+  playerAttackHits,
+  updateSignatureAction,
+  pose: poseArms,
+});
 
-const ENEMY_STRIKE_TIME = 0.10;
+const parryActive = () => parryWindowActive(
+  state.action, state.actionT, state.upgrades.steelMind,
+);
 
 function updateEnemyBladeTelegraph(e) {
   let strength = 0;
@@ -2246,285 +1977,6 @@ function updateEnemyBladeTelegraph(e) {
 
 // -------------------------------------------------------------- enemy update
 
-function updateEnemies(dt) {
-  const p = player.root.position;
-
-  for (const e of enemies) {
-    const pos = e.actor.root.position;
-
-    // Ink entrance. Hidden enemies wait below the page, then rise through a
-    // stain that keeps bleeding after they move away. This uses real enemy
-    // geometry, not a detached spawn marker, so the warning and the threat are
-    // the same object. No combat slot is taken until the entrance completes.
-    if (e.state === 'enter') {
-      e.t += dt;
-      if (e.t < 0) {
-        e.actor.root.visible = false;
-        continue;
-      }
-      if (!e.entered) {
-        e.entered = true;
-        e.actor.root.visible = true;
-        ink.addStain(pos.x, pos.z, e.rival ? 2.2 : 1.15 * e.spec.height, {
-          alpha: e.rival ? 0.94 : 0.72,
-          bleed: e.rival ? 1.05 : 0.7,
-        });
-        if (e.rival) {
-          ink.addStain(pos.x, pos.z, 3.1, { alpha: 0.34, bleed: 1.45, aspect: 1.5 });
-          spawnImpactBurst(pos, 0.65);
-        }
-      }
-      const k = THREE.MathUtils.clamp(e.t / (e.rival ? 0.62 : 0.42), 0, 1);
-      const rise = 1 - (1 - k) ** 3;
-      e.actor.root.position.y = -0.62 * e.spec.height * (1 - rise);
-      e.actor.root.rotation.y += dt * (e.rival ? 1.4 : 0.8) * (1 - k);
-      poseEnemy(e, dt);
-      if (k >= 1) {
-        e.actor.root.position.y = 0;
-        e.state = 'approach';
-        e.t = 0;
-      }
-      continue;
-    }
-
-    // The land is endless, so a sprinting player can leave pursuers arbitrarily
-    // far behind — and a wave that can never catch up stalls the game. Anyone
-    // dropped too far re-emerges from the fog ahead instead.
-    {
-      const lx = p.x - pos.x, lz = p.z - pos.z;
-      if (lx * lx + lz * lz > 45 * 45) {
-        const a = Math.atan2(lx, lz) + (Math.random() - 0.5) * 1.2;
-        pos.x = p.x + Math.sin(a) * 26;
-        pos.z = p.z + Math.cos(a) * 26;
-        e.state = 'approach';
-        e.t = 0;
-      }
-    }
-
-    const dx = p.x - pos.x, dz = p.z - pos.z;
-    const dist = Math.hypot(dx, dz) || 1;
-    const nx = dx / dist, nz = dz / dist;
-    const reach = e.spec.reach * e.spec.height;
-
-    e.t += dt;
-    if (e.cooldown > 0) e.cooldown -= dt;
-
-    let move = 0, turn = true;
-
-    // The orbit distance must sit *inside* the range at which an attack may be
-    // committed, otherwise circling enemies can never satisfy the strike test
-    // and the fight deadlocks with everyone walking in circles. Archers orbit
-    // at their firing range instead, far outside the melee crowd.
-    const orbitRange = e.spec.bow ? e.spec.range : reach * 1.0;
-    const strikeRange = reach * 1.25;
-
-    // An archer's line is invisible except while it aims or fires.
-    if (e.aimLine && e.state !== 'aim' && e.state !== 'loose') e.aimLine.material.opacity = 0;
-
-    switch (e.state) {
-      case 'approach': {
-        move = e.speed;
-        if (e.spec.bow) {
-          if (dist < e.spec.range * 1.25) { e.state = 'circle'; e.t = 0; }
-          break;
-        }
-        if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-          e.state = 'windup'; e.t = 0; commitStrike(e);
-        } else if (dist < reach * 1.6) {
-          e.state = 'circle'; e.t = 0;
-        }
-        break;
-      }
-      case 'circle': {
-        // Orbit just inside reach, waiting for an attack slot to free up.
-        const radial = (dist - orbitRange) * 1.4;
-        vTmp.set(nx * radial, 0, nz * radial);
-        vTmp.x += -nz * e.circleDir * e.speed * 0.75;
-        vTmp.z += nx * e.circleDir * e.speed * 0.75;
-        const len = vTmp.length() || 1;
-        vTmp.multiplyScalar(Math.min(e.speed, len) / len);
-        pos.x += vTmp.x * dt;
-        pos.z += vTmp.z * dt;
-        e.phase += dt * 7;
-        if (e.t > e.circleFor) {
-          e.t = 0;
-          e.circleFor = 0.5 + Math.random() * 0.7;
-          if (e.spec.bow) {
-            // One arrow in the air at a time keeps the pressure legible.
-            const anyAiming = enemies.some((x) => !x.dead && x.spec.bow
-              && (x.state === 'aim' || x.state === 'loose'));
-            if (!anyAiming && e.cooldown <= 0 && dist > 4.5 && dist < e.spec.range * 1.5) {
-              e.state = 'aim';
-              e.aimDir.set(nx, 0, nz);
-            } else if (Math.random() < 0.3) {
-              e.circleDir *= -1;
-            }
-          } else if (dist < strikeRange && e.cooldown <= 0 && requestSlot(e)) {
-            e.state = 'windup'; commitStrike(e);
-          } else if (dist > reach * 2.2) {
-            e.state = 'approach';
-          } else if (Math.random() < 0.3) {
-            e.circleDir *= -1;
-          }
-        }
-        break;
-      }
-      case 'aim': {
-        // The draw: the line tracks the player, then locks with time to move
-        // off it. Dodging the arrow is positional, not a parry read — though a
-        // parry held on release still turns it away.
-        turn = false;
-        const windup = enemyWindup(e);
-        const k = Math.min(1, e.t / windup);
-        const locked = k >= 0.55;
-        if (!locked) { e.aimDir.set(nx, 0, nz); turn = true; }
-        const L = 17;
-        const line = e.aimLine;
-        line.position.set(pos.x + e.aimDir.x * L / 2, 0.06, pos.z + e.aimDir.z * L / 2);
-        line.rotation.set(-Math.PI / 2, 0, Math.atan2(-e.aimDir.z, e.aimDir.x));
-        line.scale.set(L, locked ? 0.16 : 0.34, 1);
-        line.material.opacity = locked
-          ? 0.42 + Math.sin(state.time * 26) * 0.16
-          : 0.05 + k * 0.1;
-        if (e.t >= windup) {
-          e.state = 'loose';
-          e.t = 0;
-          audio.swing(1);
-          const px = p.x - pos.x, pz = p.z - pos.z;
-          const along = px * e.aimDir.x + pz * e.aimDir.z;
-          const across = Math.abs(px * e.aimDir.z - pz * e.aimDir.x);
-          if (along > 0 && along < L && across < 0.6) {
-            if (parryActive()) {
-              // Deflected: rewarded like a read, not a perfect parry — but it
-              // must LOOK like a win, so it gets the flash frame too.
-              state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
-              state.focus = Math.min(FOCUS_MAX, state.focus + 12 * flowMultiplier());
-              vTmp.set(p.x, 1.2, p.z);
-              spawnParryRing(vTmp);
-              parryFlash();
-              flash(0.7);
-              hitstop(0.1, 0.1);
-              shake(0.5);
-              showCombatCallout('TURN', 'ARROW TURNED');
-              audio.parry();
-              updateHUD();
-            } else if (state.invuln <= 0) {
-              damagePlayer(e.damage, e);
-            }
-          }
-        }
-        break;
-      }
-      case 'loose': {
-        // The release: the line flares to a tracer, then the archer resets.
-        turn = false;
-        const fade = Math.max(0, 1 - e.t / 0.14);
-        e.aimLine.material.opacity = fade * 0.85;
-        e.aimLine.scale.set(17, 0.1 + (1 - fade) * 0.22, 1);
-        if (e.t >= 0.3) {
-          e.state = 'circle';
-          e.t = 0;
-          e.cooldown = 2.6 + Math.random() * 1.6;
-        }
-        break;
-      }
-      case 'windup': {
-        // Telegraph. Blade lit, edging forward, then committing.
-        move = e.speed * 0.25;
-        if (e.t >= enemyWindup(e)) {
-          restoreStrikeTiming(e);
-          e.state = 'strike';
-          e.t = 0;
-          e.lunge.set(nx, 0, nz);
-          vTmp.copy(pos); vTmp.y = 0.1;
-          spawnImpactBurst(pos, e.rival ? 1.25 : 0.62);
-          flash(e.rival ? 0.18 : 0.06);
-          enemyTrail.fire(vTmp, Math.atan2(nx, nz), { duration: 0.3, scale: e.spec.height });
-          audio.swing();
-        }
-        break;
-      }
-      case 'strike': {
-        // Lunge with the cut.
-        const k = Math.min(1, e.t / 0.16);
-        const s = 9 * e.spec.height * (1 - k) ** 1.5;
-        pos.x += e.lunge.x * s * dt;
-        pos.z += e.lunge.z * s * dt;
-        turn = false;
-        if (!e.resolved && e.t >= 0.10) {
-          e.resolved = true;
-          resolveEnemyStrike(e, dist, nx, nz, reach);
-        }
-        if (e.t >= 0.34) {
-          e.resolved = false;
-          e.state = 'recover';
-          e.t = 0;
-        }
-        break;
-      }
-      case 'recover': {
-        turn = false;
-        if (e.t >= 0.42) {
-          const chainLimit = e.rival ? (e.awakened ? 2 : 1) : 0;
-          if (e.rival && e.rivalChain < chainLimit && dist < reach * 1.8) {
-            e.rivalChain++;
-            e.rivalFollowup = true;
-            e.state = 'windup';
-            commitStrike(e);
-            // A grudge shortens the pause before the follow-up: the rival that
-            // remembers you presses where a first meeting would breathe.
-            e.t = Math.max(0, enemyWindup(e) - (e.grudge ? 0.32 : 0.24));
-            e.circleDir *= -1;
-          } else {
-            e.rivalFollowup = false;
-            e.rivalChain = 0;
-            releaseSlot(e);
-            e.cooldown = e.rival ? (e.grudge ? 0.4 : 0.55) : 0.8 + Math.random() * 1.6;
-            e.state = dist > reach * 1.6 ? 'approach' : 'circle';
-            e.t = 0;
-          }
-        }
-        break;
-      }
-      case 'awaken': {
-        turn = false;
-        if (e.t >= 0.72) {
-          e.state = 'circle';
-          e.t = 0;
-          e.cooldown = 0.18;
-          e.circleFor = 0.18;
-        }
-        break;
-      }
-      case 'stagger': {
-        if (e.t >= 0.3) { e.state = 'circle'; e.t = 0; e.cooldown = Math.max(e.cooldown, 0.4); }
-        break;
-      }
-    }
-
-    updateEnemyBladeTelegraph(e);
-
-    if (move > 0) {
-      pos.x += nx * move * dt;
-      pos.z += nz * move * dt;
-      e.phase += dt * 9 * (move / e.spec.speed);
-    }
-
-    if (turn) {
-      const want = Math.atan2(nx, nz);
-      let diff = want - e.actor.root.rotation.y;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      e.actor.root.rotation.y += diff * Math.min(1, dt * 7);
-    }
-
-    poseEnemy(e, dt);
-  }
-
-  separate();
-
-}
-
 function resolveEnemyStrike(e, dist, nx, nz, reach) {
   if (dist > reach * 1.35) return;
 
@@ -2574,75 +2026,13 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     parryFlash();
     ink.splashScreen(3, 0.55);
     showCombatCallout('PERFECT', 'PARRY');
-    audio.perfectParry();
+    audio.perfectParry(e.spec.height);
     updateHUD();
     return;
   }
 
   if (state.invuln > 0) return;
   damagePlayer(e.damage, e);
-}
-
-// Push overlapping enemies apart so a crowd stays legible instead of merging
-// into one blob.
-function separate() {
-  // Resolve the crowd first. The player clearance pass runs last so one enemy
-  // cannot be pushed back through the player while separating from another.
-  for (let i = 0; i < enemies.length; i++) {
-    if (enemies[i].dead || enemies[i].state === 'enter') continue;
-    const a = enemies[i].actor.root.position;
-    const ra = 0.55 * enemies[i].spec.height;
-    for (let j = i + 1; j < enemies.length; j++) {
-      if (enemies[j].dead || enemies[j].state === 'enter') continue;
-      const b = enemies[j].actor.root.position;
-      const rb = 0.55 * enemies[j].spec.height;
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const d2 = dx * dx + dz * dz;
-      const min = ra + rb;
-      if (d2 > min * min) continue;
-      let d = Math.sqrt(d2), ux, uz;
-      if (d < 1e-4) {
-        const angle = (i * 17 + j * 31 + 1) * 1.618034;
-        ux = Math.cos(angle);
-        uz = Math.sin(angle);
-        d = 0;
-      } else {
-        ux = dx / d;
-        uz = dz / d;
-      }
-      const push = (min - d) * 0.5;
-      a.x -= ux * push; a.z -= uz * push;
-      b.x += ux * push; b.z += uz * push;
-    }
-  }
-
-  // Keep each attacker outside the player's silhouette. They remain well
-  // inside melee reach, but their torso, blade, and telegraph no longer vanish
-  // inside the player model. A fixed fallback angle resolves exact overlaps
-  // without adding random motion or frame-to-frame jitter.
-  const playerPos = player.root.position;
-  for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i];
-    if (e.dead || e.state === 'enter') continue;
-    const pos = e.actor.root.position;
-    const min = 0.46 + 0.48 * e.spec.height;
-    const dx = pos.x - playerPos.x, dz = pos.z - playerPos.z;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= min * min) continue;
-    let d = Math.sqrt(d2), ux, uz;
-    if (d < 1e-4) {
-      const angle = (i + 1) * 2.399963;
-      ux = Math.cos(angle);
-      uz = Math.sin(angle);
-      d = 0;
-    } else {
-      ux = dx / d;
-      uz = dz / d;
-    }
-    const push = min - d;
-    pos.x += ux * push;
-    pos.z += uz * push;
-  }
 }
 
 function poseEnemy(e, dt) {
@@ -2684,6 +2074,34 @@ function poseEnemy(e, dt) {
   a.armL.rotation.x += (armX * 0.4 - a.armL.rotation.x) * lerp;
   a.hips.rotation.y += (torsoY - a.hips.rotation.y) * lerp;
 }
+
+const enemyDirector = new EnemyDirector({
+  state,
+  player,
+  getEnemies: () => enemies,
+  tmp: vTmp,
+  clamp: THREE.MathUtils.clamp,
+  ink,
+  enemyTrail,
+  audio,
+  enemyWindup,
+  commitStrike,
+  restoreStrikeTiming,
+  updateBladeTelegraph: updateEnemyBladeTelegraph,
+  poseEnemy,
+  resolveEnemyStrike,
+  spawnImpactBurst,
+  flash,
+  parryActive,
+  flowMultiplier,
+  spawnParryRing,
+  parryFlash,
+  hitstop,
+  shake,
+  showCombatCallout,
+  updateHUD,
+  damagePlayer,
+});
 
 // ------------------------------------------------------------------- camera
 
@@ -2759,7 +2177,20 @@ const iaiNoticeDetailEl = document.getElementById('iaiNoticeDetail');
 let iaiWasReady = false;
 let iaiNoticeTimer = 0;
 let shownFlowChain = 0;
-let flowGhostLevel = 0;
+const combatSystem = new CombatSystem({
+  state,
+  audio,
+  updateHUD,
+  onZenith: () => {
+    flash(0.42);
+    shake(0.62);
+  },
+  renderFlow: ({ target, ghost, expiring }) => {
+    flowEl.classList.toggle('expiring', expiring);
+    flowChargeEl.style.transform = `scaleX(${target})`;
+    flowGhostEl.style.transform = `scaleX(${ghost})`;
+  },
+});
 
 function showIaiNotice(title, detail, duration = 1800) {
   clearTimeout(iaiNoticeTimer);
@@ -3273,6 +2704,12 @@ function gameOver() {
   );
   if (earned.length) {
     chaseLines.push(`NEW LEGEND · <b>${earned.map((s) => s.name).join(' · ')}</b> ANSWERS THE PAGE`);
+    // "Draw Again" skips the title picker, so wear the strongest newly earned
+    // silhouette immediately. Otherwise the reward is announced but cannot be
+    // used until a reload — exactly where an unlock loop should feel best.
+    const newestLegend = earned[earned.length - 1];
+    selectSkin(newestLegend.id);
+    run.skinIntro = newestLegend.id;
   } else {
     const nextSkin = nextLockedSkin(newRecords);
     if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b>: ${nextSkin.label}`);
@@ -3325,11 +2762,7 @@ function gameOver() {
 }
 
 function clearTransientMeshList(list, { geometry = false } = {}) {
-  for (const item of list) {
-    scene.remove(item.mesh);
-    if (geometry) item.mesh.geometry.dispose();
-    item.mesh.material.dispose();
-  }
+  for (const item of list) disposeTransientEffect(item, { geometry });
   list.length = 0;
 }
 
@@ -3356,6 +2789,8 @@ function restartRunInPlace() {
   run.daily = daily;
   run.dateStr = todayStamp();
   run.rng = daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
+  waveDirector.setRng(run.rng);
+  simulationClock.reset();
   updateRunModeTag();
 
   clearPendingSignatureBodies();
@@ -3376,7 +2811,6 @@ function restartRunInPlace() {
     hp: PLAYER_MAX_HP,
     kills: 0,
     perfectParries: 0,
-    wave: 0,
     focus: 0,
     time: 0,
     timeScale: 1,
@@ -3395,8 +2829,6 @@ function restartRunInPlace() {
     dashCooldown: 0,
     parryCooldown: 0,
     invuln: 0,
-    waveBreak: 1.2,
-    slots: 2,
     chain: 0,
     chainTimer: 0,
     bestChain: 0,
@@ -3409,8 +2841,6 @@ function restartRunInPlace() {
     deathBy: '',
     deathInfo: null,
     escapeCharges: 0,
-    pendingUpgrade: false,
-    choosingUpgrade: false,
     upgrades: {
       steelMind: 0,
       bloodWind: 0,
@@ -3420,6 +2850,7 @@ function restartRunInPlace() {
       fallingLeaf: 0,
     },
   });
+  waveDirector.reset({ firstWave: DEV_START_WAVE });
   state.vel.set(0, 0, 0);
   state.dashDir.set(0, 0, 0);
   state.dashHit.clear();
@@ -3444,13 +2875,10 @@ function restartRunInPlace() {
   invertT = 0;
   iaiT = 0;
   iaiCutFired = false;
-  idleFor = 0;
-  sheathK = 0;
-  sheathed = false;
+  playerController.reset();
   iaiWasReady = false;
   shownFlowChain = 0;
-  flowGhostLevel = 0;
-  flowWarningPlayed = false;
+  combatSystem.reset();
   offeredUpgrades.length = 0;
   flowOutlineOpacity = 0;
   flowOutlineMaterial.opacity = 0;
@@ -3474,10 +2902,20 @@ function restartRunInPlace() {
   audio.setCriticalHealth(0);
   audio.begin();
   updateHUD();
-  if (run.weaponIntro) {
-    const weapon = WEAPON_META[run.weaponIntro];
-    run.weaponIntro = '';
-    if (weapon) showWeaponNotice(weapon);
+  const earnedSkin = SKIN_META[run.skinIntro];
+  const earnedWeapon = WEAPON_META[run.weaponIntro];
+  run.skinIntro = '';
+  run.weaponIntro = '';
+  if (earnedSkin) showLegendNotice(earnedSkin);
+  if (earnedWeapon) {
+    if (earnedSkin) {
+      const generation = run.generation;
+      setTimeout(() => {
+        if (state.running && !state.over && run.generation === generation) showWeaponNotice(earnedWeapon);
+      }, 2200);
+    } else {
+      showWeaponNotice(earnedWeapon);
+    }
   }
 }
 
@@ -3494,6 +2932,7 @@ function beginGame(opts = {}) {
   run.daily = Boolean(opts.daily);
   run.dateStr = todayStamp();
   run.rng = run.daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
+  waveDirector.setRng(run.rng);
   updateRunModeTag();
   audio.start();
   audio.begin();
@@ -3504,7 +2943,23 @@ function beginGame(opts = {}) {
     overlay.classList.add('hidden');
     input.enabled = true;
     state.running = true;
-    state.waveBreak = 1.2;
+    simulationClock.reset();
+    waveDirector.reset({ firstWave: DEV_START_WAVE });
+    if (DEV_QA_SCENARIO === 'upgrade') {
+      // Exercise the real between-wave overlay without adding a production
+      // cheat path or requiring a browser test to automate two full kills.
+      state.wave = Math.max(1, DEV_START_WAVE);
+      state.pendingUpgrade = true;
+      state.waveBreak = 0.05;
+    } else if (DEV_QA_SCENARIO === 'defeat') {
+      const generation = run.generation;
+      state.lastStandUsed = true;
+      setTimeout(() => {
+        if (run.generation === generation && state.running && !state.over) {
+          damagePlayer(PLAYER_MAX_HP);
+        }
+      }, 250);
+    }
     updateHUD();
   };
 
@@ -3605,7 +3060,7 @@ applyShakeUI();
 // path for a retry started by an older cached build before this script loaded.
 // The installed game keeps working offline. Skipped on localhost so the dev
 // loop never fights a cache; deploy.mjs stamps the worker per build.
-if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+if ('serviceWorker' in navigator && !LOCAL_QA) {
   addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
   });
@@ -3661,10 +3116,46 @@ onResize();
 // ------------------------------------------------------------------ the loop
 
 let last = performance.now();
+const profileEnabled = new URLSearchParams(location.search).get('profile') === '1';
+const frameProfiler = profileEnabled ? new FrameProfiler() : null;
+const profileMeta = profileEnabled ? document.createElement('meta') : null;
+if (profileMeta) {
+  profileMeta.name = 'samurai-profile';
+  document.head.append(profileMeta);
+}
+
+function runtimeProfileStats() {
+  let pointLights = 0;
+  scene.traverse((object) => { if (object.isPointLight) pointLights++; });
+  return {
+    pointLights,
+    programs: film.renderer.info.programs?.length ?? 0,
+    enemies: enemies.length,
+    ragdolls: ragdolls.bodies.length,
+    debris: ragdolls.debris.length,
+    gibs: gibs.gibs.length,
+    stains: ink.stains.length,
+    drops: ink.drops.length,
+    jets: ink.jets.length,
+    screenMarks: ink.screenMarks.length,
+    slashes: ink.slashes.length,
+    parryRings: parryRings.length,
+    impactBursts: impactBursts.length,
+    dashWakes: dashWakes.length,
+    poolLimits: {
+      ...INK_LIMITS,
+      ragdollBodies: RAGDOLL_LIMITS.bodies,
+      debris: RAGDOLL_LIMITS.debris,
+      gibs: DEFAULT_GIB_POOL,
+      ...TRANSIENT_EFFECT_LIMITS,
+    },
+    droppedSimulationMs: simulationClock.droppedTime * 1000,
+  };
+}
 
 // One simulation tick. Separated from the rAF callback so it can be driven at a
 // fixed rate for testing, independent of how the browser schedules frames.
-function step(dt) {
+function simulate(dt) {
   // Hitstop runs on real time; everything else runs on scaled time. A hard
   // freeze (hitstop) pins the scale for its whole duration; outside it, time
   // eases toward the current target — 1, or the slowmo scale while a sustained
@@ -3687,20 +3178,12 @@ function step(dt) {
   input.update(dt);
   if (state.running) {
     if (!state.choosingUpgrade) {
-      updatePlayer(sdt);
-      updateEnemies(sdt);
+      playerController.update(sdt);
+      enemyDirector.update(sdt);
       updateFlow(sdt);
-
-      if (state.waveBreak > 0) {
-        state.waveBreak -= sdt;
-        if (state.waveBreak <= 0) {
-          if (state.pendingUpgrade) showUpgradeChoice();
-          else startWave();
-        }
-      } else if (enemies.length === 0) {
-        state.pendingUpgrade = state.wave > 0;
-        state.waveBreak = state.pendingUpgrade ? 2.6 : 1.0;
-      }
+      const waveEvent = waveDirector.tick(sdt, enemies.length);
+      if (waveEvent === WAVE_EVENT.UPGRADE) showUpgradeChoice();
+      else if (waveEvent === WAVE_EVENT.START) startWave();
     }
   } else if (!state.over) {
     // Idle breathing on the title screen.
@@ -3721,7 +3204,7 @@ function step(dt) {
   world.update(player.root.position);
   audio.setRustle(world.ambience.rustle);
 
-  const bossWave = state.running && state.wave % 5 === 0 && enemies.some((e) => e.type === 'oni');
+  const bossWave = state.running && isRivalWave(state.wave) && enemies.some((e) => e.type === 'oni');
   const act = currentAct();
   rain.update(sdt, player.root.position, Math.max(bossWave ? 1 : 0, state.running ? act.rain : 0));
   audio.setWind(bossWave ? 0.13 : 0.05 + (state.running ? act.wind : 0));
@@ -3729,13 +3212,16 @@ function step(dt) {
     ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
     : 0;
   audio.setMusicIntensity(musicPressure, bossWave);
+}
 
+function renderFrame(dt) {
   updateCamera(dt);
   updateIaiAura();
   updateFlowOutline(dt);
 
   // Film grain gets heavier as the samurai weakens — the print degrades with them.
   const hurtK = 1 - Math.max(0, state.hp) / PLAYER_MAX_HP;
+  const act = currentAct();
   const criticalK = state.running && !state.over
     ? THREE.MathUtils.clamp((0.35 - (1 - hurtK)) / 0.35, 0, 1)
     : 0;
@@ -3763,13 +3249,40 @@ function step(dt) {
   film.render(scene, camera);
 }
 
+// A single externally driven tick still produces a complete frame. The rAF
+// loop below calls simulation and presentation separately so catch-up never
+// renders the same scene several times in one browser frame.
+function step(dt) {
+  simulate(dt);
+  renderFrame(dt);
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   checkResize();
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (paused) return;   // hold the last frame under the pause screen
-  step(dt);
+  if (paused) {
+    simulationClock.reset();
+    return;   // hold the last frame under the pause screen
+  }
+  const profileStart = frameProfiler ? performance.now() : 0;
+  const tick = simulationClock.advance(dt, simulate);
+  renderFrame(dt);
+  if (frameProfiler) {
+    const publish = frameProfiler.record({
+      frameMs: dt * 1000,
+      costMs: performance.now() - profileStart,
+      timeScale: state.timeScale,
+      steps: tick.steps,
+      action: state.action,
+      playerX: player.root.position.x,
+      playerZ: player.root.position.z,
+    });
+    if (publish) profileMeta.content = JSON.stringify(
+      frameProfiler.summary(runtimeProfileStats()),
+    );
+  }
 }
 
 requestAnimationFrame(frame);
@@ -3779,13 +3292,14 @@ requestAnimationFrame(frame);
 window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
+  frameProfiler, simulationClock,
   trail, enemyTrail, iaiTrail,
   getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
   get selectedSkin() { return selectedSkinId; },
   WEAPONS, selectWeapon, trySignature, activeAttack,
   get selectedWeapon() { return selectedWeaponId; },
   get activeWeapon() { return activeWeapon; },
-  beginGame, startWave, spawnEnemy, gameOver, damagePlayer, killEnemy,
+  beginGame, startWave, spawnEnemy, waveDirector, gameOver, damagePlayer, killEnemy,
   setPaused, togglePause, toggleMute, toggleReduceShake, settings,
   get paused() { return paused; },
   get juiceScale() { return juiceScale; },

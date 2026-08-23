@@ -10,6 +10,8 @@
 
 import * as THREE from 'three';
 import { rng } from './paper.js';
+import { DEFAULT_GIB_POOL } from './bounded-pool.js';
+export { DEFAULT_GIB_POOL } from './bounded-pool.js';
 
 const FACES = [
   // dir,        corners (unit cube, origin at cell min corner)
@@ -113,7 +115,7 @@ export function taperLayers(w0, d0, w1, d1, h, cut = 0) {
 // The voxel payoff: bodies come apart into the cubes they were made of.
 // One instanced mesh, a fixed pool, zero allocation during play.
 export class VoxelGibs {
-  constructor(scene, material, max = 320, size = 0.13) {
+  constructor(scene, material, max = DEFAULT_GIB_POOL, size = 0.13) {
     this.max = max;
     this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(size, size, size), material, max);
     this.mesh.castShadow = true;

@@ -4,7 +4,7 @@ A browser-based 3D samurai hack-and-slash rendered as black-and-white film, wher
 every wound bleeds into the arena like ink soaking into paper.
 
 No build step, no dependencies to install, and almost no assets — every
-texture, sound effect and animation is generated procedurally at load. The one
+texture, sound effect and animation is generated procedurally at load. The
 exceptions are the score — a looping recorded track (`assets/score.mp3`, a
 free Nujabes-type beat) played through the game's dynamic mix bus, with a
 fully procedural engine as the loading cover and offline fallback — and two
@@ -22,6 +22,14 @@ python3 -m http.server 5173
 ```
 
 Then open <http://localhost:5173>.
+
+For late-run QA, localhost alone accepts `?qa-wave=N` (for example,
+<http://localhost:5173/?qa-wave=5>). It still uses the normal title, input,
+spawning, boss, defeat, and retry paths; only the starting wave is advanced.
+`?qa-scenario=upgrade` enters the real discipline-selection transition and
+`?qa-scenario=defeat` exercises defeat followed by an in-place retry. Deployed
+hosts ignore every QA parameter. Add `?profile=1` (or join it with `&`) to
+publish a rolling frame profile in `meta[name="samurai-profile"]`.
 
 ## Deployment
 
@@ -206,23 +214,62 @@ Two things matter for stability, and both bit during development:
   1/120 s substep a single large correction can launch a body. Per-particle
   speed is capped as a safety net.
 
+## Architecture and verification
+
+The runtime keeps Three.js as a rendering library rather than adopting a game
+engine. The extracted systems are DOM- and renderer-independent: the player
+controller owns action transitions, the combat system owns hitstop and Flow,
+the enemy director owns AI and attack slots, and the wave director owns seeded
+progression. `main.js` connects those systems to scene presentation, audio,
+ink, and the HUD.
+
+Browser frames feed a capped 60 Hz accumulator (`src/simulation-clock.js`). A
+slow frame may run at most three simulation ticks, then renders once; pausing
+or beginning a run clears the accumulator. This makes action timing independent
+of refresh rate without multiplying render cost during catch-up.
+
+Run the deterministic suite with:
+
+```bash
+node --experimental-default-type=module --test tests/rules.test.mjs
+```
+
+It covers combat boundaries, seeded wave plans and lifecycle, the four
+extracted systems, the fixed-step clock, and bounded collection eviction. Ink,
+ragdolls, voxel gibs, and short-lived combat effects all publish explicit pool
+limits to the opt-in profiler. Dense wave-ten captures before and after the
+milestone live in `tests/performance-baseline.json` and
+`tests/performance-fixed-step.json`; the browser scheduler remains visible in
+frame percentiles, while the simulation trace proves the three-tick ceiling and
+reports any discarded time.
+
 ## Layout
 
 ```
-index.html        shell, HUD, letterbox, import map
-src/main.js       game loop, player controller, enemy AI, waves, camera
-src/render.js     renderer + monochrome film pass
-src/paper.js      procedural washi, ink atlas, brush texture
-src/ink.js        stains, airborne blood, screen ink
-src/quads.js      one-draw-call dynamic quad batch
-src/actors.js     cel-shaded figures, outlines, geometry cache
-src/ragdoll.js    Verlet ragdolls and dismemberment
-src/trail.js      sumi-e sword stroke
-src/world.js      endless paper, voxel vegetation, wind, rain
-src/voxel.js      voxel model builder + gib bursts
-src/audio.js      procedural WebAudio (no samples)
-src/input.js      keyboard/mouse with input buffering
-legacy/           the original single-file prototype, kept for reference
+index.html               shell, HUD, letterbox, import map
+src/main.js              scene/HUD presentation and system wiring
+src/player-controller.js movement, dash, attack and parry action state
+src/combat-system.js     hitstop and Flow orchestration
+src/enemy-director.js    enemy state machines, slots and crowd separation
+src/combat.js            pure combat timing, attack, parry and dash rules
+src/waves.js             pure enemy composition and difficulty scaling
+src/wave-director.js     wave lifecycle, seeded plans, rivals and upgrades
+src/simulation-clock.js  capped fixed-step accumulator
+src/bounded-pool.js      shared pool limits and eviction contract
+src/profiler.js          opt-in frame/simulation telemetry
+src/render.js            renderer + monochrome film pass
+src/paper.js             procedural washi, ink atlas, brush texture
+src/ink.js               stains, airborne blood, screen ink
+src/quads.js             one-draw-call dynamic quad batch
+src/actors.js            cel-shaded figures, outlines, geometry cache
+src/ragdoll.js           Verlet ragdolls and dismemberment
+src/trail.js             sumi-e sword stroke
+src/world.js             endless paper, voxel vegetation, wind, rain
+src/voxel.js             voxel model builder + fixed gib pool
+src/audio.js             recorded score/one-shots + procedural fallback
+src/input.js             keyboard/mouse/touch input buffering
+tests/                   deterministic rules and saved frame profiles
+legacy/                  original single-file prototype, kept for reference
 ```
 
 ## Design notes
@@ -232,8 +279,9 @@ legacy/           the original single-file prototype, kept for reference
   The orbit distance sits *inside* the range at which an attack may be committed
   — if it doesn't, circling enemies can never satisfy the strike test and the
   whole fight deadlocks with everyone walking in circles.
-- **Hitstop** scales the whole simulation, not just animation: 50 ms on a hit,
-  160 ms on a heavy kill.
+- **Hitstop** scales the whole simulation, not just animation. The 60 Hz clock
+  continues on real time while world time is scaled, so a 50 ms hit or 160 ms
+  heavy kill lasts the same number of real milliseconds on every refresh rate.
 - **Fixed camera yaw.** Aim drives the character, not the camera, with only a
   small look-ahead bias. A camera that chases the cursor while the cursor is
   measured against the camera feeds back on itself and spins.
