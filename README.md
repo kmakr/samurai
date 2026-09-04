@@ -18,7 +18,7 @@ ES modules need to be served over HTTP (opening `index.html` from disk will fail
 CORS). Any static server works:
 
 ```bash
-python3 -m http.server 5173
+node dev-server.mjs
 ```
 
 Then open <http://localhost:5173>.
@@ -28,8 +28,10 @@ For late-run QA, localhost alone accepts `?qa-wave=N` (for example,
 spawning, boss, defeat, and retry paths; only the starting wave is advanced.
 `?qa-scenario=upgrade` enters the real discipline-selection transition and
 `?qa-scenario=defeat` exercises defeat followed by an in-place retry. Deployed
-hosts ignore every QA parameter. Add `?profile=1` (or join it with `&`) to
-publish a rolling frame profile in `meta[name="samurai-profile"]`.
+hosts ignore every QA parameter. QA runs calculate their normal defeat and
+unlock results but do not change saved records, the ledger, the grudge, or an
+automatically equipped reward. Add `?profile=1` (or join it with `&`) to publish
+a rolling frame profile in `meta[name="samurai-profile"]`.
 
 ## Deployment
 
@@ -219,9 +221,10 @@ Two things matter for stability, and both bit during development:
 The runtime keeps Three.js as a rendering library rather than adopting a game
 engine. The extracted systems are DOM- and renderer-independent: the player
 controller owns action transitions, the combat system owns hitstop and Flow,
-the enemy director owns AI and attack slots, and the wave director owns seeded
-progression. `main.js` connects those systems to scene presentation, audio,
-ink, and the HUD.
+the enemy director owns AI and attack slots, the wave director owns seeded
+progression, and the run modules own records, unlock rules, start, defeat, and
+retry state. `main.js` connects those systems to scene presentation, audio, ink,
+and the HUD.
 
 Browser frames feed a capped 60 Hz accumulator (`src/simulation-clock.js`). A
 slow frame may run at most three simulation ticks, then renders once; pausing
@@ -231,13 +234,14 @@ of refresh rate without multiplying render cost during catch-up.
 Run the deterministic suite with:
 
 ```bash
-node --experimental-default-type=module --test tests/rules.test.mjs
+node --test tests/rules.test.mjs
 ```
 
-It covers combat boundaries, seeded wave plans and lifecycle, the four
-extracted systems, the fixed-step clock, and bounded collection eviction. Ink,
-ragdolls, voxel gibs, and short-lived combat effects all publish explicit pool
-limits to the opt-in profiler. Dense wave-ten captures before and after the
+It covers combat boundaries, seeded wave plans and lifecycle, the extracted
+systems, record storage, unlock boundaries, run transitions, the fixed-step
+clock, and bounded collection eviction. Ink, ragdolls, voxel gibs, and
+short-lived combat effects all publish explicit pool limits to the opt-in
+profiler. Dense wave-ten captures before and after the
 milestone live in `tests/performance-baseline.json` and
 `tests/performance-fixed-step.json`; the browser scheduler remains visible in
 frame percentiles, while the simulation trace proves the three-tick ceiling and
@@ -257,6 +261,9 @@ src/wave-director.js     wave lifecycle, seeded plans, rivals and upgrades
 src/simulation-clock.js  capped fixed-step accumulator
 src/bounded-pool.js      shared pool limits and eviction contract
 src/profiler.js          opt-in frame/simulation telemetry
+src/run-records.js       safe record, ledger and grudge persistence
+src/unlocks.js           pure skin and weapon progression rules
+src/run-flow.js          start, defeat, retry and fresh-run state
 src/render.js            renderer + monochrome film pass
 src/paper.js             procedural washi, ink atlas, brush texture
 src/ink.js               stains, airborne blood, screen ink

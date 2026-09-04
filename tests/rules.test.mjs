@@ -39,6 +39,19 @@ import {
   TRANSIENT_EFFECT_LIMITS,
   pushBounded,
 } from '../src/bounded-pool.js';
+import {
+  EMPTY_RECORDS,
+  RunRecordsStore,
+  mergeRecords,
+  normalizeRecords,
+} from '../src/run-records.js';
+import {
+  isSkinUnlocked,
+  isWeaponUnlocked,
+  newlyUnlockedSkins,
+  nextLockedSkin,
+} from '../src/unlocks.js';
+import { RUN_START, RunFlow, resetRunState } from '../src/run-flow.js';
 
 const counts = (entries) => entries.reduce((result, type) => {
   result[type] = (result[type] || 0) + 1;
@@ -335,4 +348,124 @@ test('enemy director owns attack slots and deterministic crowd separation', () =
   const dx = second.actor.root.position.x - first.actor.root.position.x;
   const dz = second.actor.root.position.z - first.actor.root.position.z;
   assert.ok(Math.hypot(dx, dz) >= 1.099);
+});
+
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+    values,
+  };
+}
+
+test('run records reject corrupt and invalid stored values', () => {
+  assert.deepEqual(normalizeRecords(null), EMPTY_RECORDS);
+  assert.deepEqual(normalizeRecords({ wave: -3, kills: '7.9', parries: 'bad', flow: Infinity }), {
+    wave: 0, kills: 7, parries: 0, flow: 0,
+  });
+
+  const corrupt = new RunRecordsStore(memoryStorage({ 'samurai-records': '{bad json' }));
+  assert.deepEqual(corrupt.loadRecords(), EMPTY_RECORDS);
+  assert.deepEqual(mergeRecords(
+    { wave: 8, kills: 3, parries: 2, flow: 4 },
+    { wave: 5, kills: 9, parries: 1, flow: 6 },
+  ), { wave: 8, kills: 9, parries: 2, flow: 6 });
+});
+
+test('QA record isolation calculates outcomes without changing storage', () => {
+  const storage = memoryStorage({
+    'samurai-records': JSON.stringify({ wave: 4, kills: 8, parries: 1, flow: 3 }),
+    'samurai-ledger': JSON.stringify([{ wave: 4, kills: 8 }]),
+    'samurai-grudge': 'KUROGANE',
+  });
+  const store = new RunRecordsStore(storage, { writeEnabled: false });
+  const outcome = store.recordRun(
+    { wave: 10, kills: 20, parries: 4, flow: 12 },
+    { wave: 10, kills: 20, parries: 4, flow: 12, daily: false, date: '2026-09-04' },
+  );
+
+  assert.equal(outcome.isRecord, true);
+  assert.equal(outcome.records.wave, 10);
+  assert.equal(outcome.ledger.length, 2);
+  assert.equal(store.loadRecords().wave, 4);
+  store.saveGrudge('AKATSUKI');
+  store.clearGrudge();
+  assert.equal(store.loadGrudge(), 'KUROGANE');
+});
+
+test('unlock rules hold their exact boundaries and report new rewards', () => {
+  assert.equal(isSkinUnlocked('hitokiri', { wave: 4 }), false);
+  assert.equal(isSkinUnlocked('hitokiri', { wave: 5 }), true);
+  assert.equal(isSkinUnlocked('mibu', { flow: 19 }), false);
+  assert.equal(isSkinUnlocked('mibu', { flow: 20 }), true);
+  assert.equal(isWeaponUnlocked('nodachi', { wave: 7 }), false);
+  assert.equal(isWeaponUnlocked('nodachi', { wave: 8 }), true);
+
+  const skins = [
+    { id: 'musashi', name: 'MUSASHI' },
+    { id: 'hitokiri', name: 'HITOKIRI' },
+    { id: 'masamune', name: 'MASAMUNE' },
+    { id: 'mibu', name: 'MIBU WOLF' },
+  ];
+  assert.equal(nextLockedSkin(skins, { wave: 4, flow: 2 }).id, 'hitokiri');
+  assert.deepEqual(
+    newlyUnlockedSkins(skins, { wave: 4, flow: 0 }, { wave: 10, flow: 0 }).map((skin) => skin.id),
+    ['hitokiri', 'masamune'],
+  );
+});
+
+test('run flow owns delayed start, defeat, and in-place retry decisions', () => {
+  const state = { running: false, over: false, slowmo: 1 };
+  const run = { daily: false, dateStr: '', rng: null, generation: 0 };
+  const scheduled = [];
+  const events = [];
+  const flow = new RunFlow(state, run, {
+    today: () => '2026-09-04',
+    random: () => 0.25,
+    dailyRandom: (date) => () => date === '2026-09-04' ? 0.75 : 0,
+    schedule: (callback, delay) => scheduled.push({ callback, delay }),
+    onModeChange: () => events.push('mode'),
+  });
+
+  const callbacks = {
+    restart: () => events.push('restart'),
+    prepare: () => events.push('prepare'),
+    commit: () => { state.running = true; events.push('commit'); },
+  };
+  assert.equal(flow.begin({ daily: true }, callbacks), RUN_START.NEW);
+  assert.equal(flow.pending, true);
+  assert.equal(run.daily, true);
+  assert.equal(run.rng(), 0.75);
+  assert.equal(scheduled[0].delay, 220);
+  assert.equal(flow.begin({}, callbacks), RUN_START.BLOCKED);
+  scheduled[0].callback();
+  assert.deepEqual(events, ['mode', 'prepare', 'commit']);
+
+  assert.equal(flow.finish(), true);
+  assert.deepEqual([state.running, state.over, state.slowmo], [false, true, 0]);
+  assert.equal(flow.begin({}, callbacks), RUN_START.RETRY);
+  assert.equal(events.at(-1), 'restart');
+  flow.showTitle();
+  assert.deepEqual([state.running, state.over, run.daily, run.dateStr], [false, false, false, '']);
+});
+
+test('retry state reset clears combat progress and creates fresh upgrades', () => {
+  const state = {
+    running: false, over: true, hp: 0, kills: 12, chain: 9,
+    upgrades: { steelMind: 3 },
+  };
+  const previousUpgrades = state.upgrades;
+  resetRunState(state, { maxHp: 100 });
+  assert.equal(state.running, true);
+  assert.equal(state.over, false);
+  assert.equal(state.hp, 100);
+  assert.equal(state.kills, 0);
+  assert.equal(state.chain, 0);
+  assert.deepEqual(state.upgrades, {
+    steelMind: 0, bloodWind: 0, finalStroke: 0,
+    stillWater: 0, longShadow: 0, fallingLeaf: 0,
+  });
+  assert.notEqual(state.upgrades, previousUpgrades);
 });

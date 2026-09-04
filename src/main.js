@@ -32,6 +32,15 @@ import { PlayerController } from './player-controller.js';
 import { CombatSystem } from './combat-system.js';
 import { EnemyDirector } from './enemy-director.js';
 import { TRANSIENT_EFFECT_LIMITS, pushBounded } from './bounded-pool.js';
+import { RunRecordsStore, runResult } from './run-records.js';
+import {
+  SKIN_UNLOCKS, WEAPON_UNLOCKS,
+  isSkinUnlocked, isWeaponUnlocked,
+  nextLockedSkin as findNextLockedSkin,
+  nextLockedWeapon as findNextLockedWeapon,
+  newlyUnlockedSkins, newlyUnlockedWeapons,
+} from './unlocks.js';
+import { RunFlow, resetRunState } from './run-flow.js';
 
 // ---------------------------------------------------------------- constants
 
@@ -296,11 +305,20 @@ const DEV_START_WAVE = LOCAL_QA
   ? Math.max(1, Math.min(9999, Math.floor(Number(QA_PARAMS.get('qa-wave')) || 1)))
   : 1;
 const DEV_QA_SCENARIO = LOCAL_QA ? QA_PARAMS.get('qa-scenario') : '';
+const DEV_QA_ACTIVE = LOCAL_QA && (QA_PARAMS.has('qa-wave') || QA_PARAMS.has('qa-scenario'));
 const run = {
   daily: false, dateStr: '', rng: Math.random, generation: 0,
   weaponIntro: '', skinIntro: '',
 };
 const waveDirector = new WaveDirector(state, { rng: run.rng });
+let browserStorage = null;
+try { browserStorage = localStorage; } catch { /* private storage can fail */ }
+const recordsStore = new RunRecordsStore(browserStorage, { writeEnabled: !DEV_QA_ACTIVE });
+const runFlow = new RunFlow(state, run, {
+  today: todayStamp,
+  dailyRandom: (date) => mulberry32(dateSeed(date)),
+  onModeChange: updateRunModeTag,
+});
 updateRunModeTag();
 
 // Reusable scratch vectors — the update loop allocates nothing.
@@ -2287,32 +2305,12 @@ const TITLE_LOGO = ovTitle.innerHTML;
 // Legends beyond the wandering sword are earned, not chosen. Each is gated on a
 // lifetime best the page already keeps, so no separate save is needed: cross
 // the mark and the legend answers. MUSASHI is the blade you start with.
-const SKIN_UNLOCKS = {
-  hitokiri: { metric: 'wave', need: 5, label: 'REACH WAVE 5' },
-  masamune: { metric: 'wave', need: 10, label: 'REACH WAVE 10' },
-  mibu: { metric: 'flow', need: 20, label: 'HOLD A FLOW OF 20' },
-};
 const SKIN_META = Object.fromEntries(SAMURAI_SKINS.map((s) => [s.id, s]));
-
-function isSkinUnlocked(id, records) {
-  const req = SKIN_UNLOCKS[id];
-  return !req || (records[req.metric] || 0) >= req.need;
-}
 
 // The nearest legend still to earn, chosen by how close it stands — the
 // strongest "one more run" pull the page can show.
 function nextLockedSkin(records) {
-  let best = null, bestRatio = -1;
-  for (const skin of SAMURAI_SKINS) {
-    const req = SKIN_UNLOCKS[skin.id];
-    if (!req || (records[req.metric] || 0) >= req.need) continue;
-    const ratio = (records[req.metric] || 0) / req.need;
-    if (ratio > bestRatio) {
-      bestRatio = ratio;
-      best = { id: skin.id, name: skin.name, label: req.label };
-    }
-  }
-  return best;
+  return findNextLockedSkin(SAMURAI_SKINS, records);
 }
 
 // Grey and seal every legend not yet earned, and wear its requirement where its
@@ -2372,30 +2370,12 @@ selectSkin(selectedSkinId, { persist: false });
 // gated on the same lifetime records, so no separate save is needed.
 const weaponCurrentEl = document.getElementById('weaponCurrent');
 const weaponButtons = [...document.querySelectorAll('.weaponOption')];
-const WEAPON_UNLOCKS = {
-  nodachi: { metric: 'wave', need: 8, label: 'REACH WAVE 8' },
-};
 const WEAPON_META = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
-
-function isWeaponUnlocked(id, records) {
-  const req = WEAPON_UNLOCKS[id];
-  return !req || (records[req.metric] || 0) >= req.need;
-}
 
 // The nearest weapon still to earn — a second "one more run" pull beside the
 // next legend.
 function nextLockedWeapon(records) {
-  let best = null, bestRatio = -1;
-  for (const weapon of WEAPONS) {
-    const req = WEAPON_UNLOCKS[weapon.id];
-    if (!req || (records[req.metric] || 0) >= req.need) continue;
-    const ratio = (records[req.metric] || 0) / req.need;
-    if (ratio > bestRatio) {
-      bestRatio = ratio;
-      best = { id: weapon.id, roman: weapon.roman, label: req.label };
-    }
-  }
-  return best;
+  return findNextLockedWeapon(WEAPONS, records);
 }
 
 function renderWeaponLocks(records) {
@@ -2465,41 +2445,25 @@ if (!isWeaponUnlocked(selectedWeaponId, loadRecords())) selectedWeaponId = 'kata
 selectWeapon(selectedWeaponId, { persist: false });
 
 function loadRecords() {
-  try {
-    return { wave: 0, kills: 0, parries: 0, flow: 0, ...JSON.parse(localStorage.getItem('samurai-records') || '{}') };
-  } catch {
-    return { wave: 0, kills: 0, parries: 0, flow: 0 };
-  }
-}
-
-function saveRecords(records) {
-  try { localStorage.setItem('samurai-records', JSON.stringify(records)); } catch { /* Private storage can fail. */ }
+  return recordsStore.loadRecords();
 }
 
 // The grudge: when a named rival kills the samurai, the page remembers the
 // debt across runs. The next time that name walks on, its introduction — and
 // its temper — are different, until the debt is settled with its death.
 function loadGrudge() {
-  try { return localStorage.getItem('samurai-grudge') || ''; } catch { return ''; }
+  return recordsStore.loadGrudge();
 }
 function saveGrudge(name) {
-  try { localStorage.setItem('samurai-grudge', name); } catch { /* ignore */ }
+  recordsStore.saveGrudge(name);
 }
 function clearGrudge() {
-  try { localStorage.removeItem('samurai-grudge'); } catch { /* ignore */ }
+  recordsStore.clearGrudge();
 }
 
 // The page's memory across runs: one entry per death, most recent last.
 function loadLedger() {
-  try { return JSON.parse(localStorage.getItem('samurai-ledger') || '[]'); } catch { return []; }
-}
-function pushLedger(entry) {
-  const list = loadLedger();
-  list.push(entry);
-  // Keep only what the strip can meaningfully show.
-  const trimmed = list.slice(-48);
-  try { localStorage.setItem('samurai-ledger', JSON.stringify(trimmed)); } catch { /* ignore */ }
-  return trimmed;
+  return recordsStore.loadLedger();
 }
 
 // Render past runs as dried ink strokes — height scaled to how far each run
@@ -2656,10 +2620,7 @@ async function copyResult() {
 }
 
 function gameOver() {
-  if (state.over) return;
-  state.over = true;
-  state.running = false;
-  state.slowmo = 0;   // never carry an in-progress iai slow-mo into the death freeze
+  if (!runFlow.finish()) return;
   updateHUD();
   ink.splashScreen(20, 2.2);
   // The print ends rather than fading: the final frame holds near-frozen for a
@@ -2670,21 +2631,17 @@ function gameOver() {
   audio.setMusicIntensity(0);
   audio.silenceMusic(1.3, 0.001);
   audio.defeat();
-  const records = loadRecords();      // previous bests, before this run folds in
-  const prevBestWave = records.wave;
-  const newRecords = {
-    wave: Math.max(records.wave, state.wave),
-    kills: Math.max(records.kills, state.kills),
-    parries: Math.max(records.parries, state.perfectParries),
-    flow: Math.max(records.flow, state.bestChain),
-  };
-  saveRecords(newRecords);
-  const ledger = pushLedger({
-    wave: state.wave, kills: state.kills, parries: state.perfectParries,
-    flow: state.bestChain, daily: run.daily, date: todayStamp(),
+  const result = runResult(state);
+  const outcome = recordsStore.recordRun(result, {
+    ...result,
+    daily: run.daily,
+    date: todayStamp(),
   });
-  const record = state.wave > records.wave || state.kills > records.kills
-    || state.perfectParries > records.parries || state.bestChain > records.flow;
+  const records = outcome.previous;   // previous bests, before this run folds in
+  const prevBestWave = records.wave;
+  const newRecords = outcome.records;
+  const ledger = outcome.ledger;
+  const record = outcome.isRecord;
 
   // The chase line: the single strongest reason to draw again.
   let chase;
@@ -2699,24 +2656,20 @@ function gameOver() {
   // Legends earned this run, or the nearest one still sealed — the second hook
   // under the chase line. A newly-earned legend is the loudest reason to return.
   const chaseLines = [chase];
-  const earned = SAMURAI_SKINS.filter(
-    (s) => isSkinUnlocked(s.id, newRecords) && !isSkinUnlocked(s.id, records),
-  );
+  const earned = newlyUnlockedSkins(SAMURAI_SKINS, records, newRecords);
   if (earned.length) {
     chaseLines.push(`NEW LEGEND · <b>${earned.map((s) => s.name).join(' · ')}</b> ANSWERS THE PAGE`);
     // "Draw Again" skips the title picker, so wear the strongest newly earned
     // silhouette immediately. Otherwise the reward is announced but cannot be
     // used until a reload — exactly where an unlock loop should feel best.
     const newestLegend = earned[earned.length - 1];
-    selectSkin(newestLegend.id);
+    selectSkin(newestLegend.id, { persist: !DEV_QA_ACTIVE });
     run.skinIntro = newestLegend.id;
   } else {
     const nextSkin = nextLockedSkin(newRecords);
     if (nextSkin) chaseLines.push(`NEXT LEGEND · <b>${nextSkin.name}</b>: ${nextSkin.label}`);
   }
-  const earnedWeapons = WEAPONS.filter(
-    (weapon) => isWeaponUnlocked(weapon.id, newRecords) && !isWeaponUnlocked(weapon.id, records),
-  );
+  const earnedWeapons = newlyUnlockedWeapons(WEAPONS, records, newRecords);
   if (earnedWeapons.length) {
     const names = earnedWeapons.map((weapon) => weapon.roman).join(' · ');
     chaseLines.push(`<span class="bladeUnlock">BLADE UNSEALED · <b>${names}</b><small>EQUIPPED FOR THE NEXT RUN</small></span>`);
@@ -2730,7 +2683,7 @@ function gameOver() {
   // steel once so the reward is felt in the next run, while the normal picker
   // remains available after the player returns to the title page.
   if (earnedWeapons.length) {
-    selectWeapon(earnedWeapons[0].id, { force: true });
+    selectWeapon(earnedWeapons[0].id, { persist: !DEV_QA_ACTIVE, force: true });
     run.weaponIntro = earnedWeapons[0].id;
   }
 
@@ -2784,14 +2737,9 @@ function clearLivingEnemies() {
 }
 
 function restartRunInPlace() {
-  const daily = run.daily;
-  run.generation++;
-  run.daily = daily;
-  run.dateStr = todayStamp();
-  run.rng = daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
+  runFlow.prepareRetry();
   waveDirector.setRng(run.rng);
   simulationClock.reset();
-  updateRunModeTag();
 
   clearPendingSignatureBodies();
   clearLivingEnemies();
@@ -2805,51 +2753,7 @@ function restartRunInPlace() {
   clearTransientMeshList(impactBursts, { geometry: true });
   clearTransientMeshList(dashWakes);
 
-  Object.assign(state, {
-    running: true,
-    over: false,
-    hp: PLAYER_MAX_HP,
-    kills: 0,
-    perfectParries: 0,
-    focus: 0,
-    time: 0,
-    timeScale: 1,
-    hitstop: 0,
-    slowmo: 0,
-    slowmoScale: 1,
-    phase: 0,
-    facing: 0,
-    action: 'idle',
-    actionT: 0,
-    attackKind: 'arc',
-    comboIndex: 0,
-    comboTimer: 0,
-    attackPhase: '',
-    hitThisSwing: null,
-    dashCooldown: 0,
-    parryCooldown: 0,
-    invuln: 0,
-    chain: 0,
-    chainTimer: 0,
-    bestChain: 0,
-    rivalKills: 0,
-    seenYari: false,
-    seenYumi: false,
-    seenFierce: false,
-    seenDashCut: false,
-    lastStandUsed: false,
-    deathBy: '',
-    deathInfo: null,
-    escapeCharges: 0,
-    upgrades: {
-      steelMind: 0,
-      bloodWind: 0,
-      finalStroke: 0,
-      stillWater: 0,
-      longShadow: 0,
-      fallingLeaf: 0,
-    },
-  });
+  resetRunState(state, { maxHp: PLAYER_MAX_HP });
   waveDirector.reset({ firstWave: DEV_START_WAVE });
   state.vel.set(0, 0, 0);
   state.dashDir.set(0, 0, 0);
@@ -2919,26 +2823,8 @@ function restartRunInPlace() {
   }
 }
 
-let beginPending = false;
 function beginGame(opts = {}) {
-  if (state.running || beginPending) return;
-  // A retry keeps the mode of the run that just ended. Handle it before
-  // `opts.daily` can replace that mode, and reset the loaded scene at once.
-  if (state.over) {
-    restartRunInPlace();
-    return;
-  }
-  run.generation++;
-  run.daily = Boolean(opts.daily);
-  run.dateStr = todayStamp();
-  run.rng = run.daily ? mulberry32(dateSeed(run.dateStr)) : Math.random;
-  waveDirector.setRng(run.rng);
-  updateRunModeTag();
-  audio.start();
-  audio.begin();
-
   const commit = () => {
-    beginPending = false;
     overlay.classList.remove('leaving');
     overlay.classList.add('hidden');
     input.enabled = true;
@@ -2964,13 +2850,20 @@ function beginGame(opts = {}) {
   };
 
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (opts.instant || reduceMotion) {
-    commit();
-    return;
-  }
-  beginPending = true;
-  overlay.classList.add('leaving');
-  setTimeout(commit, 220);
+  runFlow.begin({
+    daily: opts.daily,
+    instant: opts.instant,
+    reducedMotion: reduceMotion,
+  }, {
+    restart: restartRunInPlace,
+    prepare: () => {
+      waveDirector.setRng(run.rng);
+      audio.start();
+      audio.begin();
+      if (!opts.instant && !reduceMotion) overlay.classList.add('leaving');
+    },
+    commit,
+  });
 }
 
 ovBtn.addEventListener('click', () => beginGame());
@@ -3066,6 +2959,7 @@ if ('serviceWorker' in navigator && !LOCAL_QA) {
   });
 }
 
+runFlow.showTitle();
 renderTitleScreen();
 try {
   const restart = sessionStorage.getItem('samurai-restart');
