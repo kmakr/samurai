@@ -1,0 +1,201 @@
+{
+  "checks": [
+    {
+      "name": "Blender actor graph is active",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 34
+      },
+      "name": "katana arc 1 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 38
+      },
+      "name": "katana arc 2 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 62
+      },
+      "name": "katana arc 3 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 48
+      },
+      "name": "katana thrust 1 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 40
+      },
+      "name": "katana dashcut 1 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 60
+      },
+      "name": "nodachi arc 1 hits once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "damage": 108
+      },
+      "name": "nodachi arc 2 hits once",
+      "ok": true
+    },
+    {
+      "name": "Perfect parry grants focus and staggers",
+      "ok": true
+    },
+    {
+      "name": "Iai freezes all enemy clocks and positions",
+      "ok": true
+    },
+    {
+      "name": "No premature signature damage",
+      "ok": true
+    },
+    {
+      "name": "Draw holds player before travel",
+      "ok": true
+    },
+    {
+      "detail": {
+        "kills": 6
+      },
+      "name": "Iai cuts six types, leaves off-axis enemy",
+      "ok": true
+    },
+    {
+      "name": "Signature ends and bodies release",
+      "ok": true
+    },
+    {
+      "detail": {
+        "kills": 5
+      },
+      "name": "Tsunami clears its forward fan",
+      "ok": true
+    },
+    {
+      "name": "FX pools saturate safely",
+      "ok": true
+    },
+    {
+      "name": "FX retire fully",
+      "ok": true
+    },
+    {
+      "detail": {
+        "after": 119,
+        "before": 119
+      },
+      "name": "Retry retains pooled geometry",
+      "ok": true
+    },
+    {
+      "name": "Legend musashi renders",
+      "ok": true
+    },
+    {
+      "name": "Legend hitokiri renders",
+      "ok": true
+    },
+    {
+      "name": "Legend masamune renders",
+      "ok": true
+    },
+    {
+      "name": "Legend mibu renders",
+      "ok": true
+    },
+    {
+      "detail": {
+        "instances": 53,
+        "sources": 53
+      },
+      "name": "Each corpse part renders exactly once",
+      "ok": true
+    },
+    {
+      "detail": {
+        "remaining": 0
+      },
+      "name": "Bodies and detached weapons retire",
+      "ok": true
+    },
+    {
+      "name": "Retired corpse batches are empty",
+      "ok": true
+    },
+    {
+      "detail": {
+        "capacity": 11137,
+        "visible": 11137
+      },
+      "name": "Authored district stays in its static instance budget",
+      "ok": true
+    },
+    {
+      "name": "Player remains inside the courtyard walls",
+      "ok": true
+    },
+    {
+      "name": "Edge spawns retain combat space",
+      "ok": true
+    }
+  ],
+  "ok": true,
+  "profile": {
+    "artDirection": "rain-court",
+    "corpseDrawBatches": 0,
+    "dashWakes": 0,
+    "debris": 0,
+    "drawCalls": 109,
+    "droppedSimulationMs": 0,
+    "drops": 0,
+    "enemies": 0,
+    "fxSparks": 0,
+    "fxStrokes": 0,
+    "geometries": 134,
+    "gibs": 0,
+    "impactBursts": 0,
+    "jets": 0,
+    "modelAsset": "storm-court:player",
+    "parryRings": 0,
+    "pointLights": 2,
+    "poolLimits": {
+      "dashWakes": 12,
+      "debris": 60,
+      "drops": 420,
+      "gibs": 320,
+      "impactBursts": 24,
+      "jets": 64,
+      "parryRings": 12,
+      "points": 32,
+      "ragdollBodies": 48,
+      "screenMarks": 120,
+      "slashes": 6,
+      "sparks": 192,
+      "stains": 620,
+      "strokes": 48
+    },
+    "programs": 20,
+    "ragdolls": 0,
+    "sceneryInstances": 11137,
+    "screenMarks": 0,
+    "slashes": 0,
+    "stains": 0,
+    "triangles": 528536
+  }
+}

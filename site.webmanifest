@@ -1,11 +1,11 @@
 {
   "name": "Onisolo",
   "short_name": "Onisolo",
-  "description": "A monochrome browser sword game on a living sheet of ink and paper.",
+  "description": "A cinematic isometric samurai game in a rain-soaked shrine courtyard.",
   "start_url": "/",
   "display": "fullscreen",
-  "background_color": "#0a0a0d",
-  "theme_color": "#0a0a0d",
+  "background_color": "#13252a",
+  "theme_color": "#13252a",
   "icons": [
     {
       "src": "/assets/onisolo-icon-192.png",

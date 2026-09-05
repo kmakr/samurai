@@ -1,11 +1,12 @@
-# ONISOLO — THE PAGE REMEMBERS
+# ONISOLO — THE RAIN COURT
 
-A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
-every wound bleeds into the arena like ink soaking into paper.
+A cinematic isometric samurai hack-and-slash set in a rain-soaked shrine courtyard.
+Warm lanterns, wet stone, layered teal roofs, and weathered timber frame the fight.
 
 No web build step or dependencies to install. Characters and weapons are authored
-in Blender and exported as small, quantized mesh modules. Scenery, ink textures,
-and animation are generated procedurally at load. The
+in Blender and exported as small, quantized mesh modules. Scenery placement, ink
+textures, and animation are generated procedurally at load. Wet masonry uses a
+generated albedo; concept and prompt provenance live in `docs/art-direction/`. The
 exceptions are the score — a looping recorded track (`assets/score.mp3`, a
 free Nujabes-type beat) played through the game's dynamic mix bus, with a
 fully procedural engine as the loading cover and offline fallback — and two
@@ -95,7 +96,7 @@ parries retain their white blade timing signal.
 
 Perfect parries and kills build **Flow**. Flow breaks when the player takes a
 hit or goes too long without another success; higher Flow increases focus gain
-and pushes the film contrast harder. After each cleared wave, three discipline
+and strengthens the character's outline. After each cleared wave, three discipline
 scrolls pause the fight and offer a run upgrade: parry timing, dash damage,
 combo-finisher damage, focus retention, or iai reach. Each discipline has three
 ranks; selecting a mastered discipline restores life and focus instead.
@@ -109,9 +110,8 @@ tracks, then locks, leaving a beat to move off it (a held parry still turns
 the arrow) — and every fifth wave brings a named rival with a fast follow-up
 cut.
 
-Every five waves is a named act — MORNING PAPER, THE CROWS, NIGHTFALL, THE
-LONG RAIN, THE BLACK PAGE — and the print travels with them: grain, vignette
-and contrast harden act by act, and the late acts bring rain. The last act
+Every five waves is a named act — THE RAIN COURT, THE CROWS, NIGHTFALL, THE
+LONG RAIN, THE BLACK PAGE. Rain and wind intensify in later acts. The last act
 holds; an endless run does not cycle back to morning. Stand still long enough
 on a quiet field and the samurai sheathes the blade; the first input draws it
 again. Defeating the rival restores focus and forces an execution
@@ -124,8 +124,8 @@ extra escapes on top.
 
 Defeat names the death — who struck and what the samurai was caught doing — and
 measures the run against your best (how many waves short, or a new record). The
-page remembers across runs: every past run leaves a dried ink stroke in a ledger
-on the title and defeat screens, scaled to how far it reached. Bests, kills,
+game remembers across runs: every past run leaves a dried ink stroke in a ledger
+on the defeat screen, scaled to how far it reached. Bests, kills,
 perfect parries, and best Flow persist in local browser storage, and a defeat
 can be copied as a shareable result card.
 
@@ -141,37 +141,35 @@ the network is gone. Its cache name carries the build version (stamped by
 
 ## The look
 
-The whole art direction rests on one idea: **the duel happens on a sheet of
-paper.** The arena is washi — the only bright surface in the scene — so black
-ink reads at any distance and the frame gets its Kurosawa contrast for free.
+The **Rain Court** is a bounded isometric courtyard within a shrine district inspired by
+[the supplied reference](https://x.com/anshuc/status/2096008083826725132).
 
-- **Film pass** (`src/render.js`) — the scene renders to an offscreen target,
-  then one fullscreen shader turns it into a monochrome print: orthochromatic
-  channel weighting (reds sink toward black, which is why blood and skin go
-  dark in period black-and-white), a crushed-toe tone curve, halation around
-  highlights, grain that peaks in the midtones, gate weave, exposure flicker,
-  hairline scratches and dust on a 16 fps step. Grain and vignette intensify as
-  the samurai's health drops — the print degrades with him.
-- **Characters** (`src/actors.js`, `assets/models/storm-court.js`) — Blender-authored
-  faceted armor, folded cloth, sculpted helmets and masks, real spearheads, a strung
-  yumi with quiver, and a studded kanabo. All four legends retain their palettes
-  and costume features. The six enemy silhouettes remain distinct at game scale.
-  Joint names match the procedural animation and Verlet ragdoll rig. Geometry is
-  decoded once and shared across waves; every enemy is below 2,400 triangles.
-- **Isometric scenery** (`src/world.js`, `src/voxel.js`) — the fixed diagonal
-  orthographic camera looks down on voxel scenery. Instance batches compact to
-  conservative camera bounds, with extra room for tall off-screen shadow casters.
-  Moving through the world refreshes the bounds and the packed instance matrices.
-- **Combat effects** (`src/combat-fx.js`) — one preallocated draw batch holds up to
-  48 lightning/ink strokes and 192 sparks. Impact fans are prebuilt, corpse parts
-  are instanced by shared geometry, and idle corpse physics sleep. No per-attack
-  PointLights or extra bloom passes are introduced. The film uses an SDR target
-  with 4× MSAA; the final fullscreen canvas avoids redundant MSAA.
-- **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
-  play in. External ink bars show health and signature charge. A white ink
-  aura also marks signature readiness. Run statistics stay in the black bars.
+- **Materials and light** (`src/render.js`, `src/rain-court.js`, `src/surface-shaders.js`): linear HDR with a filmic output curve, depth-based contact shading,
+  one shadowed directional key, cool ambient fill, two permanent lantern lights,
+  a prefiltered HDR sky, generated masonry albedo, stone relief, varying wetness,
+  glazed roof highlights, wood grain and weathered plaster. Detail is shaded in
+  world space without extra geometry or texture downloads.
+- **Architecture**: nine reusable meshes authored through Blender MCP make the
+  stone walls, tiled roofs, lattice windows, planting and courtyard props. More
+  than 11,000 pieces use static instance batches. The independent editable source
+  is `assets/models/rain-court-kit.blend`; regenerate with `tools/build-rain-kit.py`.
+- **Wet surfaces**: irregular puddles share one 640×360 scene reflection target,
+  refreshed every fourth frame. Ripple shading remains continuous. Reflection
+  draws and triangles are included in the runtime profiler. Water reflections
+  respond to the viewing angle; rain streaks are excluded from their buffer.
+- **Characters**: all four legends and six enemy silhouettes use the existing
+  Blender rigs with separate cloth, lacquer and steel shading. Instanced corpses
+  retain their source colors and surface response. Steel still flashes white for parries and red for
+  unblockable attacks.
+- **Combat**: lightning cuts, time-stop iai, tsunami, sparks, hitstop and sound
+  remain intact. Courtyard limits constrain movement, dash and signature travel;
+  edge spawns preserve distance from the player.
+- **Presentation**: no letterbox. A slim title panel and compact HUD expose the
+  live environment. Portrait views follow the player more closely, while wide
+  views retain the composed courtyard.
 
-## The ink
+The source concept and exact built-in image-generation prompts are saved under
+`docs/art-direction/`. The concept is a visual target, not an in-game screenshot.
 
 Blood is ink, and it behaves like ink (`src/ink.js`, `src/paper.js`):
 
@@ -268,14 +266,16 @@ src/profiler.js          opt-in frame/simulation telemetry
 src/run-records.js       safe record, ledger and grudge persistence
 src/unlocks.js           pure skin and weapon progression rules
 src/run-flow.js          start, defeat, retry and fresh-run state
-src/render.js            renderer + monochrome film pass
+src/render.js            renderer + full-color cinematic grade
 src/paper.js             procedural washi, ink atlas, brush texture
 src/ink.js               stains, airborne blood, screen ink
 src/quads.js             one-draw-call dynamic quad batch
 src/actors.js            cel-shaded figures, outlines, geometry cache
 src/ragdoll.js           Verlet ragdolls and dismemberment
 src/trail.js             sumi-e sword stroke
-src/world.js             endless paper, voxel vegetation, wind, rain
+src/world.js             fixed rain buffers
+src/rain-court.js        instanced shrine district + reflections
+src/court-layout.js      courtyard movement and spawn boundaries
 src/voxel.js             voxel model builder + fixed gib pool
 src/audio.js             recorded score/one-shots + procedural fallback
 src/input.js             keyboard/mouse/touch input buffering

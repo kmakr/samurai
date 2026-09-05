@@ -1,6 +1,7 @@
 // Explicit localhost-only QA controls. Runs use the existing QA record isolation.
 import { IAI_TIMING } from './signature-timing.js';
 import { SAMURAI_SKINS, applySamuraiSkin } from './actors.js';
+import { COURT, courtSpawn } from './court-layout.js';
 
 export function installCombatLab(api, ports) {
   const panel = document.createElement('aside'); panel.id = 'combatLab';
@@ -10,7 +11,7 @@ export function installCombatLab(api, ports) {
   let stressUntil = 0, stressStart = 0, lastBeat = 0, lastSignature = 0;
   let stressSamples = [], lastFrame = 0;
   const button = (label, run) => { const b=document.createElement('button'); b.textContent=label; b.style.cssText='font:11px monospace;background:#e4dece;color:#161811;border:0;padding:7px;margin:2px;cursor:pointer'; b.onclick=async()=>{try{await run()}catch(error){output.textContent='FAIL: '+error.stack;output.dataset.status='fail';throw error}};panel.append(b); };
-  const report = value => {output.textContent=JSON.stringify(value,null,2);output.dataset.status=value.ok===false?'fail':'pass';};
+  const report = value => {ports.updateHUD();output.textContent=JSON.stringify(value,null,2);output.dataset.status=value.ok===false?'fail':'pass';};
   const hold = value => {
     api.setPaused(value);
     document.getElementById('pauseScreen').style.display=value?'none':'';
@@ -37,8 +38,13 @@ export function installCombatLab(api, ports) {
     report({frame,time:api.state.actionT,kills:api.state.kills,strokes:api.combatFX.activeStrokes,held:true});
   }
   button('Play arena',()=>{setup();['ronin','hunter','yari','yumi','brute','oni'].forEach((t,i)=>{const e=spawn(t,Math.sin(i)*8,Math.cos(i)*8);e.cooldown=1;e.speed=e.spec.speed;e.circleFor=.7});hold(false);report({arena:'Six enemy types',controls:'WASD / click / Shift / Space / F'})});
+  button('Court study',()=>{setup();api.state.focus=55;[['ronin',-7,-3],['yari',8,-5],['brute',-8,7],['yumi',11,3],['hunter',4,9],['oni',-5,-11]].forEach(([t,x,z])=>spawn(t,x,z));step(90);report({artDirection:api.world.artDirection,held:true})});
+  button('Edge study',()=>{setup();api.state.focus=55;api.player.root.position.set(16,0,14);spawn('oni',12,10);spawn('yari',14,6);step(90);report({position:api.player.root.position.toArray(),held:true})});
+  button('Hide lab',()=>{panel.hidden=true});
+  addEventListener('keydown',e=>{if(e.code==='Backquote')panel.hidden=!panel.hidden});
   button('Iai · draw',()=>signatureScene(11));
   button('Iai · impact',()=>signatureScene(25));
+  button('Iai · release',()=>signatureScene(34));
   button('Tsunami',()=>{setup('nodachi');for(let i=0;i<6;i++)spawn('brute',(i-2.5)*1.3,3,90);api.trySignature();step(27);report({kills:api.state.kills,strokes:api.combatFX.activeStrokes})});
   button('Resume',()=>{hold(false);report({playing:true})});
   button('Audit combat',async()=>{
@@ -84,16 +90,21 @@ export function installCombatLab(api, ports) {
     for(const root of [...api.ragdolls.bodies.flatMap(b=>b.bones.map(x=>x.obj)),...api.ragdolls.debris.map(d=>d.obj)])root.traverse(o=>{if(o.isMesh&&!o.userData.isBladeGlow&&!o.userData.isFlowOutline){seen.add(o);sources++}});
     const instances=[...api.ragdolls.renderBatches.values()].reduce((n,b)=>n+b.count,0);
     assert('Each corpse part renders exactly once',instances===sources&&sources===seen.size,{instances,sources});
+    assert('Corpse instances retain steel, cloth and lacquer response',[...seen].every(o=>{
+      const material=api.ragdolls.renderBatches.get(o.geometry).material;
+      return material.roughness===o.material.roughness&&material.metalness===o.material.metalness&&material.clearcoat===o.material.clearcoat;
+    }));
     for(let tick=0;tick<600;tick++)api.ragdolls.update(1/60);
     assert('Bodies and detached weapons retire',api.ragdolls.count===0,{remaining:api.ragdolls.count});
     assert('Retired corpse batches are empty',[...api.ragdolls.renderBatches.values()].every(b=>b.count===0&&!b.visible));
     setup();step(2);
     const beforeCull=api.world.scatters.reduce((n,s)=>n+s.meshes[0].count,0);
     const capacity=api.world.scatters.reduce((n,s)=>n+s.count,0);
-    assert('Scenery compaction excludes distant instances',beforeCull>0&&beforeCull<capacity,{visible:beforeCull,capacity});
-    api.player.root.position.x+=200;api.player.root.position.z+=200;api.camera.position.x+=200;api.camera.position.z+=200;
-    api.world.update(api.player.root.position,api.camera);
-    assert('Scenery survives world wrapping',api.world.scatters.every(s=>s.meshes.every(m=>m.count>=0&&m.count<=s.count))&&api.world.scatters.some(s=>s.meshes[0].count>0));
+    assert('Authored district stays in its static instance budget',beforeCull>0&&beforeCull<=capacity&&capacity<12000,{visible:beforeCull,capacity});
+    api.player.root.position.x=200;api.player.root.position.z=-200;step(2);
+    assert('Player remains inside the courtyard walls',Math.abs(api.player.root.position.x)<COURT.halfX&&Math.abs(api.player.root.position.z)<COURT.halfZ);
+    const entry=courtSpawn(api.player.root.position,18,0);
+    assert('Edge spawns retain combat space',Math.hypot(entry.x-api.player.root.position.x,entry.z-api.player.root.position.z)>9);
     setup();step(60);
     report({ok:true,checks,profile:ports.stats()});
   });

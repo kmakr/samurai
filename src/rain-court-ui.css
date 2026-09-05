@@ -1,0 +1,131 @@
+/* Quiet architectural framing: scene first, compact instruments at its edges. */
+:root{--paper:#e7dfcc;--ink:#13252a;--seal:#c58b50;--font-ui:Inter,"Helvetica Neue",Arial,sans-serif;--font-brush:Georgia,"Times New Roman",serif;--paper-edge:none;--hud-inline:28px;--control-border:#c4bb9b55}
+body{background:#233c41;color:var(--paper)}
+.bar{display:none}
+#inkOverlay{opacity:.30}
+#hud{font-family:var(--font-ui);text-shadow:0 2px 8px #00161ab3}
+#districtLabel{position:absolute;left:30px;top:28px;display:grid;gap:7px;transition:opacity 160ms ease}
+#districtLabel span,#districtLabel small{font:9px var(--font-ui);letter-spacing:.19em;color:#bdc9c4}
+#districtLabel strong{font:26px Georgia,serif;font-weight:400;color:#f0e7d2}
+#districtLabel small{font-size:8px;color:#c9c9ae;letter-spacing:.15em}
+#buildTag{left:auto;right:28px;top:auto;bottom:20px;height:auto;font:8px var(--font-ui);opacity:.5;letter-spacing:.13em;display:block}
+#buildTag .buildPrefix{display:inline}
+#hudControls{top:26px;right:28px;height:30px;gap:7px;transform:none}
+#hudControls button{background:#10272cbd;border:1px solid #b6c6b34d;padding:9px 12px;height:31px;color:#d6dfd4;font:8px var(--font-ui);letter-spacing:.15em;border-radius:3px}
+#combatStatus{top:74px;right:28px;left:auto;bottom:auto;height:auto}
+#stats{gap:17px;padding:0}
+.statSeal{grid-template-columns:auto auto;grid-template-rows:1fr auto;gap:3px 8px;min-width:40px}
+.statMark{display:none!important}
+.statValue{font:26px Georgia,serif;grid-column:1;grid-row:1;color:#f0e2c5}
+.statLabel{font:7px var(--font-ui);letter-spacing:.16em;grid-column:1;grid-row:2}
+#vitals{left:28px;bottom:27px;top:auto;width:232px;height:auto;gap:9px;padding:15px 16px;background:linear-gradient(100deg,#14292eed,#14292eaa);border:1px solid #b6c6b338;border-left:2px solid #a8966a;border-radius:3px;box-shadow:0 8px 30px #00131830}
+.vitalRow{grid-template-columns:24px 1fr;gap:9px}
+.vitalLabel{width:20px;font:7px var(--font-ui)}
+.vitalLabel svg{width:17px;height:17px}
+.vitalLabel span{display:none}
+.inkMeter{height:5px}
+.inkTrack,.inkFill{clip-path:none;border-radius:1px}
+.inkTrack{background:#dce6d123}
+#hpFill{background:#c4b895}
+#iaiFill{background:#8bc6cd}
+#flow{left:28px;bottom:107px;transform:none;width:232px;padding:0 12px;opacity:.8}
+.flowHeader{font-family:var(--font-ui)}
+.flowWord{font-size:8px;letter-spacing:.17em}
+#flowValue{font-size:17px}
+.flowGauge{height:2px;margin:5px 0;opacity:.7}
+#focusRate{font:7px var(--font-ui);letter-spacing:.12em}
+#help{left:50%;right:auto;bottom:22px;top:auto;height:auto;transform:translateX(-50%);gap:16px;opacity:.8;padding:11px 18px;border:1px solid #d0dfcc2b;background:#13272cb8;border-radius:3px}
+.controlCue{gap:5px}
+.controlCue kbd{font:8px var(--font-ui);color:#e5deca}
+.controlCue>span{font:7px var(--font-ui);letter-spacing:.09em;color:#b1c1bc}
+.controlCue small{display:none}
+#waveTitle{top:20%;left:50%;transform:translateX(-50%);color:#f3e5c5;text-shadow:0 2px 20px #132b2b}
+#waveTitle .kanji{font-size:32px}#waveTitle .latin{font:10px var(--font-ui);letter-spacing:.26em}
+#combatCallout{top:31%;bottom:auto;color:#e4f4ee;filter:drop-shadow(0 2px 8px #11373b)}
+#combatCallout .mark{font-size:32px}#combatCallout .meaning{font:9px var(--font-ui);letter-spacing:.2em}
+#combatCallout.teach{top:auto;bottom:120px}
+#iaiReadyNotice{background:#153238ed;border-left-color:#91d1d7;border-radius:2px;padding:10px 14px}
+#iaiReadyNotice strong{font:10px var(--font-ui);letter-spacing:.12em}#iaiReadyNotice small{font-size:8px}
+
+/* The title is a narrow editorial panel over the actual, moving district. */
+#overlay.intro{align-items:flex-start;justify-content:center;text-align:left;padding:40px 48px;width:100%;background:linear-gradient(90deg,#10262bf5 0%,#10262be8 28%,#10262b85 48%,transparent 75%);backdrop-filter:none;gap:0;overflow-y:auto}
+#overlay.intro::before,#overlay.intro::after{display:none}
+#overlay.intro>*{width:350px;max-width:calc(100vw - 80px);flex-shrink:0}
+#overlay.intro #ovTitle{position:relative;font:48px Georgia,serif;letter-spacing:.10em;line-height:1.1;padding:0;margin:0;width:auto;text-align:left;transform:none;filter:none}
+#overlay.intro .maskStage,#overlay.intro .brandSeal{display:none}
+#overlay.intro .wordmark{font:inherit;letter-spacing:inherit;color:#e9dec5;text-shadow:none}
+#overlay.intro #ovSub{font:9px var(--font-ui);letter-spacing:.31em;color:#c3a978;margin:14px 0 26px;text-align:left}
+#overlay.intro #ovText{font:14px/1.9 Georgia,serif;color:#b7c8c5;letter-spacing:0;margin:0 0 20px;text-align:left}
+#overlay.intro #ovChase{font:9px/1.8 var(--font-ui);color:#92aaa9;margin:0 0 23px;text-align:left;letter-spacing:.015em}
+#overlay.intro #skinPicker,#overlay.intro #weaponPicker{width:350px;max-width:calc(100vw - 80px);margin:0 0 14px;padding:0;border:0;background:none}
+.skinPickerHead,.weaponPickerHead{font:8px var(--font-ui);letter-spacing:.12em;color:#b7c6bd;gap:10px;margin-bottom:9px}
+#skinCurrent,#weaponCurrent{font-size:7px;letter-spacing:.02em;opacity:.7}
+#skinOptions{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.skinOption{min-height:44px;padding:9px 10px;gap:9px;border:1px solid #a6c0b42a;background:#c0d3c207;border-radius:2px;clip-path:none;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
+.skinOption[aria-pressed=true]{background:#aac6b618;border-color:#b5a479}
+.skinOption .skinFigure{transform:scale(.55);transform-origin:center;width:22px;height:26px;margin:0 2px 0 0}
+.skinCopy strong{font:9px var(--font-ui);letter-spacing:.11em}.skinCopy small{font:7px var(--font-ui);letter-spacing:.015em;opacity:.65}
+.skinOption.locked{opacity:.45}.skinOption .lockMark{font-size:7px}
+#weaponOptions{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.weaponOption{min-height:46px;padding:8px 10px;gap:8px;border:1px solid #a6c0b42a;background:#c0d3c207;border-radius:2px;clip-path:none}
+.weaponOption[aria-pressed=true]{background:#aac6b618;border-color:#b5a479}
+.weaponFigure{transform:scale(.6);width:25px!important;height:26px!important;margin:0!important}
+.weaponCopy strong{font:9px var(--font-ui);letter-spacing:.10em}.weaponCopy small,.weaponCopy em{font:7px var(--font-ui);letter-spacing:.015em;line-height:1.5}
+#overlay.intro #ovButtons{display:flex;width:350px;max-width:calc(100vw - 80px);gap:8px;margin:15px 0 0;align-items:stretch;flex-direction:row}
+#ovBtn,#pauseResume{clip-path:none;background:#c2b18b;color:#13282b;border:1px solid #d4c49e;border-radius:2px;box-shadow:0 6px 20px #071b2533;font:10px var(--font-ui);letter-spacing:.18em;padding:15px 18px;min-height:45px;transition:background 140ms ease,transform 140ms ease}
+#overlay.intro #ovBtn{width:auto;flex:1 1 0;margin:0;min-width:0;white-space:nowrap}
+#overlay.intro #ovDaily{width:112px;flex:0 0 112px;min-width:0;font-size:8px;white-space:nowrap}
+#ovDaily{clip-path:none;background:#1b353abd;color:#c8d2c8;border:1px solid #a6c0b44d;border-radius:2px;font:8px var(--font-ui);padding:12px;letter-spacing:.1em;min-width:100px;margin:0}
+#overlay.intro #controls{display:none}#overlay.intro .controls{display:none}
+#ovBtn:active,.skinOption:active,.weaponOption:active,#ovDaily:active{transform:scale(.97)}
+#overlay:not(.intro){background:#10252bd9;backdrop-filter:blur(5px)}
+#overlay:not(.intro) #ovTitle{font-family:Georgia,serif;font-size:56px}
+#overlay:not(.intro) #ovSub{font-family:var(--font-ui);font-size:10px;letter-spacing:.23em}
+#overlay:not(.intro) #ovText,#overlay:not(.intro) #ovCause{font-family:var(--font-ui);font-size:12px;line-height:1.7}
+.pausePanel{background:#132d32f5;border:1px solid #a0b8a94d;border-radius:3px;padding:32px;box-shadow:0 20px 80px #041a2370}
+#pauseScreen{background:#0e252860;backdrop-filter:blur(3px)}
+#pauseHeading{font:30px Georgia,serif;letter-spacing:.12em}.pauseMark{display:none}
+.pauseOpt,#pauseQuit{font:10px var(--font-ui);letter-spacing:.1em;border:1px solid #b9c8b733;border-radius:2px;background:#c0d3c208}
+#upgradeOverlay{background:#11292bea;backdrop-filter:blur(5px)}
+#upgradeHeading{font:30px Georgia,serif;letter-spacing:.12em}
+#boonNotice{background:#133238ed;border:1px solid #b7c7ad40;border-radius:3px}
+@media(max-width:900px){
+  #districtLabel{top:18px;left:20px}#districtLabel strong{font-size:21px}#districtLabel span{font-size:7px}
+  #hudControls{top:17px;right:20px}#combatStatus{top:58px;right:20px}
+  #vitals{left:20px;bottom:20px;width:195px;padding:12px}#flow{left:20px;bottom:95px;width:195px}
+  #help{left:auto;right:20px;bottom:20px;transform:none;gap:12px;padding:12px}#help .controlCue:nth-child(-n+2){display:none}
+  #buildTag{display:none}#overlay.intro{padding:24px 32px}#overlay.intro #ovTitle{font-size:37px}
+  #overlay.intro #ovSub{margin:10px 0 17px}#overlay.intro #ovText{font-size:12px;margin-bottom:14px}
+}
+@media(max-height:570px){
+  #overlay:not(.intro) #ovTitle{font-size:32px}#overlay:not(.intro) #ovText,#overlay:not(.intro) #ovCause{font-size:10px;line-height:1.4}
+  #overlay.intro{padding:24px 30px;justify-content:flex-start}#overlay.intro>*{width:315px}
+  #overlay.intro #ovTitle{font-size:32px}#overlay.intro #ovSub{margin:8px 0 13px}
+  #overlay.intro #ovText{font-size:11px;line-height:1.7;margin-bottom:10px}
+  #overlay.intro #ovChase{font-size:7px;margin-bottom:12px}#overlay.intro #skinPicker,#overlay.intro #weaponPicker{width:315px;margin-bottom:9px}
+  .skinOption{min-height:33px;padding:5px 8px}.skinOption .skinFigure{display:none}.skinCopy small{font-size:6px}
+  .weaponOption{min-height:34px;padding:5px 8px}.weaponFigure{display:none}#overlay.intro #ovButtons{width:315px;margin-top:7px}
+  #ovBtn,#ovDaily{min-height:34px;padding:10px 12px}
+  #districtLabel small{display:none}#districtLabel strong{font-size:18px}#districtLabel{gap:5px}
+  #vitals{bottom:15px;width:178px;padding:10px}#flow{bottom:79px;width:178px}#help{bottom:15px}
+}
+@media(max-width:550px){
+  #overlay.intro{background:linear-gradient(90deg,#10262bf2,#10262bc9);padding:35px 26px}
+  #overlay.intro>*{max-width:calc(100vw - 52px)}#overlay.intro #skinPicker,#overlay.intro #weaponPicker{max-width:calc(100vw - 52px)}
+  #districtLabel span{font-size:6px}#districtLabel strong{font-size:17px}#hudControls button{font-size:7px;padding:8px}
+  #help{display:none}#vitals{width:170px;left:15px}#flow{left:15px;width:170px}
+  #combatStatus{right:16px}.statValue{font-size:21px}
+}
+@media(prefers-reduced-motion:reduce){#overlay *{animation-duration:1ms!important;transition-duration:1ms!important}}
+
+#focusRate{position:static;display:flex;justify-content:space-between;align-items:baseline;gap:6px;transform:none;margin-top:5px;height:auto}
+#focusRateValue{font-size:9px;line-height:1}
+#flow.active{opacity:.85}
+#flow{height:auto;display:flex;flex-direction:column;justify-content:flex-end;gap:0}
+.flowHeader{position:static;display:flex;justify-content:space-between;align-items:center}
+#combatStatus{display:block;min-height:50px}#stats{height:auto;min-height:50px}
+#stats{display:flex;gap:24px}.statSeal{height:auto;min-height:45px}
+#focusRate #focusRateValue{font-size:9px;line-height:1.2}#focusRate span{font-size:7px}
+.skinOption[aria-pressed=true],.weaponOption[aria-pressed=true]{color:var(--paper)}
+#overlay.intro #ledger{display:none}
+#overlay.intro #ovTitle .wordmark,#overlay.intro #ovSub,#overlay.intro #ovText,#overlay.intro #skinPicker,#overlay.intro #weaponPicker,#overlay.intro #ovButtons{animation:none;opacity:1;transform:none;filter:none}

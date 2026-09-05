@@ -57,7 +57,6 @@ export class RagdollSystem {
     this.debris = [];
     this.accum = 0;
     this.renderBatches = new Map();
-    this.corpseMaterial = toon(1, { vertexColors: true, emissive: 0x4b4b4b, emissiveIntensity: .28 });
   }
 
   get count() { return this.bodies.length + this.debris.length; }
@@ -302,7 +301,7 @@ export class RagdollSystem {
     for (const debris of this.debris) this.writeBatched(debris.obj);
     for (const batch of this.renderBatches.values()) {
       batch.visible = batch.count > 0;
-      if (batch.count) batch.instanceMatrix.needsUpdate = true;
+      if (batch.count) { batch.instanceMatrix.needsUpdate = true; if(batch.instanceColor)batch.instanceColor.needsUpdate=true; }
     }
   }
 
@@ -314,14 +313,22 @@ export class RagdollSystem {
       if (object.userData.isBladeGlow || object.userData.isFlowOutline) return;
       let batch = this.renderBatches.get(object.geometry);
       if (!batch) {
-        batch = new THREE.InstancedMesh(object.geometry, this.corpseMaterial,
+        // One persistent material per geometry keeps steel, lacquer and cloth
+        // responses after death. Instance color carries each actor's palette.
+        const material=object.material.clone();material.color.set(0xffffff);
+        if(material.emissive)material.emissive.set(0);
+        batch = new THREE.InstancedMesh(object.geometry, material,
           RAGDOLL_LIMITS.bodies + RAGDOLL_LIMITS.debris);
         batch.name = 'corpse-batch'; batch.count = 0;
         batch.frustumCulled = false; batch.castShadow = true; batch.receiveShadow = true;
         batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.renderBatches.set(object.geometry, batch); this.scene.add(batch);
       }
-      if (batch.count < batch.instanceMatrix.count) batch.setMatrixAt(batch.count++, object.matrixWorld);
+      if (batch.count < batch.instanceMatrix.count) {
+        batch.setMatrixAt(batch.count, object.matrixWorld);
+        batch.setColorAt(batch.count, object.material.color);
+        batch.count++;
+      }
     });
   }
 
@@ -538,7 +545,7 @@ export class RagdollSystem {
     // and mask eyes are created per actor and must leave with the corpse.
     obj.traverse((o) => {
       if (o.isMesh && o.material
-          && (o.material.isMeshToonMaterial || o.material.isMeshBasicMaterial)) {
+          && (o.material.isMeshToonMaterial || o.material.isMeshStandardMaterial || o.material.isMeshBasicMaterial)) {
         o.material.dispose();
       }
     });

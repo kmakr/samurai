@@ -83,8 +83,8 @@ export const SAMURAI_SKINS = [
   {
     id: 'musashi', name: 'MUSASHI', epithet: 'WANDERING SWORD',
     colors: {
-      armor: 0x5e4938, plate: 0x8d7558, cloth: 0x28201b, trim: 0x0b0908,
-      skin: 0x81766b, sash: 0xc9b78f, crest: 0xd8c69d,
+      armor: 0xa89170, plate: 0xd0bfa1, cloth: 0x4b3930, trim: 0x292b28,
+      skin: 0xc39c7d, sash: 0xa64f35, crest: 0xc5a46a,
     },
     features: ['wildHair', 'dualSword', 'warSash'],
   },
@@ -122,7 +122,7 @@ export function applySamuraiSkin(actor, skinId) {
     if (feature) object.visible = features.has(feature);
     const slot = object.userData.skinSlot;
     if (!slot || !object.material || !skin.colors[slot]) return;
-    object.material.color.setHex(skin.colors[slot]).multiplyScalar(1.7);
+    object.material.color.setHex(skin.colors[slot]).multiplyScalar(1.25);
   });
   actor.skin = skin.id;
   return skin;
@@ -229,7 +229,18 @@ function makeActor(model) {
   for (const [index, data] of ACTOR_MESHES[model].entries()) {
     // Per-part materials survive independent limb retirement. Geometries stay
     // shared; ragdoll disposal must never invalidate another living actor.
-    const material = toon(1, { vertexColors: true, emissive: 0x4b4b4b, emissiveIntensity: .28 });
+    const metal = data.slot === 'steel';
+    const armor=['armor','plate','crest','trim'].includes(data.slot);
+    const Material=armor?THREE.MeshPhysicalMaterial:THREE.MeshStandardMaterial;
+    const material = new Material({
+      color:0xffffff,vertexColors:true,roughness:metal?.23:armor?.43:data.slot==='skin'?.64:.88,
+      metalness:metal?.88:armor?.16:0,flatShading:true,
+    });
+    if(armor){material.clearcoat=.32;material.clearcoatRoughness=.3}
+    if(model !== 'player' && !metal){
+      const palettes={ronin:[0x9e8761,0x657477],hunter:[0x505f70,0x444852],yari:[0x768c86,0x535d57],yumi:[0xbca477,0x715b48],brute:[0x806e5d,0x51483b],oni:[0x965d48,0x463e37]};
+      const palette=palettes[model];material.color.setHex(palette[data.joint==='head'?0:1]).multiplyScalar(1.5);
+    }
     const mesh = new THREE.Mesh(decodeGeometry(`${model}:${index}`, data), material);
     mesh.name = `${model}:${data.joint}:${data.feature || data.slot || 'ink'}`;
     mesh.castShadow = true; mesh.receiveShadow = true;

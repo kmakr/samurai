@@ -1,122 +1,65 @@
-// Monochrome film emulation with selective lacquer retention.
+// Linear HDR rendering, depth-based contact shading and a filmic output curve.
 //
-// The scene renders to an offscreen target, then a single fullscreen pass turns
-// it into a black-and-white print: orthochromatic response, a hard tone curve,
-// halation around highlights, grain, gate weave, dust and scratches.
+// The offscreen scene receives restrained bloom, atmospheric color, grain and
+// readable combat flashes in one fullscreen pass.
 
 import * as THREE from 'three';
 
+// Restrained full-color grade. Scene lighting carries the material detail.
 const FILM_FRAG = /* glsl */`
   uniform sampler2D tDiffuse;
-  uniform vec2  uRes;
-  uniform float uTime;
-  uniform float uGrain;
-  uniform float uFlicker;
-  uniform vec2  uWeave;
-  uniform float uWhite;
-  uniform float uInvert;
-  uniform float uContrast;
-  uniform float uLift;
-  uniform float uVignette;
-  uniform float uDamage;
-  uniform float uTimeStop;
+  uniform sampler2D tDepth;
+  uniform vec2 uRes;
+  uniform vec4 uCamera;
+  uniform float uAO;
+  uniform float uTime, uGrain, uWhite, uInvert, uContrast, uVignette, uTimeStop;
   varying vec2 vUv;
-
-  float hash(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
+  float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  vec3 viewPosition(vec2 uv){
+    float depth=texture2D(tDepth,uv).x;
+    return vec3((uv*2.-1.)*uCamera.xy,-mix(uCamera.z,uCamera.w,depth));
   }
-
-  void main() {
-    vec2 uv = clamp(vUv + uWeave, 0.001, 0.999);
-    vec3 c = texture2D(tDiffuse, uv).rgb;
-
-    // Halation. Silver-halide stock blooms around bright areas; a handful of
-    // taps is enough to suggest it and costs almost nothing.
-    vec2 px = 2.0 / uRes;
-    vec3 bl = vec3(0.0);
-    bl += texture2D(tDiffuse, uv + px * vec2( 1.0,  0.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2(-1.0,  0.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2( 0.0,  1.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2( 0.0, -1.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2( 2.0,  2.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2(-2.0,  2.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2( 2.0, -2.0)).rgb;
-    bl += texture2D(tDiffuse, uv + px * vec2(-2.0, -2.0)).rgb;
-    bl *= 0.125;
-    float bLum = dot(bl, vec3(0.30, 0.59, 0.11));
-    c += bl * smoothstep(0.62, 1.0, bLum) * 0.30;
-
-    // Orthochromatic weighting: reds sink toward black, greens go bright. This
-    // is why skin and blood look so dark in period black-and-white. Preserve
-    // the pre-curve luminance and chroma so intentional lacquer colors can be
-    // restored after the print treatment; the grayscale world has no chroma
-    // and therefore remains fully monochrome.
-    float sourceL = max(dot(c, vec3(0.20, 0.72, 0.08)), 0.001);
-    float highChannel = max(c.r, max(c.g, c.b));
-    float lowChannel = min(c.r, min(c.g, c.b));
-    float sourceChroma = highChannel - lowChannel;
-    float l = sourceL;
-
-    // Tone curve: crushed toe, hot shoulder.
-    l = clamp((l - 0.46) * uContrast + 0.46, 0.0, 1.0);
-    l = smoothstep(0.0, 1.0, l);
-    l = pow(l, 0.92);
-    l = l * (1.0 - uLift) + uLift;
-    l *= uFlicker;
-
-    // Grain, strongest through the midtones. Two decorrelated samples
-    // averaged: same photographic texture, half the per-pixel spike — single
-    // -sample noise at this amplitude reads as discrete dots on flat paper.
-    float g = (hash(vUv * uRes + fract(uTime) * 431.7)
-             + hash(vUv * uRes * 1.13 + fract(uTime * 1.7) * 289.3)) * 0.5 - 0.5;
-    l += g * uGrain * (0.30 + 1.0 * (1.0 - abs(l * 2.0 - 1.0)));
-
-    // Print damage, resampled on a 16fps step so it stutters like a projector.
-    // Both features are deliberately hairline — at cell sizes much above a few
-    // pixels they stop reading as film and start reading as broken rendering.
-    float frame = floor(uTime * 16.0);
-    float lane = floor(vUv.x * 620.0);
-    if (hash(vec2(lane, frame)) > 0.999) {
-      // Vertical scratches run only part of the frame height, faintly.
-      float span = hash(vec2(lane, frame + 3.0));
-      float top = hash(vec2(lane, frame + 9.0));
-      float inSpan = step(top, vUv.y) * step(vUv.y, top + span * 0.7);
-      l += 0.10 * uDamage * inSpan;
+  float contactOcclusion(){
+    vec3 p=viewPosition(vUv);
+    vec3 n=normalize(cross(dFdx(p),dFdy(p)));
+    float occlusion=0.;
+    // A stable spiral, in world units, avoids camera-distance-dependent halos.
+    float angle=hash(floor(vUv*uRes*.5))*6.283185;
+    for(int i=0;i<10;i++){
+      float fi=float(i),r=.14+fi*.095;
+      vec2 offset=vec2(cos(angle+fi*2.399963),sin(angle+fi*2.399963))*r/(uCamera.xy*2.);
+      vec3 delta=viewPosition(clamp(vUv+offset,vec2(.001),vec2(.999)))-p;
+      float distance=length(delta);
+      float horizon=max(0.,dot(n,delta)/max(distance,.001)-.12);
+      occlusion+=horizon*(1.-smoothstep(.10,1.4,distance));
     }
-    // Dust: a rare, soft-edged fleck — an accent a few times a second, not a
-    // field of black dots. The soft falloff is what stops it reading as a
-    // literal square drawn on the frame.
-    vec2 dgrid = vec2(520.0, 300.0);
-    vec2 dcell = floor(vUv * dgrid);
-    float dust = hash(dcell + frame * 7.13);
-    if (dust > 0.99991) {
-      float d = length(fract(vUv * dgrid) - 0.5);
-      l -= 0.22 * uDamage * smoothstep(0.45, 0.1, d);
-    }
-
-    vec2 d = vUv - 0.5;
-    l *= 1.0 - uVignette * dot(d, d) * 1.7;
-
-    l = clamp(l, 0.0, 1.0);
-
-    // Only genuinely colored source pixels keep pigment. This makes the
-    // selected samurai lacquer visible without tinting the paper, scenery,
-    // enemies, ink, shadows or the rest of the period-film image.
-    vec3 lacquer = clamp(c * (l / sourceL), 0.0, 1.0);
-    float pigment = smoothstep(0.025, 0.14, sourceChroma) * 0.82;
-    vec3 finalColor = mix(vec3(l), lacquer, pigment);
-
-    // Hold the print in deep silver during the draw. Steel remains legible;
-    // there is no extra render target or time-varying light topology.
-    float silver = dot(finalColor, vec3(.299, .587, .114));
-    vec3 stopped = vec3(silver * .43 + pow(silver, 8.0) * .18);
-    finalColor = mix(finalColor, stopped, uTimeStop * .88);
-    finalColor = mix(finalColor, vec3(1.0), uWhite);
-    // A flash frame: the print inverts for a few frames on a perfect parry.
-    finalColor = mix(finalColor, vec3(1.0) - finalColor, uInvert);
-    gl_FragColor = vec4(finalColor, 1.0);
+    return clamp(1.-occlusion*.24*uAO,.55,1.);
+  }
+  void main(){
+    vec3 c=texture2D(tDiffuse,vUv).rgb;
+    c*=contactOcclusion();
+    vec2 px=2.0/uRes;vec3 bloom=vec3(0.);
+    bloom+=texture2D(tDiffuse,vUv+px*vec2(2.,0.)).rgb;
+    bloom+=texture2D(tDiffuse,vUv+px*vec2(-2.,0.)).rgb;
+    bloom+=texture2D(tDiffuse,vUv+px*vec2(0.,2.)).rgb;
+    bloom+=texture2D(tDiffuse,vUv+px*vec2(0.,-2.)).rgb;
+    bloom*=.25;
+    c+=max(bloom-vec3(1.),vec3(0.))*.095;
+    c=max((c-.18)*uContrast+.18,vec3(0.));
+    float l=clamp(dot(c,vec3(.2126,.7152,.0722)),0.,1.);
+    // Cool shadow air, a restrained warm shoulder, and continuous color.
+    c+=vec3(-.006,.008,.013)*(1.-l);
+    c*=vec3(1.03,1.015,.97);
+    c+=(hash(vUv*uRes+floor(uTime*30.))-.5)*uGrain*.25;
+    vec2 d=(vUv-.5)*vec2(1.,.82);
+    c*=1.-uVignette*dot(d,d)*1.4;
+    float silver=dot(c,vec3(.299,.587,.114));
+    vec3 stopped=vec3(.12,.26,.32)*silver+pow(vec3(silver),vec3(5.))*.28;
+    c=mix(c,stopped,uTimeStop*.88);
+    c=mix(c,vec3(.74,.91,1.),uInvert*.50);
+    c=mix(c,vec3(1.,.98,.89),uWhite*.42);
+    gl_FragColor=vec4(max(c,vec3(0.)),1.);
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
 `;
@@ -132,37 +75,39 @@ const FILM_VERT = /* glsl */`
 export class FilmRenderer {
   constructor(container) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // Four-sample MSAA preserves edges while leaving headroom for PBR shading.
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Three only tone-maps the final screen pass. Scene/reflection buffers stay
+    // linear HDR, so bright lamps and metallic reflections retain their range.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
 
     this.target = new THREE.WebGLRenderTarget(1, 1, {
-      // The print clamps to SDR; RGBA8 halves target bandwidth versus HDR.
-      type: THREE.UnsignedByteType,
-      // The film pass renders at the same pixel size as this target. Linear
-      // sampling plus subpixel gate weave softened every voxel edge. Keep the
-      // resolved MSAA image intact and move it only by complete pixels.
+      type: this.renderer.extensions.has('EXT_color_buffer_float') ? THREE.HalfFloatType : THREE.UnsignedByteType,
+      // Preserve the resolved MSAA image when grading at the same pixel size.
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       depthBuffer: true,
       samples: 4,
     });
+    this.target.depthTexture = new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
 
     this.uniforms = {
       tDiffuse: { value: this.target.texture },
+      tDepth: { value: this.target.depthTexture },
+      uCamera: { value: new THREE.Vector4(1,1,1,400) },
+      uAO: { value: .9 },
       uRes: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uGrain: { value: 0.10 },
-      uFlicker: { value: 1 },
-      uWeave: { value: new THREE.Vector2() },
       uWhite: { value: 0 },
       uInvert: { value: 0 },
       uContrast: { value: 1.42 },
-      uLift: { value: 0.015 },
       uVignette: { value: 0.35 },
-      uDamage: { value: 1 },
       uTimeStop: { value: 0 },
     };
 
@@ -197,21 +142,13 @@ export class FilmRenderer {
     return { w, h };
   }
 
-  // Projector artefacts. Weave is a slow drift with an occasional jump; flicker
-  // is exposure varying frame to frame.
+  // Grain follows the simulation clock, so time-stop holds it with the scene.
   updateFilm(t) {
-    this.uniforms.uTime.value = t;
-    const wx = Math.sin(t * 2.3) * 0.0006 + Math.sin(t * 11.7) * 0.0003;
-    const wy = Math.cos(t * 1.9) * 0.0008 + Math.sin(t * 9.1) * 0.0004;
-    const res = this.uniforms.uRes.value;
-    this.uniforms.uWeave.value.set(
-      Math.round(wx * res.x) / res.x,
-      Math.round(wy * res.y) / res.y,
-    );
-    this.uniforms.uFlicker.value = 0.965 + Math.abs(Math.sin(t * 31.0)) * 0.05 + Math.sin(t * 7.3) * 0.012;
+    this.uniforms.uTime.value=t;
   }
 
   render(scene, camera) {
+    this.uniforms.uCamera.value.set((camera.right-camera.left)/camera.zoom/2,(camera.top-camera.bottom)/camera.zoom/2,camera.near,camera.far);
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
     this.renderer.setRenderTarget(this.target);
@@ -240,6 +177,13 @@ export function viewportSize() {
 // Academy-era framing. Kurosawa shot 1.37:1 through Seven Samurai and moved to
 // scope later; the letterbox is set from index.html and just needs sizing here.
 export function applyLetterbox(ratio) {
+  if(!ratio){
+    document.querySelectorAll('.bar').forEach(bar=>{bar.style.width='0';bar.style.height='0'});
+    document.documentElement.style.setProperty('--film-bar-h','0px');
+    document.documentElement.style.setProperty('--film-bar-w','0px');
+    document.documentElement.classList.toggle('hud-compact',viewportSize().w<850);
+    return;
+  }
   const bars = document.querySelectorAll('.bar');
   const { w: vw, h: vh } = viewportSize();
   // Keep enough black frame for the HUD even when the screen is wider than the

@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { FilmRenderer, applyLetterbox, viewportSize } from './render.js';
 import { DISCIPLINE_ART, HUD_LIFE, HUD_IAI, MASTERY_SEAL, POEM_FLOURISH } from './glyphs.js';
 import { INK_LIMITS, InkSystem } from './ink.js';
-import { buildWorld, ARENA, Rain } from './world.js';
+import { ARENA, Rain } from './world.js';
+import { buildRainCourt } from './rain-court.js';
+import { COURT, constrainToCourt, courtSpawn } from './court-layout.js';
 import {
   makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion,
   SAMURAI_SKINS, applySamuraiSkin,
@@ -83,19 +85,19 @@ document.getElementById('ovPoem')
   .insertAdjacentHTML('afterbegin', `<span class="poemFlourish">${POEM_FLOURISH}</span>`);
 const film = new FilmRenderer(app);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05050a);
+scene.background = new THREE.Color(0x526c6e);
 // Linear fog suits the orthographic camera: view depth barely varies with an
 // ortho projection, so exponential fog just dims the whole frame uniformly.
 // A near/far band instead fades the rim of the visible ground into dark.
-scene.fog = new THREE.Fog(0x0a0a10, 88, 150);
+scene.fog = new THREE.Fog(0x526c6e, 95, 168);
 
 // Isometric: a fixed diagonal viewpoint, orthographic so nothing changes size
 // with distance. Azimuth 45 puts world edges on screen diagonals — with the
 // blocky art every box shows two faces plus a top, which is the whole look.
 const ISO_AZIMUTH = Math.PI / 4;
-const ISO_ELEVATION = 0.72;          // ~41 degrees; higher reads clearer, lower more dramatic
+const ISO_ELEVATION = 0.66;          // ~38 degrees; roofs and fighting floor stay visible
 const ISO_DISTANCE = 80;
-const VIEW_HALF = 9.5;               // world units from screen centre to top edge
+const VIEW_HALF = 14.0;               // world units from screen centre to top edge
 const ISO_OFFSET = new THREE.Vector3(
   Math.sin(ISO_AZIMUTH) * Math.cos(ISO_ELEVATION),
   Math.sin(ISO_ELEVATION),
@@ -104,11 +106,15 @@ const ISO_OFFSET = new THREE.Vector3(
 
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
 camera.position.copy(ISO_OFFSET);
+camera.layers.enable(1);
+camera.layers.enable(2);
 
 const timeUniform = { value: 0 };
-const world = buildWorld(scene, timeUniform);
+const world = buildRainCourt(scene, timeUniform, film.renderer);
 const rain = new Rain(scene);
-const WORLD_BOUND = 1e9;   // the page never ends
+// Rain is visible directly; water reflects solid scenery, not streak aliases.
+rain.lines.layers.set(2);
+const WORLD_BOUND = 26;
 const ink = new InkSystem(scene, WORLD_BOUND);
 const ragdolls = new RagdollSystem(scene, ink, WORLD_BOUND);
 // Bodies are made of cubes now, so they come apart into cubes.
@@ -147,18 +153,19 @@ const audio = new Audio();
 
 // Lighting: one hard key for shape, a dim fill so blacks aren't dead, and a
 // back light to separate figures from the ground.
-const key = new THREE.DirectionalLight(0xffffff, 1.5);
+const key = new THREE.DirectionalLight(0xffe4ca, 3.2);
 key.position.set(-24, 38, 24);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = -46; key.shadow.camera.right = 46;
-key.shadow.camera.top = 46; key.shadow.camera.bottom = -46;
+key.shadow.camera.left = -38; key.shadow.camera.right = 38;
+key.shadow.camera.top = 38; key.shadow.camera.bottom = -38;
 key.shadow.camera.far = 130;
-key.shadow.bias = -0.0012;
-key.shadow.normalBias = 0.02;
+key.shadow.bias = -0.00012;
+key.shadow.normalBias = 0.025;
+key.shadow.radius = 2;
 scene.add(key, key.target);
-scene.add(new THREE.HemisphereLight(0x9fb0c8, 0x0a0a10, 0.30));
-const back = new THREE.DirectionalLight(0xffffff, 0.5);
+scene.add(new THREE.HemisphereLight(0xb2d7e1, 0x333c30, .55));
+const back = new THREE.DirectionalLight(0xb7dbdf, .40);
 back.position.set(26, 14, -20);
 scene.add(back);
 
@@ -166,7 +173,7 @@ scene.add(back);
 
 const player = makeSamurai();
 player.baseHipY = player.hips.position.y;
-player.root.position.set(0, 0, 6);
+player.root.position.set(0, 0, 1.5);
 scene.add(player.root);
 
 const SKIN_STORAGE_KEY = 'samurai-skin';
@@ -661,8 +668,8 @@ function updateIaiAura() {
   iaiAura.visible = ready;
   if (!ready) return;
   const breath = Math.sin(state.time * 2.4);
-  iaiAuraRing.scale.setScalar(2.18 + breath * 0.05);
-  iaiAuraRing.material.opacity = 0.27 + breath * 0.05;
+  iaiAuraRing.scale.setScalar(1.38 + breath * 0.035);
+  iaiAuraRing.material.opacity = 0.20 + breath * 0.035;
 }
 
 function updateFlowOutline(dt) {
@@ -749,6 +756,8 @@ function spawnEnemy(type, options = {}) {
     0,
     player.root.position.z + Math.sin(a) * r,
   );
+  const entry = courtSpawn(player.root.position,r,a);
+  actor.root.position.x=entry.x;actor.root.position.z=entry.z;
   scene.add(actor.root);
 
   // Only the steel and its aura take part in the timing telegraph. The hilt
@@ -756,7 +765,7 @@ function spawnEnemy(type, options = {}) {
   const bladeMats = [];
   let bladeGlow = null;
   actor.katana.traverse((o) => {
-    if (o.userData.isBlade && o.material.isMeshToonMaterial) bladeMats.push(o.material);
+    if (o.userData.isBlade && (o.material.isMeshToonMaterial || o.material.isMeshStandardMaterial)) bladeMats.push(o.material);
     if (o.userData.isBladeGlow) bladeGlow = o;
   });
   // Archers telegraph along the ground: a thin additive line from bow to the
@@ -902,7 +911,7 @@ function showWaveTitle(plan) {
 // print — the film hardens as the run travels toward the black page. The last
 // act holds; an endless run does not cycle back to morning.
 const ACT_DEFS = [
-  { name: 'MORNING PAPER', grain: 0, vig: 0, con: 0, rain: 0, wind: 0 },
+  { name: 'THE RAIN COURT', grain: 0, vig: 0, con: 0, rain: .36, wind: .02 },
   { name: 'THE CROWS', grain: 0.012, vig: 0.04, con: 0.05, rain: 0, wind: 0.01 },
   { name: 'NIGHTFALL', grain: 0.022, vig: 0.1, con: 0.1, rain: 0, wind: 0.02 },
   { name: 'THE LONG RAIN', grain: 0.015, vig: 0.06, con: 0.06, rain: 0.55, wind: 0.05 },
@@ -1574,6 +1583,7 @@ function beginIai() {
   iaiEnd.copy(iaiOrigin);
   iaiEnd.x += Math.sin(iaiFacing) * dist;
   iaiEnd.z += Math.cos(iaiFacing) * dist;
+  constrainToCourt(iaiEnd);
 }
 
 function beginTsunamiCut() {
@@ -2143,12 +2153,13 @@ function updateCamera(dt) {
   const l = vTmp2.length();
   if (l > 0.001) vTmp2.multiplyScalar(Math.min(l, 7) / l * 0.28);
 
-  camTarget.set(p.x + vTmp2.x, 1.2, p.z + vTmp2.z);
+  const narrow=sizedW/sizedH<1.2;
+  camTarget.set(THREE.MathUtils.clamp(p.x*(narrow?.95:.60)+vTmp2.x,-(narrow?COURT.halfX:COURT.cameraX),narrow?COURT.halfX:COURT.cameraX),1.4,THREE.MathUtils.clamp(p.z*(narrow?.95:.60)+vTmp2.z,-(narrow?COURT.halfZ:COURT.cameraZ),narrow?COURT.halfZ:COURT.cameraZ));
 
   // Crowded fights zoom out instead of pulling back — with an orthographic
   // camera, distance changes nothing; only the frustum (via zoom) does.
   const pressure = Math.min(1, enemies.length / 12);
-  const wantZoom = 1 / (1 + pressure * 0.28);
+  const wantZoom = 1 / (1 + pressure * 0.10);
   camera.zoom += (wantZoom - camera.zoom) * (1 - Math.exp(-3 * dt));
   camera.updateProjectionMatrix();
 
@@ -2168,12 +2179,9 @@ function updateCamera(dt) {
   camera.position.addScaledVector(camPunch, juiceScale);
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
 
-  // Keep the shadow frustum on the action. The light hangs off the camera's
-  // LEFT shoulder: lit from behind the camera, every shadow falls directly
-  // behind its caster and the frame goes flat — from the side, shadows rake
-  // visibly across the paper.
-  key.position.set(p.x - 24, 38, p.z + 24);
-  key.target.position.set(p.x, 0, p.z);
+  // A fixed side light gives the entire district consistent, raking shadows.
+  key.position.set(-24, 38, 14);
+  key.target.position.set(0, 0, 0);
   key.target.updateMatrixWorld();
 }
 
@@ -2494,11 +2502,11 @@ function renderTitleScreen() {
   const records = loadRecords();
   const ledger = loadLedger();
   ovTitle.innerHTML = TITLE_LOGO;
-  ovSub.textContent = 'THE PAGE REMEMBERS';
+  ovSub.textContent = 'THE RAIN COURT';
   ovCause.hidden = true;
   ovPoem.hidden = true;
   ovSeal.classList.remove('stamp');
-  ovText.innerHTML = 'One blade against a page that remembers every wound.<br />Read the white steel. Break the line. Leave only ink.';
+  ovText.innerHTML = 'Rain on stone. A blade in the quiet.<br />Hold the courtyard until only your legend remains.';
   const chaseLines = [];
   if (records.wave > 0) {
     chaseLines.push(`BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`);
@@ -2997,7 +3005,7 @@ function onResize() {
   camera.bottom = -VIEW_HALF;
   camera.updateProjectionMatrix();
   ink.resizeScreen();
-  applyLetterbox(2.39);
+  applyLetterbox(0);
 }
 
 // Reconcile every frame rather than trusting the resize event alone. A resize
@@ -3033,6 +3041,10 @@ function runtimeProfileStats() {
   return {
     pointLights,
     modelAsset: player.root.name,
+    artDirection: world.artDirection,
+    lighting: 'hdr-surface-v2',
+    hdr: film.target.texture.type === THREE.HalfFloatType,
+    contactAO: film.uniforms.uAO.value,
     drawCalls: film.frameCalls,
     sceneryInstances: world.scatters.reduce((n,s) => n + s.meshes[0].count, 0),
     corpseDrawBatches: [...ragdolls.renderBatches.values()].filter(b => b.visible).length,
@@ -3093,7 +3105,9 @@ function simulate(dt) {
   if (state.running) {
     if (!state.choosingUpgrade) {
       playerController.update(state.action === 'iai' && activeWeapon.skill === 'iai' ? dt : sdt);
+      constrainToCourt(player.root.position);
       if (!stopped) enemyDirector.update(worldDt);
+      if (!stopped) for(const enemy of enemies)constrainToCourt(enemy.actor.root.position,enemy.type==='oni'?1.3:.7);
       updateFlow(worldDt);
       const waveEvent = waveDirector.tick(worldDt, enemies.length);
       if (waveEvent === WAVE_EVENT.UPGRADE) showUpgradeChoice();
@@ -3121,7 +3135,7 @@ function simulate(dt) {
 
   const bossWave = state.running && isRivalWave(state.wave) && enemies.some((e) => e.type === 'oni');
   const act = currentAct();
-  rain.update(worldDt, player.root.position, Math.max(bossWave ? 1 : 0, state.running ? act.rain : 0));
+  rain.update(worldDt, player.root.position, Math.max(bossWave ? .75 : .30, state.running ? act.rain : .3));
   audio.setWind(bossWave ? 0.13 : 0.05 + (state.running ? act.wind : 0));
   const musicPressure = state.running
     ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
@@ -3152,9 +3166,9 @@ function renderFrame(dt) {
   // climb on real time while scaled time stands still, so the held final frame
   // visibly hardens into its last image.
   deathCrush += ((state.over ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
-  film.uniforms.uGrain.value = 0.05 + hurtK * 0.06 + act.grain;
-  film.uniforms.uVignette.value = 0.32 + hurtK * 0.45 + criticalPulse * 0.1 + flowK * 0.05 + deathCrush * 0.3 + act.vig;
-  film.uniforms.uContrast.value = 1.42 + hurtK * 0.25 + criticalPulse * 0.035 + flowK * 0.10 + deathCrush * 0.55 + act.con;
+  film.uniforms.uGrain.value = .012 + hurtK*.006;
+  film.uniforms.uVignette.value = .13 + hurtK*.18 + criticalPulse*.07 + deathCrush*.3;
+  film.uniforms.uContrast.value = 1.02 + deathCrush*.20;
   whiteFlash *= Math.exp(-9 * dt);
   film.uniforms.uWhite.value = whiteFlash * (settings.reduceShake ? 0.6 : 1);
   invertT = Math.max(0, invertT - dt);
@@ -3163,7 +3177,10 @@ function renderFrame(dt) {
   film.uniforms.uTimeStop.value += (stopTarget - film.uniforms.uTimeStop.value) * Math.min(1, dt * 18);
   film.updateFilm(state.time);
 
+  world.reflect(film.renderer,camera);
   film.render(scene, camera);
+  film.frameCalls+=world.reflectionStats.calls;
+  film.frameTriangles+=world.reflectionStats.triangles;
 }
 
 // A single externally driven tick still produces a complete frame. The rAF
@@ -3232,6 +3249,7 @@ if (LOCAL_QA && DEV_QA_SCENARIO === 'combat') {
     attack: (chain, kind) => playerController.beginAttack(chain, kind),
     strike: resolveEnemyStrike,
     pendingBodies: () => pendingSignatureBodies.length,
+    updateHUD,
     stats: runtimeProfileStats,
   });
 }

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-<title>ONISOLO: THE PAGE REMEMBERS</title>
-<meta name="theme-color" content="#0a0a0d" />
-<meta name="description" content="Onisolo is a monochrome browser sword game played on a living sheet of ink and paper." />
+<title>ONISOLO: THE RAIN COURT</title>
+<meta name="theme-color" content="#13252a" />
+<meta name="description" content="A cinematic isometric samurai game in a rain-soaked shrine courtyard." />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Onisolo" />
-<meta property="og:description" content="A monochrome browser sword game played on a living sheet of ink and paper." />
+<meta property="og:description" content="A cinematic isometric samurai game in a rain-soaked shrine courtyard." />
 <meta property="og:url" content="https://onisolo.theoazriel.com/" />
 <meta property="og:image" content="https://onisolo.theoazriel.com/assets/onisolo-icon-512.png" />
 <meta name="twitter:card" content="summary" />
@@ -2253,6 +2253,7 @@
     body.touch #rotateHint small { font-size: 10px; opacity: 0.55; letter-spacing: 0.2em; }
   }
 </style>
+<link rel="stylesheet" href="./src/rain-court-ui.css?v=98" />
 </head>
 <body>
 
@@ -2266,6 +2267,7 @@
 <div class="bar" id="barRight"></div>
 
 <div id="hud">
+  <div id="districtLabel"><span>ONISOLO / SHRINE DISTRICT</span><strong>The Rain Court</strong><small>RAIN / LATE AFTERNOON</small></div>
   <div id="vitals">
     <div class="vitalRow">
       <span class="vitalLabel">HP</span>
@@ -2381,7 +2383,7 @@
 
 <div id="rotateHint">
   <div class="mark">TURN</div>
-  <div>ROTATE THE PAGE</div>
+  <div>ROTATE TO LANDSCAPE</div>
   <small>the duel plays in landscape</small>
 </div>
 
@@ -2394,19 +2396,19 @@
     </span>
     <span class="wordmark">ONISOLO</span><i class="brandSeal" aria-hidden="true">O</i>
   </h1>
-  <div id="ovSub">THE PAGE REMEMBERS</div>
+  <div id="ovSub">THE RAIN COURT</div>
   <div id="ovCause" hidden></div>
   <div id="ovPoem" hidden><span id="ovPoemText"></span><span id="ovSeal" aria-label="record seal">BEST</span></div>
   <p id="ovText">
-    One blade against a page that remembers every wound.<br />
-    Read the white steel. Break the line. Leave only ink.
+    Rain on stone. A blade in the quiet.<br />
+    Hold the courtyard until only your legend remains.
   </p>
   <div id="ovChase" hidden></div>
   <div id="ledger" aria-hidden="true"></div>
   <section id="skinPicker" aria-labelledby="skinPickerLabel">
     <div class="skinPickerHead"><span id="skinPickerLabel">CHOOSE LEGEND</span><span id="skinCurrent">MUSASHI · WANDERING SWORD</span></div>
     <div id="skinOptions" role="group" aria-label="Samurai skins">
-      <button class="skinOption" type="button" data-skin="musashi" aria-pressed="true" style="--skin-armor:#5e4938;--skin-plate:#8d7558;--skin-cloth:#28201b;--skin-sash:#c9b78f">
+      <button class="skinOption" type="button" data-skin="musashi" aria-pressed="true" style="--skin-armor:#b0a58b;--skin-plate:#d0c5a9;--skin-cloth:#433d32;--skin-sash:#9e5136">
         <span class="skinFigure" aria-hidden="true"><i class="skinCrest"></i><i class="skinHelm"></i><i class="skinBody"></i><i class="skinSash"></i></span>
         <span class="skinCopy"><strong>MUSASHI</strong><small>WANDERING SWORD</small></span>
       </button>
@@ -2464,7 +2466,7 @@
   }
 }
 </script>
-<script type="module" src="./src/main.js?v=97"></script>
+<script type="module" src="./src/main.js?v=98"></script>
 
 </body>
 </html>

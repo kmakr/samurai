@@ -21,13 +21,13 @@ const ROOT = new URL('.', import.meta.url).pathname;
 let BOOT = Date.now().toString(36);
 // Refresh the whole ES-module graph after an edit, including gallery imports.
 watch(ROOT, { recursive: true }, (_event, file) => {
-  if (file && /\.(?:js|mjs|html)$/.test(file) && !file.startsWith('.git/')) BOOT = Date.now().toString(36);
+  if (file && /\.(?:js|mjs|html|css)$/.test(file) && !file.startsWith('.git/')) BOOT = Date.now().toString(36);
 });
 
 function stampImports(src) { return stampModules(src, `t=${BOOT}`); }
 
 function stampHtml(src) {
-  return stampImports(src).replace(/(src=")(\.\/src\/[^"?]+)(?:\?[^"]*)?(")/g, `$1$2?t=${BOOT}$3`);
+  return stampImports(src).replace(/((?:src|href)=")(\.\/src\/[^"?]+)(?:\?[^"]*)?(")/g, `$1$2?t=${BOOT}$3`);
 }
 
 const MIME = {
