@@ -35,16 +35,22 @@ export function shadeSurface(material, kind) {
     const stone = kind==='paving'||kind==='stone';
     let map, roughness, relief;
     if(stone){
-      const scale=kind==='paving'?'.065':'.11';
+      // The meshes already supply the masonry joints. Only add grain here:
+      // projecting an image of multiple stones produces a second, misaligned grid.
       map=`vec2 surfaceCoord=surfaceUV();
-        vec3 stoneTex=texture2D(map,surfaceCoord*${scale}).rgb;
-        float stoneLuma=dot(stoneTex,vec3(.2126,.7152,.0722));
+        float mineral=surfaceNoise(surfaceCoord*1.8);
+        float fleck=surfaceNoise(surfaceCoord*8.+mineral);
+        vec2 grainCoord=surfaceCoord*25.;
+        float grainFade=1.-smoothstep(.3,.85,max(fwidth(grainCoord.x),fwidth(grainCoord.y)));
+        float grain=mix(.5,surfaceNoise(grainCoord),grainFade);
         float damp=surfaceNoise(surfaceCoord*.23);
-        diffuseColor.rgb*=stoneTex*mix(.82,1.03,smoothstep(.2,.8,damp));`;
+        vec3 mineralTint=mix(vec3(.78,.82,.80),vec3(1.04,1.,.90),mineral);
+        diffuseColor.rgb*=mineralTint*(.72+fleck*.36+grain*.12)
+          *mix(.84,1.03,smoothstep(.2,.8,damp));`;
       roughness=kind==='paving'
-        ? 'roughnessFactor=mix(.23,.67,smoothstep(.24,.76,damp));'
+        ? 'roughnessFactor=mix(.29,.67,smoothstep(.24,.76,damp));'
         : 'roughnessFactor=mix(.65,.92,damp);';
-      relief='(stoneLuma*.08+surfaceNoise(surfaceCoord*22.)*.007)';
+      relief='(mineral*.012+fleck*.005+grain*.002)';
     }else if(kind==='wood'){
       map=`vec2 surfaceCoord=surfaceUV();
         float grain=sin(surfaceCoord.x*72.+surfaceNoise(surfaceCoord*vec2(3.,.42))*15.);
@@ -72,5 +78,5 @@ export function shadeSurface(material, kind) {
     shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
       normal=surfaceNormal(-vViewPosition,normal,${relief});`);
   };
-  material.customProgramCacheKey=()=>`court-surface-${kind}-v2`;
+  material.customProgramCacheKey=()=>`court-surface-${kind}-v3`;
 }

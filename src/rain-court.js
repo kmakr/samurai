@@ -21,7 +21,7 @@ export function buildRainCourt(scene, time, renderer) {
   const color=new THREE.Color();
   for(const [name,data] of Object.entries(RAIN_KIT)){
     const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(data.p.map(n=>n/10000),3));geo.computeVertexNormals();
-    // The world-space material map is installed on paving below.
+    // Keep reusable kit UVs; architectural surface grain uses world coordinates.
     const p=geo.attributes.position;const uv=new Float32Array(p.count*2);
     for(let i=0;i<p.count;i++){uv[i*2]=p.getX(i)+.5;uv[i*2+1]=p.getZ(i)+.5}
     geo.setAttribute('uv',new THREE.BufferAttribute(uv,2));geo.computeBoundingSphere();geometries[name]=geo;
@@ -73,19 +73,16 @@ export function buildRainCourt(scene, time, renderer) {
   const pmrem=new THREE.PMREMGenerator(renderer);const environment=pmrem.fromScene(sky,.035,.1,200);
   scene.environment=environment.texture;scene.environmentIntensity=.55;pmrem.dispose();skyBox.geometry.dispose();skyMaterial.dispose();
 
-  const floorMap=new THREE.TextureLoader().load(new URL('../assets/textures/rain-court-stone.png'+new URL(import.meta.url).search,import.meta.url).href);
-  floorMap.wrapS=floorMap.wrapT=THREE.RepeatWrapping;floorMap.colorSpace=THREE.SRGBColorSpace;floorMap.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-  materials.paving=new THREE.MeshPhysicalMaterial({color:0xaaa99d,map:floorMap,roughness:.45,metalness:0,clearcoat:.48,clearcoatRoughness:.27});
+  materials.paving=new THREE.MeshPhysicalMaterial({color:0x4b5147,roughness:.45,metalness:0,clearcoat:.48,clearcoatRoughness:.27});
   shadeSurface(materials.paving,'paving');
   for(const name of ['stone','cap']){
-    materials[name].map=floorMap;
-    materials[name].color.multiplyScalar(1.85);
+    materials[name].color.multiplyScalar(.38);
     shadeSurface(materials[name],'stone');
   }
   materials.base=materials.dark.clone();
   box('base',0,-.30,0,110,.45,110);
-  // Closely fitted individual paving slabs; the texture spans world space and
-  // fine bevels catch the light without making the ground look like a grid.
+  // Individual slabs supply the only joints; the shader adds seam-free stone
+  // grain and wetness, while the fine bevels catch the light.
   for(let z=-30;z<=30;z+=1.17)for(let x=-32;x<=32;x+=1.62){
     const px=x+((Math.round(z/1.17)%2)*.81);
     add('paver','paving',px,-.103,z,1.59,.18,1.135,0,0,0,.84+rnd()*.25);
