@@ -11,7 +11,7 @@ import {
 // be exercised without constructing the full scene.
 export class PlayerController {
   constructor({
-    state, player, input, audio, ink, trail,
+    state, player, input, audio, ink, trail, onAttack,
     move, tmp, animateLocomotion,
     isoAzimuth,
     getEnemies, getActiveWeapon, getFlowTier,
@@ -34,6 +34,7 @@ export class PlayerController {
     this.audio = audio;
     this.ink = ink;
     this.trail = trail;
+    this.onAttack = onAttack;
     this.move = move;
     this.tmp = tmp;
     this.animateLocomotion = animateLocomotion;
@@ -133,6 +134,7 @@ export class PlayerController {
         const baseScale = kind === 'thrust' ? 1.12
           : heavyArc ? 1.6
           : state.comboIndex === 2 ? 1.28 : 1;
+        this.onAttack?.(this.player.root.position, state.facing, { heavy: heavyArc, combo: state.comboIndex, kind });
         this.trail.fire(this.tmp, state.facing, {
           mirror: kind === 'dashcut' || (kind === 'arc' && state.comboIndex === 1),
           duration: cfg.active + cfg.recover * (heavyArc ? 1.0 : 0.8) + tier * 0.018,

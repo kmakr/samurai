@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ONISOLO · Storm Court model study</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#d9d6cd;color:#23241f;font:14px Georgia,serif;overflow:hidden}canvas{display:block}header{position:absolute;top:28px;left:36px;pointer-events:none}h1{font-size:28px;letter-spacing:.12em;margin:0 0 8px}p{margin:0;letter-spacing:.1em;font-size:11px}footer{position:absolute;bottom:22px;left:36px;right:36px;display:flex;gap:16px;align-items:center}button{background:#252721;color:#eee9dd;border:0;padding:12px 18px;cursor:pointer;font:12px Georgia}output{margin-left:auto;font-size:12px}#labels{position:absolute;inset:0;pointer-events:none}.label{position:absolute;text-align:center;transform:translateX(-50%);letter-spacing:.1em;font-size:11px;white-space:nowrap}.label small{display:block;font-size:9px;opacity:.6;margin-top:6px}</style>
+<header><h1>THE STORM COURT</h1><p>ONISOLO / BLENDER MODEL STUDY / FACETED STEEL & LAYERED CLOTH</p></header><div id="labels"></div><footer><button id="roster">Enemy roster</button><button id="legends">Four legends</button><button id="turn">Turn models</button><output id="stats"></output></footer>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {makeSamurai,makeEnemy,applySamuraiSkin,SAMURAI_SKINS,applyWeapon} from '../src/actors.js';
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;document.body.prepend(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#d9d6cd');
+const camera=new THREE.OrthographicCamera(-12,12,6,-6,.1,100);camera.position.set(5,7,18);camera.lookAt(0,1.3,0);
+scene.add(new THREE.HemisphereLight(0xfff7e8,0x4e555d,1.8));
+const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(-5,10,7);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-14;key.shadow.camera.right=14;key.shadow.camera.top=8;key.shadow.camera.bottom=-8;key.shadow.normalBias=.02;scene.add(key);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshStandardMaterial({color:0xd9d6cd,roughness:1}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+let actors=[],labels=[],turn=false;
+function show(mode){for(const a of actors){scene.remove(a.root);a.root.traverse(o=>{if(o.material)o.material.dispose()})}actors=[];labels=[];document.getElementById('labels').textContent='';
+ const names=mode==='legends'?SAMURAI_SKINS.map(s=>s.id):['player','ronin','hunter','yari','yumi','brute','oni'];
+ names.forEach((name,i)=>{const a=mode==='legends'||name==='player'?makeSamurai():makeEnemy(name);if(mode==='legends'||name==='player')applySamuraiSkin(a,name==='player'?'musashi':name);if(name==='masamune')applyWeapon(a,'nodachi');a.root.position.x=(i-(names.length-1)/2)*(mode==='legends'?4:3);a.root.rotation.y=-.25;a.armR.rotation.x=.12;scene.add(a.root);actors.push(a);const label=document.createElement('div');label.className='label';label.innerHTML=name.toUpperCase()+'<small>'+(name==='player'?'MUSASHI':name==='brute'?'IRON KANABO':name==='oni'?'THE IRON DEMON':'STORM COURT')+'</small>';document.getElementById('labels').append(label);labels.push(label)});
+}
+document.getElementById('roster').onclick=()=>show('roster');document.getElementById('legends').onclick=()=>show('legends');document.getElementById('turn').onclick=()=>turn=!turn;show('roster');
+function resize(){renderer.setSize(innerWidth,innerHeight);const half=6.2;camera.left=-half*innerWidth/innerHeight;camera.right=-camera.left;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
+const pos=new THREE.Vector3();function frame(){requestAnimationFrame(frame);actors.forEach((a,i)=>{if(turn)a.root.rotation.y+=.006;pos.copy(a.root.position);pos.y=-.25;pos.project(camera);labels[i].style.left=(pos.x*.5+.5)*innerWidth+'px';labels[i].style.top=(-pos.y*.5+.5)*innerHeight+'px'});renderer.render(scene,camera);document.getElementById('stats').textContent=renderer.info.render.triangles.toLocaleString()+' triangles · '+renderer.info.render.calls+' draws · '+actors[0].root.name}frame();
+</script></html>

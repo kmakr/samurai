@@ -13,6 +13,7 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { stampImports } from './tools/stamp-imports.mjs';
 
 const stage = mkdtempSync(join(tmpdir(), 'samurai-deploy-'));
 execSync(`git archive HEAD | tar -x -C "${stage}"`);
@@ -22,15 +23,18 @@ const index = readFileSync(join(stage, 'index.html'), 'utf8');
 const version = (index.match(/src\/main\.js\?v=(\w+)/) || [])[1];
 if (!version) throw new Error('index.html has no versioned main.js script tag');
 
-const stamp = (src) => src
-  // import ... from './x.js'  |  export ... from './x.js'
-  .replace(/((?:import|export)[^'"\n]*from\s*['"])(\.{1,2}\/[^'"?]+)(['"])/g, `$1$2?v=${version}$3`)
-  // bare side-effect imports: import './x.js'
-  .replace(/(import\s*['"])(\.{1,2}\/[^'"?]+)(['"])/g, `$1$2?v=${version}$3`);
+const stamp = (src) => stampImports(src, `v=${version}`);
 
 for (const file of readdirSync(join(stage, 'src'))) {
   if (!file.endsWith('.js')) continue;
   const path = join(stage, 'src', file);
+  writeFileSync(path, stamp(readFileSync(path, 'utf8')));
+}
+
+// The model study has inline module imports and shares the game's worker cache.
+for (const file of readdirSync(join(stage, 'tools'))) {
+  if (!file.endsWith('.html')) continue;
+  const path = join(stage, 'tools', file);
   writeFileSync(path, stamp(readFileSync(path, 'utf8')));
 }
 

@@ -7,6 +7,8 @@
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
+import { stampImports as stampModules } from './tools/stamp-imports.mjs';
 import { extname, join, normalize } from 'node:path';
 
 const PORT = process.env.PORT || 5173;
@@ -16,18 +18,16 @@ const ROOT = new URL('.', import.meta.url).pathname;
 // keeps ES modules in a per-page module map keyed by URL, and no-cache alone
 // has proven insufficient to evict them — a changed URL is the only reliable
 // bust. New stamp per server start.
-const BOOT = Date.now().toString(36);
+let BOOT = Date.now().toString(36);
+// Refresh the whole ES-module graph after an edit, including gallery imports.
+watch(ROOT, { recursive: true }, (_event, file) => {
+  if (file && /\.(?:js|mjs|html)$/.test(file) && !file.startsWith('.git/')) BOOT = Date.now().toString(36);
+});
 
-function stampImports(src) {
-  return src
-    // import ... from './x.js'  |  export ... from './x.js'
-    .replace(/((?:import|export)[^'"\n]*from\s*['"])(\.{1,2}\/[^'"?]+)(['"])/g, `$1$2?t=${BOOT}$3`)
-    // bare side-effect imports: import './x.js'
-    .replace(/(import\s*['"])(\.{1,2}\/[^'"?]+)(['"])/g, `$1$2?t=${BOOT}$3`);
-}
+function stampImports(src) { return stampModules(src, `t=${BOOT}`); }
 
 function stampHtml(src) {
-  return src.replace(/(src=")(\.\/src\/[^"?]+)(?:\?[^"]*)?(")/g, `$1$2?t=${BOOT}$3`);
+  return stampImports(src).replace(/(src=")(\.\/src\/[^"?]+)(?:\?[^"]*)?(")/g, `$1$2?t=${BOOT}$3`);
 }
 
 const MIME = {

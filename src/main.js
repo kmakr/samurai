@@ -9,6 +9,8 @@ import {
   WEAPONS, applyWeapon,
 } from './actors.js';
 import { SlashTrail } from './trail.js';
+import { CombatFX, COMBAT_FX_LIMITS } from './combat-fx.js';
+import { IAI_TIMING, iaiProgress, isTimeStopped } from './signature-timing.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { RAGDOLL_LIMITS, RagdollSystem } from './ragdoll.js';
@@ -114,6 +116,7 @@ const gibs = new VoxelGibs(scene, toon(0.07), DEFAULT_GIB_POOL, 0.13);
 const trail = new SlashTrail(scene, { radius: 2.7, width: 1.7, sweep: 3.0 });
 const enemyTrail = new SlashTrail(scene, { radius: 2.2, width: 1.0, sweep: 2.4, color: 0x101015 });
 
+const combatFX = new CombatFX(scene);
 const input = new Input(film.domElement);
 const simulationClock = new FixedStepClock();
 
@@ -558,6 +561,7 @@ function makeDashWakeGeometry() {
 const dashWakeGeo = makeDashWakeGeometry();
 
 function spawnDashWake(position, direction) {
+  combatFX.line(position.x, .18, position.z, position.x + direction.x * 3, .23, position.z + direction.z * 3, .27, .035, .12);
   const material = new THREE.MeshBasicMaterial({
     color: 0x07070a,
     transparent: true,
@@ -596,40 +600,31 @@ function updateDashWakes(dt) {
   }
 }
 
-function spawnImpactBurst(position, strength = 1) {
+const impactBurstPool = Array.from({length: TRANSIENT_EFFECT_LIMITS.impactBursts}, (_, index) => {
   const pos = [];
-  const rays = 9 + Math.floor(strength * 5);
-  for (let i = 0; i < rays; i++) {
-    const a = i / rays * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
-    const half = 0.025 + Math.random() * 0.045;
-    const inner = 0.18 + Math.random() * 0.28;
-    const outer = (0.8 + Math.random() * 1.35) * strength;
-    pos.push(
-      Math.cos(a - half) * inner, 0, Math.sin(a - half) * inner,
-      Math.cos(a) * outer, 0, Math.sin(a) * outer,
-      Math.cos(a + half) * inner, 0, Math.sin(a + half) * inner,
-    );
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2 + Math.sin(i * 4.3 + index) * .08;
+    const outer = .8 + (Math.sin(i * 8.1 + index) * .5 + .5) * 1.35;
+    pos.push(Math.cos(a-.05)*.28,0,Math.sin(a-.05)*.28,
+      Math.cos(a)*outer,0,Math.sin(a)*outer, Math.cos(a+.05)*.28,0,Math.sin(a+.05)*.28);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x08080c,
-    transparent: true,
-    opacity: 0.82,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(position.x, 0.075, position.z);
-  mesh.scale.setScalar(0.42);
-  mesh.renderOrder = 5;
-  scene.add(mesh);
-  addTransientEffect(
-    impactBursts,
-    { mesh, age: 0, life: 0.24 + strength * 0.06 },
-    TRANSIENT_EFFECT_LIMITS.impactBursts,
-    { geometry: true },
-  );
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+    color: 0x08080c, transparent: true, opacity: .82, depthWrite: false, side: THREE.DoubleSide,
+  }));
+  mesh.visible = false; mesh.renderOrder = 5; scene.add(mesh);
+  return {mesh, age: 0, life: 0, strength: 1};
+});
+let impactBurstCursor = 0;
+function spawnImpactBurst(position, strength = 1) {
+  const burst = impactBurstPool[impactBurstCursor++ % impactBurstPool.length];
+  const previous = impactBursts.indexOf(burst);
+  if (previous !== -1) impactBursts.splice(previous, 1);
+  burst.age = 0; burst.life = .24 + strength * .06; burst.strength = strength;
+  burst.mesh.position.set(position.x, .075, position.z);
+  burst.mesh.visible = true; burst.mesh.material.opacity = .82;
+  burst.mesh.scale.setScalar(.42 * strength); impactBursts.push(burst);
 }
 
 function updateImpactBursts(dt) {
@@ -637,12 +632,10 @@ function updateImpactBursts(dt) {
     const burst = impactBursts[i];
     burst.age += dt;
     const k = Math.min(1, burst.age / burst.life);
-    burst.mesh.scale.setScalar(0.42 + Math.sin(k * Math.PI * 0.72) * 0.9);
+    burst.mesh.scale.setScalar((0.42 + Math.sin(k * Math.PI * 0.72) * 0.9) * burst.strength);
     burst.mesh.material.opacity = (1 - k) ** 1.5 * 0.82;
     if (k >= 1) {
-      scene.remove(burst.mesh);
-      burst.mesh.geometry.dispose();
-      burst.mesh.material.dispose();
+      burst.mesh.visible = false;
       impactBursts.splice(i, 1);
     }
   }
@@ -682,6 +675,8 @@ function updateFlowOutline(dt) {
 }
 
 function spawnParryRing(position) {
+  combatFX.impact(position, 0, 0, 1.6);
+  combatFX.ring(position, 2.4, .32);
   const mat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -1183,6 +1178,7 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb', options = {}) {
   e.stagger = Math.max(e.stagger, 0.22 + tier * 0.035);
   const p = e.actor.root.position;
   const h = 0.9 * e.spec.height;
+  combatFX.impact(p, dirX, dirZ, severity === 'bisect' ? 1.5 : 1);
   spawnImpactBurst(p, severity === 'bisect' ? 1.35 : 0.72);
   flash(severity === 'bisect' ? 0.28 : 0.09);
 
@@ -1261,6 +1257,7 @@ function releaseEnemyBody(e, dirX, dirZ, severity = 'limb', synchronized = false
     flash(big ? 0.4 : 0.18);
     audio.kill(severity === 'bisect' || big);
   }
+  combatFX.impact(p, dirX, dirZ, big ? 1.5 : 1, true);
   gibs.burst(p.x, h, p.z, gibCount, dirX, dirZ, big ? 1.5 : 1.0);
 
   vCut.set(dirX, 0, dirZ);
@@ -1502,6 +1499,7 @@ function clearPendingSignatureBodies() {
 
 function fireIaiCut() {
   iaiCutFired = true;
+  combatFX.iai(iaiOrigin, iaiEnd, iaiFacing);
   const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
   const reach = 30 + state.upgrades.longShadow * 6;
   const width = 4.2 + state.upgrades.longShadow * 0.6;
@@ -1530,12 +1528,13 @@ function fireIaiCut() {
   ink.slashWipe(wipeAngle);
 
   ink.splashScreen(16, 1.8);
-  flash(1);
-  invertT = Math.max(invertT, 0.11);   // the sheet flips negative on impact
+  flash(.62);
+  invertT = Math.max(invertT, 0.055);   // the sheet flips negative on impact
   state.slowmo = 0;                     // release the held breath...
   hitstop(0.16, 0.02);                  // ...into a hard freeze, then full speed
   shake(1.2);
   audio.iai();
+  audio.thunder();
 }
 
 // The focus-spent signature. Every weapon shares the committed 'iai' action —
@@ -1550,7 +1549,7 @@ function trySignature() {
     return;
   }
   state.focus = 0;
-  iaiT = 0.62;
+  iaiT = 0.78;
   state.action = 'iai';
   state.actionT = 0;
   iaiFacing = state.facing;
@@ -1562,11 +1561,14 @@ function trySignature() {
 }
 
 function beginIai() {
+  combatFX.charge(player.root.position, iaiFacing);
+  showCombatCallout('静', 'STILLNESS · TIME-STOP IAI');
+  audio.stormDraw();
   audio.silenceMusic(0.62, 0.001);
   // A held breath: time dilates through the draw, then fireIaiCut releases it
   // into a hard freeze and back to full speed as the stroke lands.
-  state.slowmo = 0.55;
-  state.slowmoScale = 0.32;
+  state.slowmo = 0.66;
+  state.slowmoScale = 0.12;
   state.invuln = Math.max(state.invuln, 0.85);
   const dist = Math.min(9, 4 + enemies.length * 0.3);
   iaiEnd.copy(iaiOrigin);
@@ -1589,6 +1591,9 @@ function beginTsunamiCut() {
 
 function fireTsunamiCut() {
   iaiCutFired = true;
+  combatFX.arc(player.root.position, iaiFacing, {heavy: true, combo: 2});
+  for (const radius of [2.5, 4.2, 6.2]) combatFX.ring(player.root.position, radius, .40 + radius * .035, radius === 4.2);
+  audio.thunder();
   const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
   const reach = 7.4 + state.upgrades.longShadow * 1.2;
   const ox = player.root.position.x, oz = player.root.position.z;
@@ -1640,11 +1645,10 @@ function updateSignatureAction(dt) {
       state.actionT = 0;
     }
   } else {
-    if (!iaiCutFired && state.actionT >= 0.10) fireIaiCut();
-    const moveT = THREE.MathUtils.clamp((state.actionT - 0.10) / 0.16, 0, 1);
-    const moveEase = moveT * moveT * (3 - 2 * moveT);
+    if (!iaiCutFired && state.actionT >= IAI_TIMING.strike) fireIaiCut();
+    const moveEase = iaiProgress(state.actionT);
     player.root.position.lerpVectors(iaiOrigin, iaiEnd, moveEase);
-    if (state.actionT >= 0.54) {
+    if (state.actionT >= IAI_TIMING.finish) {
       player.root.position.copy(iaiEnd);
       state.action = 'idle';
       state.actionT = 0;
@@ -1817,16 +1821,16 @@ function poseArms(dt) {
   } else if (state.action === 'iai') {
     const t = state.actionT;
     snap = true;
-    if (t < 0.10) {
-      const k = t / 0.10;
+    if (t < IAI_TIMING.draw) {
+      const k = t / IAI_TIMING.draw;
       armX = -0.15 + k * 0.75;
       armZ = 0.25 + k * 0.9;
       torsoY = -0.65 * k;
       torsoZ = 0.16 * k;
       katanaRoll = -0.5 * k;
       crouch = 0.12 * k;
-    } else if (t < 0.26) {
-      const k = (t - 0.10) / 0.16;
+    } else if (t < IAI_TIMING.strike) {
+      const k = (t - IAI_TIMING.draw) / IAI_TIMING.travel;
       const e = 1 - (1 - k) ** 3;
       armX = 0.6 - e * 1.7;
       armZ = 1.15 - e * 2.35;
@@ -1836,7 +1840,7 @@ function poseArms(dt) {
       crouch = 0.12 - e * 0.06;
       smear = Math.sin(k * Math.PI) * 0.72;
     } else {
-      const k = THREE.MathUtils.clamp((t - 0.26) / 0.28, 0, 1);
+      const k = THREE.MathUtils.clamp((t - IAI_TIMING.strike) / (IAI_TIMING.finish - IAI_TIMING.strike), 0, 1);
       armX = -1.1 + k * 0.72;
       armZ = -1.2 + k * 1.45;
       torsoY = 1.05 - k * 0.92;
@@ -1900,6 +1904,7 @@ function poseArms(dt) {
 
 const playerController = new PlayerController({
   state, player, input, audio, ink, trail,
+  onAttack: (position, facing, spec) => combatFX.arc(position, facing, spec),
   move: new THREE.Vector3(),
   tmp: new THREE.Vector3(),
   animateLocomotion,
@@ -2101,6 +2106,7 @@ const enemyDirector = new EnemyDirector({
   clamp: THREE.MathUtils.clamp,
   ink,
   enemyTrail,
+  onStrike: (enemy, facing) => combatFX.enemy(enemy.actor.root.position, facing, enemy.type, enemy.spec.reach),
   audio,
   enemyWindup,
   commitStrike,
@@ -2750,7 +2756,8 @@ function restartRunInPlace() {
   enemyTrail.clear();
   iaiTrail.clear();
   clearTransientMeshList(parryRings);
-  clearTransientMeshList(impactBursts, { geometry: true });
+  for (const burst of impactBursts) burst.mesh.visible = false;
+  impactBursts.length = 0;
   clearTransientMeshList(dashWakes);
 
   resetRunState(state, { maxHp: PLAYER_MAX_HP });
@@ -2779,6 +2786,8 @@ function restartRunInPlace() {
   invertT = 0;
   iaiT = 0;
   iaiCutFired = false;
+  combatFX.clear();
+  film.uniforms.uTimeStop.value = 0;
   playerController.reset();
   iaiWasReady = false;
   shownFlowChain = 0;
@@ -3023,6 +3032,14 @@ function runtimeProfileStats() {
   scene.traverse((object) => { if (object.isPointLight) pointLights++; });
   return {
     pointLights,
+    modelAsset: player.root.name,
+    drawCalls: film.frameCalls,
+    sceneryInstances: world.scatters.reduce((n,s) => n + s.meshes[0].count, 0),
+    corpseDrawBatches: [...ragdolls.renderBatches.values()].filter(b => b.visible).length,
+    triangles: film.frameTriangles,
+    geometries: film.renderer.info.memory.geometries,
+    fxStrokes: combatFX.activeStrokes,
+    fxSparks: combatFX.activeSparks,
     programs: film.renderer.info.programs?.length ?? 0,
     enemies: enemies.length,
     ragdolls: ragdolls.bodies.length,
@@ -3038,6 +3055,7 @@ function runtimeProfileStats() {
     dashWakes: dashWakes.length,
     poolLimits: {
       ...INK_LIMITS,
+      ...COMBAT_FX_LIMITS,
       ragdollBodies: RAGDOLL_LIMITS.bodies,
       debris: RAGDOLL_LIMITS.debris,
       gibs: DEFAULT_GIB_POOL,
@@ -3066,16 +3084,18 @@ function simulate(dt) {
   }
   const sdt = dt * state.timeScale;
 
-  state.time += sdt;
+  const stopped = isTimeStopped(state.action, activeWeapon.skill, state.actionT);
+  const worldDt = stopped ? 0 : sdt;
+  state.time += worldDt;
   timeUniform.value = state.time;
 
   input.update(dt);
   if (state.running) {
     if (!state.choosingUpgrade) {
-      playerController.update(sdt);
-      enemyDirector.update(sdt);
-      updateFlow(sdt);
-      const waveEvent = waveDirector.tick(sdt, enemies.length);
+      playerController.update(state.action === 'iai' && activeWeapon.skill === 'iai' ? dt : sdt);
+      if (!stopped) enemyDirector.update(worldDt);
+      updateFlow(worldDt);
+      const waveEvent = waveDirector.tick(worldDt, enemies.length);
       if (waveEvent === WAVE_EVENT.UPGRADE) showUpgradeChoice();
       else if (waveEvent === WAVE_EVENT.START) startWave();
     }
@@ -3088,19 +3108,20 @@ function simulate(dt) {
   updateSignatureBodies(dt);
   iaiTrail.update(sdt);
   trail.update(sdt);
-  enemyTrail.update(sdt);
+  enemyTrail.update(worldDt);
   updateParryRings(dt);
   updateImpactBursts(dt);
   updateDashWakes(dt);
-  ragdolls.update(sdt);
-  gibs.update(sdt, ink);
-  ink.update(sdt, camera, dt);
-  world.update(player.root.position);
+  combatFX.update(dt);
+  ragdolls.update(worldDt);
+  gibs.update(worldDt, ink);
+  ink.update(worldDt, camera, dt);
+  world.update(player.root.position, camera);
   audio.setRustle(world.ambience.rustle);
 
   const bossWave = state.running && isRivalWave(state.wave) && enemies.some((e) => e.type === 'oni');
   const act = currentAct();
-  rain.update(sdt, player.root.position, Math.max(bossWave ? 1 : 0, state.running ? act.rain : 0));
+  rain.update(worldDt, player.root.position, Math.max(bossWave ? 1 : 0, state.running ? act.rain : 0));
   audio.setWind(bossWave ? 0.13 : 0.05 + (state.running ? act.wind : 0));
   const musicPressure = state.running
     ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
@@ -3138,6 +3159,8 @@ function renderFrame(dt) {
   film.uniforms.uWhite.value = whiteFlash * (settings.reduceShake ? 0.6 : 1);
   invertT = Math.max(0, invertT - dt);
   film.uniforms.uInvert.value = invertT > 0 ? 1 : 0;
+  const stopTarget = isTimeStopped(state.action, activeWeapon.skill, state.actionT) ? 1 : 0;
+  film.uniforms.uTimeStop.value += (stopTarget - film.uniforms.uTimeStop.value) * Math.min(1, dt * 18);
   film.updateFilm(state.time);
 
   film.render(scene, camera);
@@ -3154,7 +3177,8 @@ function step(dt) {
 function frame(now) {
   requestAnimationFrame(frame);
   checkResize();
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawDt = Math.max(0, (now - last) / 1000);
+  const dt = Math.min(0.05, rawDt);
   last = now;
   if (paused) {
     simulationClock.reset();
@@ -3165,7 +3189,7 @@ function frame(now) {
   renderFrame(dt);
   if (frameProfiler) {
     const publish = frameProfiler.record({
-      frameMs: dt * 1000,
+      frameMs: rawDt * 1000,
       costMs: performance.now() - profileStart,
       timeScale: state.timeScale,
       steps: tick.steps,
@@ -3187,7 +3211,7 @@ window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
   frameProfiler, simulationClock,
-  trail, enemyTrail, iaiTrail,
+  trail, enemyTrail, iaiTrail, combatFX,
   getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
   get selectedSkin() { return selectedSkinId; },
   WEAPONS, selectWeapon, trySignature, activeAttack,
@@ -3199,3 +3223,15 @@ window.__samurai = {
   get juiceScale() { return juiceScale; },
   get enemies() { return enemies; },
 };
+
+// Opt-in development lab; normal and deployed games never install these controls.
+if (LOCAL_QA && DEV_QA_SCENARIO === 'combat') {
+  const { installCombatLab } = await import('./combat-lab.js');
+  installCombatLab(window.__samurai, {
+    restart: restartRunInPlace,
+    attack: (chain, kind) => playerController.beginAttack(chain, kind),
+    strike: resolveEnemyStrike,
+    pendingBodies: () => pendingSignatureBodies.length,
+    stats: runtimeProfileStats,
+  });
+}

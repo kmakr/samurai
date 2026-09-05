@@ -33,6 +33,20 @@ export class Audio {
     this.lastPerfectParryAt = -1;
   }
 
+  stormDraw() {
+    if (!this.ctx) return;
+    this.tone(1850, .34, { type: 'sine', gain: .045, to: 420, output: this.accentBus });
+    this.noise(.25, { freq: 4200, gain: .055, sweep: .2, output: this.accentBus });
+  }
+
+  thunder() {
+    if (!this.ctx) return;
+    // Dry steel crack, low body, then a short tail; respect the shared mute bus.
+    this.noise(.055, { type: 'highpass', freq: 3800, gain: .18, output: this.accentBus });
+    this.tone(94, .42, { gain: .28, to: 31, output: this.accentBus });
+    this.noise(.46, { type: 'lowpass', freq: 650, gain: .15, sweep: .15, output: this.accentBus });
+  }
+
   // Must be called from a user gesture.
   start() {
     if (this.ctx) { this.ctx.resume(); return; }

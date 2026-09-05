@@ -244,11 +244,11 @@ export function buildWorld(scene, timeUniform) {
   }
 
   // ------------------------------------------------------------------ update
-  function update(center) {
+  function update(center, camera) {
     // Snap the paper to the texture tile so the pattern is continuous.
     paper.position.x = Math.round(center.x / PAPER_TILE) * PAPER_TILE;
     paper.position.z = Math.round(center.z / PAPER_TILE) * PAPER_TILE;
-    for (const s of scatters) s.update(center);
+    for (const s of scatters) { s.update(center); if (camera) s.cull(camera); }
 
     // Wind is audible near bamboo: proximity ramps over ~14 units and stalks
     // stack, so standing inside a grove reads louder than brushing its edge.
@@ -327,6 +327,19 @@ class Scatter {
     this._e = new THREE.Euler();
     this._p = new THREE.Vector3();
     this._s = new THREE.Vector3();
+    this.allMatrices = new Float32Array(count * 16);
+    this.bounds = new THREE.Box3();
+    for (const { geo } of parts) {
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      this.bounds.union(geo.boundingBox);
+    }
+    this.localSphere = this.bounds.getBoundingSphere(new THREE.Sphere());
+    this.cullSphere = new THREE.Sphere(); this.frustum = new THREE.Frustum();
+    this.projection = new THREE.Matrix4();
+    // Include off-screen casters whose long key-light shadows reach the frame.
+    this.shadowMargin = opts.shadows ? Math.max(0, this.bounds.max.y) * .95 : 0;
+    this.lastCull = new THREE.Vector3(Infinity, Infinity, Infinity);
+    this.cullDirty = true;
     this.writeAll();
   }
 
@@ -367,12 +380,34 @@ class Scatter {
     this._q.setFromEuler(this._e);
     this._s.set(this.scale[i * 3], this.scale[i * 3 + 1], this.scale[i * 3 + 2]);
     this._m.compose(this._p, this._q, this._s);
-    for (const mesh of this.meshes) mesh.setMatrixAt(i, this._m);
+    this._m.toArray(this.allMatrices, i * 16);
+    this.cullDirty = true;
   }
 
   writeAll() {
     for (let i = 0; i < this.count; i++) this.writeOne(i);
     for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  cull(camera) {
+    if (!this.cullDirty && this.lastCull.distanceToSquared(camera.position) < .25
+        && this.lastLeft === camera.left && this.lastZoom === camera.zoom) return;
+    this.lastCull.copy(camera.position); this.lastLeft = camera.left; this.lastZoom = camera.zoom;
+    camera.updateMatrixWorld();
+    this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projection);
+    let count = 0;
+    for (let i = 0; i < this.count; i++) {
+      this._m.fromArray(this.allMatrices, i * 16);
+      this.cullSphere.copy(this.localSphere).applyMatrix4(this._m);
+      const scale = Math.max(this.scale[i*3], this.scale[i*3+1], this.scale[i*3+2]);
+      this.cullSphere.radius += this.shadowMargin * scale + 3;
+      if (!this.frustum.intersectsSphere(this.cullSphere)) continue;
+      for (const mesh of this.meshes) mesh.setMatrixAt(count, this._m);
+      count++;
+    }
+    for (const mesh of this.meshes) { mesh.count = count; mesh.instanceMatrix.needsUpdate = true; }
+    this.cullDirty = false;
   }
 
   update(center) {

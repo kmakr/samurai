@@ -6,7 +6,7 @@ import { FLOW_WINDOW, FOCUS_MAX } from './combat.js';
 export class EnemyDirector {
   constructor({
     state, player, getEnemies, tmp, clamp,
-    ink, enemyTrail, audio,
+    ink, enemyTrail, audio, onStrike,
     enemyWindup, commitStrike, restoreStrikeTiming,
     updateBladeTelegraph, poseEnemy, resolveEnemyStrike,
     spawnImpactBurst, flash,
@@ -15,7 +15,7 @@ export class EnemyDirector {
   }) {
     Object.assign(this, {
       state, player, getEnemies, tmp, clamp,
-      ink, enemyTrail, audio,
+      ink, enemyTrail, audio, onStrike,
       enemyWindup, commitStrike, restoreStrikeTiming,
       updateBladeTelegraph, poseEnemy, resolveEnemyStrike,
       spawnImpactBurst, flash,
@@ -174,6 +174,7 @@ export class EnemyDirector {
           if (enemy.t >= windup) {
             enemy.state = 'loose';
             enemy.t = 0;
+            this.onStrike?.(enemy, Math.atan2(enemy.aimDir.x, enemy.aimDir.z));
             this.audio.swing(1);
             const playerX = playerPosition.x - position.x;
             const playerZ = playerPosition.z - position.z;
@@ -222,6 +223,7 @@ export class EnemyDirector {
             this.tmp.y = 0.1;
             this.spawnImpactBurst(position, enemy.rival ? 1.25 : 0.62);
             this.flash(enemy.rival ? 0.18 : 0.06);
+            this.onStrike?.(enemy, Math.atan2(nx, nz));
             this.enemyTrail.fire(this.tmp, Math.atan2(nx, nz), {
               duration: 0.3, scale: enemy.spec.height,
             });

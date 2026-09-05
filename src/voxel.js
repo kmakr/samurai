@@ -184,9 +184,9 @@ export class VoxelGibs {
       }
     }
 
-    for (let i = 0; i < this.max; i++) {
+    this.mesh.count = alive.length;
+    for (let i = 0; i < alive.length; i++) {
       const g = alive[i];
-      if (!g) { this.mesh.setMatrixAt(i, this._hidden); continue; }
       this._p.set(g.x, g.y, g.z);
       this._q.setFromEuler(this._e.set(g.rx, 0, g.rz));
       this._s.setScalar(g.scale);
@@ -198,7 +198,7 @@ export class VoxelGibs {
 
   clear() {
     this.gibs.length = 0;
-    for (let i = 0; i < this.max; i++) this.mesh.setMatrixAt(i, this._hidden);
+    this.mesh.count = 0;
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }

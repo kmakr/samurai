@@ -19,6 +19,7 @@ const FILM_FRAG = /* glsl */`
   uniform float uLift;
   uniform float uVignette;
   uniform float uDamage;
+  uniform float uTimeStop;
   varying vec2 vUv;
 
   float hash(vec2 p) {
@@ -107,6 +108,11 @@ const FILM_FRAG = /* glsl */`
     float pigment = smoothstep(0.025, 0.14, sourceChroma) * 0.82;
     vec3 finalColor = mix(vec3(l), lacquer, pigment);
 
+    // Hold the print in deep silver during the draw. Steel remains legible;
+    // there is no extra render target or time-varying light topology.
+    float silver = dot(finalColor, vec3(.299, .587, .114));
+    vec3 stopped = vec3(silver * .43 + pow(silver, 8.0) * .18);
+    finalColor = mix(finalColor, stopped, uTimeStop * .88);
     finalColor = mix(finalColor, vec3(1.0), uWhite);
     // A flash frame: the print inverts for a few frames on a perfect parry.
     finalColor = mix(finalColor, vec3(1.0) - finalColor, uInvert);
@@ -125,7 +131,7 @@ const FILM_VERT = /* glsl */`
 
 export class FilmRenderer {
   constructor(container) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -133,7 +139,8 @@ export class FilmRenderer {
     container.appendChild(this.renderer.domElement);
 
     this.target = new THREE.WebGLRenderTarget(1, 1, {
-      type: THREE.HalfFloatType,
+      // The print clamps to SDR; RGBA8 halves target bandwidth versus HDR.
+      type: THREE.UnsignedByteType,
       // The film pass renders at the same pixel size as this target. Linear
       // sampling plus subpixel gate weave softened every voxel edge. Keep the
       // resolved MSAA image intact and move it only by complete pixels.
@@ -156,6 +163,7 @@ export class FilmRenderer {
       uLift: { value: 0.015 },
       uVignette: { value: 0.35 },
       uDamage: { value: 1 },
+      uTimeStop: { value: 0 },
     };
 
     this.postScene = new THREE.Scene();
@@ -204,11 +212,15 @@ export class FilmRenderer {
   }
 
   render(scene, camera) {
+    this.renderer.info.autoReset = false;
+    this.renderer.info.reset();
     this.renderer.setRenderTarget(this.target);
     this.renderer.clear();
     this.renderer.render(scene, camera);
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.postScene, this.postCamera);
+    this.frameCalls = this.renderer.info.render.calls;
+    this.frameTriangles = this.renderer.info.render.triangles;
   }
 }
 

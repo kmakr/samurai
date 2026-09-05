@@ -1,0 +1,35 @@
+{
+  "generator": "Blender 5.2.1 LTS",
+  "coordinateSystem": "Y up, +Z forward",
+  "models": {
+    "player": {
+      "meshes": 45,
+      "triangles": 3262
+    },
+    "ronin": {
+      "meshes": 9,
+      "triangles": 1550
+    },
+    "hunter": {
+      "meshes": 9,
+      "triangles": 1374
+    },
+    "yari": {
+      "meshes": 9,
+      "triangles": 1250
+    },
+    "yumi": {
+      "meshes": 8,
+      "triangles": 1522
+    },
+    "brute": {
+      "meshes": 9,
+      "triangles": 2136
+    },
+    "oni": {
+      "meshes": 9,
+      "triangles": 2266
+    }
+  },
+  "runtimeBytes": 667047
+}

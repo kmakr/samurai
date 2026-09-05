@@ -1,10 +1,10 @@
-// Characters, built from primitives and shaded flat.
+// Blender-authored characters, decoded once and shaded as faceted ink.
 //
 // In monochrome the silhouette carries everything, so each enemy type differs
 // in outline — hat, height, stance — rather than in colour.
 
 import * as THREE from 'three';
-import { vox, boxLayers, taperLayers } from './voxel.js';
+import { ACTOR_MESHES } from '../assets/models/storm-court.js';
 
 // --------------------------------------------------------------- materials
 
@@ -76,202 +76,6 @@ export function addOutlines(root, thickness = 1.0) {
   }
 }
 
-// --------------------------------------------------------- geometry cache
-// Enemies are built and thrown away continuously, so primitives are shared
-// rather than reallocated. Only materials are per-instance.
-
-const geoCache = new Map();
-function cached(key, build) {
-  let g = geoCache.get(key);
-  if (!g) { g = build(); geoCache.set(key, g); }
-  return g;
-}
-const box = (w, h, d) => cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d));
-const cyl = (rt, rb, h, s, open = false) =>
-  cached(`c${rt},${rb},${h},${s},${open}`, () => new THREE.CylinderGeometry(rt, rb, h, s, 1, open));
-const cone = (r, h, s) => cached(`n${r},${h},${s}`, () => new THREE.ConeGeometry(r, h, s));
-// Square column, optionally tapered: a 4-sided cylinder turned 45 degrees so
-// its faces are axis-aligned. Radius is bumped so the face width matches the
-// round primitive it replaces. This is the "blocky" workhorse.
-const sq = (rt, rb, h) => cached(`s${rt},${rb},${h}`, () => {
-  const g = new THREE.CylinderGeometry(rt * 1.18, rb * 1.18, h, 4, 1);
-  g.rotateY(Math.PI / 4);
-  return g;
-});
-
-function part(geo, value, opts) {
-  const m = new THREE.Mesh(geo, toon(value, opts));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-// ------------------------------------------------------------- voxel parts
-
-// All characters share one voxel scale, so every figure reads as built from
-// the same bricks. Geometry is cached by key; materials stay per-instance.
-const VS = 0.105;
-
-function vpart(key, layers, value, opts = {}) {
-  const geo = cached(`v${key}`, () => vox(layers, VS, { seed: hashKey(key), ...opts }));
-  const m = new THREE.Mesh(geo, toon(value, { vertexColors: true }));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  // The inverted-hull outline splits at every cube edge on non-indexed voxel
-  // geometry; voxel figures carry their shape with faces, not ink lines.
-  m.userData.noOutline = true;
-  return m;
-}
-
-function hashKey(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
-
-// A limb mesh hung below its pivot group, so rotation happens at the joint.
-function vlimb(key, layers, value, dropY) {
-  const m = vpart(key, layers, value);
-  m.position.y = dropY;
-  return m;
-}
-
-// ------------------------------------------------------------------ katana
-
-function makeKatana(len = 1.15, dark = false) {
-  const g = new THREE.Group();
-  // Voxel blade with a stepped tip — the last two cells shift sideways, the
-  // way a voxel sword suggests its kissaki. Length in cells tracks `len`.
-  const cells = Math.round(len / VS);
-  const bladeLayers = [];
-  for (let i = 0; i < cells - 2; i++) bladeLayers.push(['X ']);
-  bladeLayers.push(['XX'], [' X']);
-  const blade = vpart(`blade${cells}`, bladeLayers, dark ? 0.42 : 0.95, { centerY: false });
-  blade.position.y = 0.12;
-  blade.userData.isBlade = true;
-  if (dark) {
-    // A second, slightly larger blade supplies a clean aura without a bloom
-    // post-effect. Its opacity is driven by the real parry timing window.
-    const glow = new THREE.Mesh(blade.geometry, new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }));
-    glow.scale.setScalar(1.1);
-    glow.renderOrder = 7;
-    glow.userData.isBladeGlow = true;
-    glow.userData.noOutline = true;
-    blade.add(glow);
-  }
-  const tsuba = vpart('tsuba', boxLayers(2, 2, 1), 0.10);
-  tsuba.position.y = 0.10;
-  const tsuka = vpart('tsuka', boxLayers(1, 1, 3), 0.06);
-  tsuka.position.y = -0.06;
-  g.add(blade, tsuba, tsuka);
-  return g;
-}
-
-function makeNodachi(len = 1.96) {
-  const g = new THREE.Group();
-  const cells = Math.max(17, Math.round(len / VS));
-
-  // A nodachi needs one strong read at the game camera: long koshi-zori,
-  // broad steel near the hand, and a patient taper into the kissaki. The dark
-  // bo-hi is inset into the lower blade instead of painted across the full
-  // length, while the thin edge stays brighter and shallower than the spine.
-  const grid = 13;
-  const bodyLayers = [];
-  const spineLayers = [];
-  const grooveLayers = [];
-  const hamonLayers = [];
-  const edgeLayers = [];
-  const rows = (filled, depth = 2) => {
-    const row = Array.from({ length: grid }, (_, x) => filled.includes(x) ? 'X' : ' ').join('');
-    return Array.from({ length: depth }, () => row);
-  };
-  for (let i = 0; i < cells; i++) {
-    const t = i / (cells - 1);
-    const bend = t < 0.38 ? 0 : t < 0.60 ? 1 : t < 0.79 ? 2 : 3;
-    const width = t < 0.58 ? 5 : t < 0.74 ? 4 : t < 0.87 ? 3 : t < 0.96 ? 2 : 1;
-    const left = 2 + bend;
-    const edgeX = left + width - 1;
-
-    spineLayers.push(rows(width >= 3 ? [left] : [], 2));
-    edgeLayers.push(rows([edgeX], 1));
-
-    const groove = width === 5 && i > 1 && t < 0.55 ? [left + 1] : [];
-    grooveLayers.push(rows(groove, 1));
-
-    const hamon = width >= 4 && i % 4 !== 1 ? [edgeX - 1] : [];
-    hamonLayers.push(rows(hamon, 1));
-
-    const reserved = new Set([left, edgeX, ...groove, ...hamon]);
-    const body = [];
-    for (let x = left; x <= edgeX; x++) if (!reserved.has(x)) body.push(x);
-    // Fill each small break in the temper pattern with normal steel. This keeps
-    // the blade solid while the gunome line remains irregular.
-    if (width >= 4 && !hamon.length) body.push(edgeX - 1);
-    bodyLayers.push(rows(body, 2));
-  }
-
-  const bladeSpine = vpart(`nodachiSpine${cells}`, spineLayers, 0.34, { centerY: false, jitter: 0.018 });
-  const bladeGroove = vpart(`nodachiGroove${cells}`, grooveLayers, 0.12, { centerY: false, jitter: 0.012 });
-  const bladeBody = vpart(`nodachiBodyV3${cells}`, bodyLayers, 0.78, { centerY: false, jitter: 0.025 });
-  const bladeHamon = vpart(`nodachiHamonV2${cells}`, hamonLayers, 0.92, { centerY: false, jitter: 0.018 });
-  const bladeEdge = vpart(`nodachiEdge${cells}`, edgeLayers, 1.0, { centerY: false, jitter: 0.015 });
-  for (const bladePart of [bladeSpine, bladeGroove, bladeBody, bladeHamon, bladeEdge]) {
-    bladePart.position.y = 0.19;
-    bladePart.userData.isBlade = true;
-  }
-
-  // The deep habaki and thick mokko guard balance the longer blade. A long,
-  // oval two-hand grip uses five alternating wrap knots and one offset menuki.
-  const habaki = vpart('nodachiHabakiV3', boxLayers(5, 3, 2, 1), 0.76);
-  habaki.position.y = 0.11;
-  const seppaTop = vpart('nodachiSeppaV2', boxLayers(5, 4, 1, 1), 0.90);
-  seppaTop.position.y = 0.015;
-  const tsubaLayers = [[
-    '  XXX  ',
-    ' XXXXX ',
-    'XXXXXXX',
-    'XXXXXXX',
-    ' XXXXX ',
-    '  XXX  ',
-  ]];
-  const tsuba = vpart('nodachiMokkoTsubaV2', tsubaLayers, 0.075, { jitter: 0.015 });
-  tsuba.position.y = -0.045;
-  const tsubaBoss = vpart('nodachiTsubaBoss', boxLayers(3, 3, 1, 1), 0.34);
-  tsubaBoss.position.y = -0.075;
-  const seppaBottom = vpart('nodachiSeppaV2', boxLayers(5, 4, 1, 1), 0.90);
-  seppaBottom.position.y = -0.105;
-  const tsuka = vpart('nodachiTsukaV3', boxLayers(3, 2, 10), 0.045);
-  tsuka.position.y = -0.63;
-
-  const wraps = [-0.20, -0.40, -0.60, -0.80, -1.00].map((y, index) => {
-    const wrap = vpart(`nodachiWrapV3${index % 2}`, boxLayers(4, 3, 1, 1), 0.74);
-    wrap.position.y = y;
-    wrap.rotation.y = index % 2 ? -Math.PI / 4 : Math.PI / 4;
-    return wrap;
-  });
-  const menuki = vpart('nodachiMenukiV2', boxLayers(1, 1, 3), 0.90);
-  menuki.position.set(0.17, -0.61, 0.12);
-  const pommel = vpart('nodachiPommelV3', boxLayers(4, 3, 2, 1), 0.10);
-  pommel.position.y = -1.13;
-  const pommelCap = vpart('nodachiPommelCap', boxLayers(3, 2, 1, 1), 0.76);
-  pommelCap.position.y = -1.24;
-
-  g.add(
-    bladeSpine, bladeGroove, bladeBody, bladeHamon, bladeEdge,
-    habaki, seppaTop, tsuba, tsubaBoss, seppaBottom,
-    tsuka, ...wraps, menuki, pommel, pommelCap,
-  );
-  return g;
-}
-
-// ------------------------------------------------------------------ player
-
 // Player skins are lacquer palettes, not power. They deliberately vary tonal
 // hierarchy as well as hue so each one remains distinct after the film pass
 // turns the scene into an orthochromatic black-and-white print.
@@ -318,7 +122,7 @@ export function applySamuraiSkin(actor, skinId) {
     if (feature) object.visible = features.has(feature);
     const slot = object.userData.skinSlot;
     if (!slot || !object.material || !skin.colors[slot]) return;
-    object.material.color.setHex(skin.colors[slot]);
+    object.material.color.setHex(skin.colors[slot]).multiplyScalar(1.7);
   });
   actor.skin = skin.id;
   return skin;
@@ -357,241 +161,6 @@ export function applyWeapon(actor, weaponId) {
   return weapon;
 }
 
-function skinSlot(mesh, slot) {
-  mesh.userData.skinSlot = slot;
-  return mesh;
-}
-
-function skinFeature(object, feature) {
-  object.userData.skinFeature = feature;
-  object.visible = false;
-  return object;
-}
-
-export function makeSamurai() {
-  const root = new THREE.Group();
-  root.scale.setScalar(1.06);
-
-  const hips = new THREE.Group();
-  hips.position.y = 0.94;
-  root.add(hips);
-
-  // A fitted dō instead of the enemy's square robe. The bright front plates
-  // and lacing keep their shape while the torso twists through a cut.
-  const torso = skinSlot(vpart('pTorsoArmored', taperLayers(7, 5, 6, 4, 7, 1), 0.38), 'armor');
-  torso.position.y = 0.34;
-  hips.add(torso);
-  const breastplate = skinSlot(vpart('pBreastplate', boxLayers(6, 1, 4, 1), 0.68), 'plate');
-  breastplate.position.set(0, 0.02, 0.28);
-  torso.add(breastplate);
-  const chestLace = skinSlot(vpart('pChestLace', boxLayers(6, 1, 1), 0.08), 'trim');
-  chestLace.position.set(0, -0.14, 0.34);
-  torso.add(chestLace);
-
-  // Broad lamellar shoulders are the first player-only silhouette cue.
-  const shoulders = skinFeature(
-    skinSlot(vpart('pShouldersArmored', taperLayers(12, 5, 9, 4, 3, 1), 0.52), 'plate'),
-    'armoredShoulders',
-  );
-  shoulders.position.y = 0.60;
-  hips.add(shoulders);
-
-  const hakama = skinSlot(vpart('pHakamaArmored', taperLayers(10, 9, 5, 4, 9, 1), 0.18), 'cloth');
-  hakama.position.y = -0.44;
-  hips.add(hakama);
-
-  const obi = skinSlot(vpart('pObi', boxLayers(6, 5, 1), 0.03), 'trim');
-  obi.position.y = 0.0;
-  hips.add(obi);
-
-  const neck = skinSlot(vpart('pNeck', boxLayers(2, 2, 1), 0.48), 'skin');
-  neck.position.y = 0.74;
-  hips.add(neck);
-
-  // Two white war-sash tails stay visible from the high camera at every
-  // facing. They are both costume and player marker, not a HUD ring.
-  const sashL = skinFeature(skinSlot(vpart('pSashLong', boxLayers(2, 2, 12), 0.94), 'sash'), 'warSash');
-  sashL.position.set(-0.15, 0.38, -0.62);
-  sashL.rotation.set(Math.PI / 2, -0.09, 0);
-  hips.add(sashL);
-  const sashR = skinFeature(skinSlot(vpart('pSashShort', boxLayers(2, 2, 9), 0.82), 'sash'), 'warSash');
-  sashR.position.set(0.14, 0.34, -0.50);
-  sashR.rotation.set(Math.PI / 2, 0.12, 0);
-  hips.add(sashR);
-
-  const head = new THREE.Group();
-  head.position.y = 0.88;
-  hips.add(head);
-  const skull = skinSlot(vpart('pSkullArmored', boxLayers(3, 3, 3), 0.42), 'skin');
-  head.add(skull);
-  // Kabuto bowl, flared shikoro neck guard, and a bright frontal maedate.
-  // The crest is a flat voxel sun rather than oni-like horns.
-  const shikoro = skinFeature(
-    skinSlot(vpart('pShikoro', taperLayers(7, 6, 4, 4, 3, 1), 0.14), 'cloth'),
-    'kabuto',
-  );
-  shikoro.position.y = -0.02;
-  head.add(shikoro);
-  const kabuto = skinFeature(
-    skinSlot(vpart('pKabuto', taperLayers(5, 5, 4, 4, 4, 1), 0.10), 'armor'),
-    'kabuto',
-  );
-  kabuto.position.y = 0.20;
-  head.add(kabuto);
-  const maedate = skinFeature(
-    skinSlot(vpart('pMaedate', boxLayers(5, 1, 4, 1), 0.96), 'crest'),
-    'kabuto',
-  );
-  maedate.position.set(0, 0.30, 0.28);
-  head.add(maedate);
-  const faceGuard = skinFeature(
-    skinSlot(vpart('pMenpo', boxLayers(3, 1, 2, 1), 0.06), 'trim'),
-    'kabuto',
-  );
-  faceGuard.position.set(0, -0.07, 0.20);
-  head.add(faceGuard);
-
-  const armL = new THREE.Group();
-  armL.position.set(-0.58, 0.55, 0);
-  hips.add(armL);
-  armL.add(skinSlot(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28), 'armor'));
-  const sodeL = skinFeature(
-    skinSlot(vpart('pSode', boxLayers(3, 2, 5, 1), 0.62), 'plate'),
-    'armoredShoulders',
-  );
-  sodeL.position.set(-0.05, -0.14, 0);
-  armL.add(sodeL);
-
-  const armR = new THREE.Group();
-  armR.position.set(0.58, 0.55, 0);
-  hips.add(armR);
-  armR.add(skinSlot(vlimb('pArm', boxLayers(2, 2, 6), 0.42, -0.28), 'armor'));
-  const sodeR = skinFeature(
-    skinSlot(vpart('pSode', boxLayers(3, 2, 5, 1), 0.62), 'plate'),
-    'armoredShoulders',
-  );
-  sodeR.position.set(0.05, -0.14, 0);
-  armR.add(sodeR);
-
-  // One animated weapon mount keeps the combat and ragdoll code simple while
-  // allowing each player weapon to have a purpose-built voxel model.
-  const katana = new THREE.Group();
-  const katanaModel = makeKatana(1.2);
-  const nodachiModel = makeNodachi();
-  katanaModel.userData.weaponId = 'katana';
-  nodachiModel.userData.weaponId = 'nodachi';
-  nodachiModel.visible = false;
-  katana.add(katanaModel, nodachiModel);
-  katana.position.set(0, -0.56, 0.06);
-  // Grip pitch: the blade leaves the fist angled forward (chūdan guard), not
-  // straight up the arm — bare +Y runs the blade vertically past the skull,
-  // which from the game's top-down camera reads as growing out of the head.
-  katana.rotation.x = 1.05;
-  armR.add(katana);
-
-  const legL = new THREE.Group();
-  legL.position.set(-0.17, -0.78, 0);
-  hips.add(legL);
-  legL.add(skinSlot(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34), 'cloth'));
-
-  const legR = new THREE.Group();
-  legR.position.set(0.17, -0.78, 0);
-  hips.add(legR);
-  legR.add(skinSlot(vlimb('pLeg', boxLayers(2, 2, 7), 0.12, -0.34), 'cloth'));
-
-  // MUSASHI — an unarmored, uneven crown and the second sword at his hip.
-  // The pieces stay deliberately chunky so the read survives the high camera.
-  const wildHair = skinFeature(new THREE.Group(), 'wildHair');
-  const hairCrown = skinSlot(vpart('skinWildHairCrown', taperLayers(6, 5, 5, 4, 3, 1), 0.08), 'trim');
-  hairCrown.position.y = 0.23;
-  wildHair.add(hairCrown);
-  for (const [x, z, roll] of [[-0.18, 0, -0.58], [0, -0.03, 0.12], [0.18, 0, 0.62]]) {
-    const spike = skinSlot(vpart('skinWildHairSpike', boxLayers(1, 1, 4), 0.06), 'trim');
-    spike.position.set(x, 0.43, z);
-    spike.rotation.z = roll;
-    wildHair.add(spike);
-  }
-  head.add(wildHair);
-
-  const dualSword = skinFeature(new THREE.Group(), 'dualSword');
-  const shortSaya = skinSlot(vpart('skinShortSaya', boxLayers(1, 1, 10), 0.05), 'trim');
-  const shortTsuka = skinSlot(vpart('skinShortTsuka', boxLayers(2, 1, 3), 0.55), 'sash');
-  shortTsuka.position.y = 0.66;
-  dualSword.add(shortSaya, shortTsuka);
-  dualSword.position.set(-0.46, -0.04, -0.12);
-  dualSword.rotation.z = 1.18;
-  hips.add(dualSword);
-
-  // HITOKIRI — tied hair and loose sleeves replace the armored outline.
-  const ponytail = skinFeature(new THREE.Group(), 'ponytail');
-  const hairCap = skinSlot(vpart('skinHairCap', taperLayers(5, 5, 4, 4, 3, 1), 0.07), 'trim');
-  hairCap.position.y = 0.19;
-  const hairTie = skinSlot(vpart('skinHairTie', boxLayers(2, 2, 2), 0.75), 'sash');
-  hairTie.position.set(0, 0.18, -0.22);
-  const tail = skinSlot(vpart('skinPonytail', boxLayers(2, 2, 8), 0.06), 'trim');
-  tail.position.set(0, -0.12, -0.30);
-  tail.rotation.x = -0.36;
-  const foreheadTie = skinSlot(vpart('skinForeheadTie', boxLayers(5, 1, 1), 0.82), 'sash');
-  foreheadTie.position.set(0, 0.08, 0.19);
-  ponytail.add(hairCap, hairTie, tail, foreheadTie);
-  head.add(ponytail);
-
-  const sleeveL = skinFeature(
-    skinSlot(vpart('skinLightSleeve', taperLayers(5, 4, 4, 3, 6, 1), 0.48), 'armor'),
-    'lightSleeves',
-  );
-  sleeveL.position.set(-0.04, -0.22, 0);
-  armL.add(sleeveL);
-  const sleeveR = skinFeature(
-    skinSlot(vpart('skinLightSleeve', taperLayers(5, 4, 4, 3, 6, 1), 0.48), 'armor'),
-    'lightSleeves',
-  );
-  sleeveR.position.set(0.04, -0.22, 0);
-  armR.add(sleeveR);
-
-  // MASAMUNE — a large crescent and one dark eye break the helmet silhouette.
-  const dragonCrescent = skinFeature(new THREE.Group(), 'dragonCrescent');
-  for (const [x, roll] of [[-0.14, -0.72], [0.14, 0.72]]) {
-    const horn = skinSlot(vpart('skinDragonHorn', boxLayers(1, 1, 8), 0.95), 'crest');
-    horn.position.set(x, 0.48, 0.02);
-    horn.rotation.z = roll;
-    dragonCrescent.add(horn);
-  }
-  const eyeGuard = skinSlot(vpart('skinEyeGuard', boxLayers(2, 1, 2), 0.03), 'trim');
-  eyeGuard.position.set(-0.09, -0.04, 0.23);
-  dragonCrescent.add(eyeGuard);
-  head.add(dragonCrescent);
-
-  // MIBU WOLF — the pale haori widens the back and falls as two square tails.
-  const mibuHaori = skinFeature(new THREE.Group(), 'mibuHaori');
-  const cape = skinSlot(vpart('skinMibuCape', taperLayers(11, 9, 8, 5, 7, 1), 0.82), 'plate');
-  cape.position.set(0, 0.26, -0.26);
-  mibuHaori.add(cape);
-  for (const x of [-0.19, 0.19]) {
-    const coatTail = skinSlot(vpart('skinMibuTail', boxLayers(3, 2, 10), 0.76), 'armor');
-    coatTail.position.set(x, -0.40, -0.30);
-    coatTail.rotation.x = -0.12;
-    mibuHaori.add(coatTail);
-  }
-  hips.add(mibuHaori);
-
-  const mibuHeadband = skinFeature(new THREE.Group(), 'mibuHeadband');
-  const mibuBand = skinSlot(vpart('skinMibuBand', boxLayers(6, 1, 1), 0.84), 'sash');
-  mibuBand.position.set(0, 0.10, 0.19);
-  const topknot = skinSlot(vpart('skinMibuTopknot', boxLayers(2, 2, 4), 0.06), 'trim');
-  topknot.position.set(0, 0.34, -0.06);
-  topknot.rotation.x = -0.45;
-  mibuHeadband.add(mibuBand, topknot);
-  head.add(mibuHeadband);
-
-  return {
-    root, hips, head, torso, shoulders, hakama, armL, armR, legL, legR, katana,
-    weaponModels: { katana: katanaModel, nodachi: nodachiModel }, sashL, sashR,
-  };
-}
-
-// ------------------------------------------------------------------ enemies
-
 export const ENEMY_TYPES = {
   // Rank and file. Straw hat gives a wide, flat silhouette.
   ronin: { height: 1.0, hat: true, mask: false, hp: 34, speed: 3.0, reach: 2.5, windup: 0.52, damage: 12, value: 1 },
@@ -610,110 +179,95 @@ export const ENEMY_TYPES = {
   oni: { height: 1.85, hat: false, mask: true, hp: 340, speed: 2.3, reach: 4.0, windup: 0.7, damage: 32, value: 12 },
 };
 
+// Blender-authored, quantized meshes. Decode once per part, share geometry
+// across every wave, and retain the exact joint contract used by the ragdolls.
+const geometryCache = new Map();
+const JOINTS = {
+  torso: [0, .34, 0], shoulders: [0, .56, 0], skirt: [0, -.32, 0],
+  head: [0, .84, 0], armL: [-.48, .52, 0], armR: [.48, .52, 0],
+  legL: [-.18, -.38, 0], legR: [.18, -.38, 0],
+  sashL: [-.17, .38, -.32], sashR: [.17, .34, -.3],
+};
+
+function decodeGeometry(key, data) {
+  if (geometryCache.has(key)) return geometryCache.get(key);
+  const geometry = new THREE.BufferGeometry();
+  const positions = Float32Array.from(data.p, value => value / 10000);
+  const colors = new Float32Array(positions.length);
+  for (let triangle = 0; triangle < data.c.length; triangle++) {
+    // Authored values are linear ink reflectance, with a small per-face edge
+    // variation already carried by the faceted normals.
+    const value = data.c[triangle] / 255;
+    colors.fill(value, triangle * 9, triangle * 9 + 9);
+  }
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  geometryCache.set(key, geometry);
+  return geometry;
+}
+
+function makeActor(model) {
+  const root = new THREE.Group();
+  root.name = `storm-court:${model}`;
+  const hips = new THREE.Group(); hips.position.y = .94; root.add(hips);
+  const actor = { root, hips };
+  for (const [name, position] of Object.entries(JOINTS)) {
+    actor[name] = new THREE.Group(); actor[name].name = name;
+    actor[name].position.set(...position); hips.add(actor[name]);
+  }
+  actor.hakama = actor.skirt;
+  actor.katana = new THREE.Group(); actor.katana.name = 'weapon-mount';
+  actor.katana.position.set(0, -.52, .06); actor.katana.rotation.x = 1.05;
+  actor.armR.add(actor.katana);
+  if (model === 'player') {
+    actor.weaponModels = { katana: new THREE.Group(), nodachi: new THREE.Group() };
+    actor.katana.add(...Object.values(actor.weaponModels));
+    actor.weaponModels.nodachi.visible = false;
+  }
+  for (const [index, data] of ACTOR_MESHES[model].entries()) {
+    // Per-part materials survive independent limb retirement. Geometries stay
+    // shared; ragdoll disposal must never invalidate another living actor.
+    const material = toon(1, { vertexColors: true, emissive: 0x4b4b4b, emissiveIntensity: .28 });
+    const mesh = new THREE.Mesh(decodeGeometry(`${model}:${index}`, data), material);
+    mesh.name = `${model}:${data.joint}:${data.feature || data.slot || 'ink'}`;
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.userData.noOutline = true;
+    if (data.slot && data.slot !== 'steel') mesh.userData.skinSlot = data.slot;
+    if (data.feature) { mesh.userData.skinFeature = data.feature; mesh.visible = false; }
+    if (data.slot === 'steel') {
+      mesh.userData.isBlade = true;
+      if (model !== 'player') {
+        const glow = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+          color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }));
+        glow.scale.setScalar(1.035); glow.renderOrder = 7;
+        glow.userData.isBladeGlow = true; glow.userData.noOutline = true; mesh.add(glow);
+      }
+    }
+    const parent = model === 'player' && actor.weaponModels[data.joint]
+      ? actor.weaponModels[data.joint] : actor[data.joint];
+    parent.add(mesh);
+  }
+  if (model === 'yumi') actor.katana.rotation.x = .12;
+  if (model === 'yari') actor.katana.position.y = -.9;
+  return actor;
+}
+
+export function makeSamurai() {
+  const actor = makeActor('player');
+  actor.root.scale.setScalar(1.06);
+  return actor;
+}
+
 export function makeEnemy(type) {
   const spec = ENEMY_TYPES[type];
-  const root = new THREE.Group();
-
-  const hips = new THREE.Group();
-  hips.position.y = 0.88;
-  root.add(hips);
-
-  const torso = vpart('eTorso', boxLayers(6, 4, 7), 0.20);
-  torso.position.y = 0.32;
-  hips.add(torso);
-
-  const shoulders = vpart('eShoulders', boxLayers(9, 4, 2), 0.16);
-  shoulders.position.y = 0.56;
-  hips.add(shoulders);
-
-  const skirt = vpart('eSkirt', taperLayers(8, 8, 4, 4, 8, 1), 0.22);
-  skirt.position.y = -0.40;
-  hips.add(skirt);
-
-  const head = new THREE.Group();
-  head.position.y = 0.82;
-  hips.add(head);
-  const skull = vpart('eSkull', boxLayers(3, 3, 3), spec.mask ? 0.06 : 0.62);
-  head.add(skull);
-
-  if (spec.hat) {
-    // Kasa: a wide stepped pyramid that hides the face entirely.
-    const hat = vpart('eKasa', taperLayers(9, 9, 3, 3, 3, 2), 0.78);
-    hat.position.y = 0.24;
-    head.add(hat);
-  } else if (spec.mask) {
-    const horns = new THREE.Group();
-    const hornL = vpart('eHorn', boxLayers(1, 1, 3), 0.88);
-    hornL.position.set(-0.11, 0.31, 0);
-    hornL.rotation.z = -0.42;
-    const hornR = vpart('eHorn', boxLayers(1, 1, 3), 0.88);
-    hornR.position.set(0.11, 0.31, 0);
-    hornR.rotation.z = 0.42;
-    horns.add(hornL, hornR);
-    head.add(horns);
-    // Bright eyes are the only high-value pixels on the model, so they read
-    // even at distance through the grain.
-    const eyes = new THREE.Mesh(
-      box(0.22, 0.045, 0.02),
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-    );
-    eyes.position.set(0, 0.03, 0.145);
-    eyes.userData.noOutline = true;
-    head.add(eyes);
-  } else {
-    const hair = vpart('eHair', boxLayers(4, 4, 2, 1), 0.10);
-    hair.position.y = 0.14;
-    head.add(hair);
-  }
-
-  const armL = new THREE.Group();
-  armL.position.set(-0.46, 0.5, 0);
-  hips.add(armL);
-  armL.add(vlimb('eArm', boxLayers(2, 2, 6), 0.18, -0.27));
-
-  const armR = new THREE.Group();
-  armR.position.set(0.46, 0.5, 0);
-  hips.add(armR);
-  armR.add(vlimb('eArm', boxLayers(2, 2, 6), 0.18, -0.27));
-
-  // Enemy steel stays grey until the emissive wind-up telegraph. The player's
-  // blade remains white, which makes ownership clear when figures overlap.
-  // The archer carries a tall yumi stave instead — its vertical line is the
-  // silhouette read at distance, the way the kasa and horns are for the others.
-  let katana;
-  if (spec.bow) {
-    katana = new THREE.Group();
-    const stave = vpart('yumiStave', boxLayers(1, 1, 14), 0.34, { centerY: false });
-    stave.position.y = -0.68;
-    const grip = vpart('yumiGrip', boxLayers(1, 1, 2), 0.10, { centerY: false });
-    grip.position.y = -0.1;
-    katana.add(stave, grip);
-    katana.position.set(0, -0.45, 0.08);
-    katana.rotation.x = 0.12;
-  } else {
-    katana = makeKatana(type === 'oni' || type === 'brute' ? 1.5 : spec.pole ? 2.7 : 1.1, true);
-    katana.position.set(0, spec.pole ? -0.9 : -0.52, 0.05);
-    // Same grip pitch as the player: without it the blade skewers the kasa.
-    katana.rotation.x = 1.05;
-  }
-  armR.add(katana);
-
-  const legL = new THREE.Group();
-  legL.position.set(-0.16, -0.74, 0);
-  hips.add(legL);
-  legL.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.16, -0.32));
-
-  const legR = new THREE.Group();
-  legR.position.set(0.16, -0.74, 0);
-  hips.add(legR);
-  legR.add(vlimb('eLeg', boxLayers(2, 2, 7), 0.16, -0.32));
-
-  // The yari reads as a leaner, taller figure — a narrow silhouette against
-  // the wide kasa and the horned bulk of the mask enemies.
-  if (spec.pole) root.scale.set(spec.height * 0.82, spec.height * 1.12, spec.height * 0.82);
-  else root.scale.setScalar(spec.height);
-
-  return { root, hips, head, torso, shoulders, skirt, armL, armR, legL, legR, katana };
+  const actor = makeActor(type);
+  if (spec.pole) actor.root.scale.set(spec.height * .82, spec.height * 1.12, spec.height * .82);
+  else actor.root.scale.setScalar(spec.height);
+  return actor;
 }
 
 // ---------------------------------------------------------------- animation
@@ -732,7 +286,9 @@ export function animateLocomotion(a, phase, blend, t) {
   a.hips.position.y += breathe;
   if (a.sashL) {
     const drift = Math.sin(t * 3.1 + phase * 0.18) * (0.035 + blend * 0.065);
-    a.sashL.rotation.y = -0.09 + drift;
-    a.sashR.rotation.y = 0.12 - drift * 0.8;
+    a.sashL.rotation.x = -.25 - blend * .65;
+    a.sashL.rotation.z = -.12 + drift;
+    a.sashR.rotation.x = -.22 - blend * .55;
+    a.sashR.rotation.z = .12 - drift * .8;
   }
 }

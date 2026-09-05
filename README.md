@@ -3,8 +3,9 @@
 A browser-based 3D samurai hack-and-slash rendered as black-and-white film, where
 every wound bleeds into the arena like ink soaking into paper.
 
-No build step, no dependencies to install, and almost no assets — every
-texture, sound effect and animation is generated procedurally at load. The
+No web build step or dependencies to install. Characters and weapons are authored
+in Blender and exported as small, quantized mesh modules. Scenery, ink textures,
+and animation are generated procedurally at load. The
 exceptions are the score — a looping recorded track (`assets/score.mp3`, a
 free Nujabes-type beat) played through the game's dynamic mix bus, with a
 fully procedural engine as the loading cover and offline fallback — and two
@@ -80,13 +81,17 @@ portrait shows a rotate prompt.
 Enemies telegraph by lighting their blade white. Parrying at that moment
 deflects the blow and fills focus fast; focus also builds on kills. A full
 focus charge makes one calm white ink aura breathe around the player and
-briefly shows the signature key. The katana uses an iai draw that flash-steps
-forward and cuts down everything in a corridor. The nodachi uses a broad
+briefly shows the signature key. The katana uses an iai draw that holds the battlefield still, flash-steps
+forward, and releases a delayed lightning cut through a corridor. The player draw
+uses a real-time clock while enemy clocks, rain, ink particles, and bodies stop. The nodachi uses a broad
 tsunami cut that throws survivors away from the player.
 
 Enemy steel starts dim during the wind-up, then blooms white only during the
-real deflect input window. Hits add a short ground burst; finishers and perfect
-parries use stronger flashes and ink.
+real deflect input window. Hits add steel sparks and a short ground burst. Katana finishers branch into
+lightning; thrusts write a narrow streak; nodachi strikes drag a heavier crescent.
+Kills leave a suspended cut line before the ragdoll falls. Enemy yari and yumi
+strikes use narrow ink lines; brutes and oni write broad shock rings. Perfect
+parries retain their white blade timing signal.
 
 Perfect parries and kills build **Flow**. Flow breaks when the player takes a
 hit or goes too long without another success; higher Flow increases focus gain
@@ -147,22 +152,21 @@ ink reads at any distance and the frame gets its Kurosawa contrast for free.
   highlights, grain that peaks in the midtones, gate weave, exposure flicker,
   hairline scratches and dust on a 16 fps step. Grain and vignette intensify as
   the samurai's health drops — the print degrades with him.
-- **Cel shading** (`src/actors.js`) — three-step toon ramp plus inverted-hull
-  outlines. In monochrome the silhouette carries everything, so enemy types
-  differ by outline (straw kasa, horned mask, height) rather than by colour.
-  The player is deliberately the lightest figure on the field.
-- **Isometric & voxel** — a fixed 45° orthographic camera, and everything
-  built from voxels (`src/voxel.js`): models are tiny 3D bitmaps merged into
-  one geometry with interior faces culled, and every vertex carries a
-  per-voxel value jitter so flat faces read as individual bricks. Characters
-  share one brick size (0.105), scenery a coarser one (0.22). Kills burst
-  into tumbling cubes — bodies come apart into what they are made of — via a
-  fixed instanced pool that marks the paper where chunks land. The organic
-  ink on rigid voxels is the contrast the look leans on. The key light hangs
-  off the camera's left shoulder: lit from behind the camera, every shadow
-  hides behind its caster and the frame goes flat. Voxel figures drop the
-  inverted-hull outline — it splits at every cube edge on non-indexed
-  geometry, and voxels carry their shape with faces, not ink lines.
+- **Characters** (`src/actors.js`, `assets/models/storm-court.js`) — Blender-authored
+  faceted armor, folded cloth, sculpted helmets and masks, real spearheads, a strung
+  yumi with quiver, and a studded kanabo. All four legends retain their palettes
+  and costume features. The six enemy silhouettes remain distinct at game scale.
+  Joint names match the procedural animation and Verlet ragdoll rig. Geometry is
+  decoded once and shared across waves; every enemy is below 2,400 triangles.
+- **Isometric scenery** (`src/world.js`, `src/voxel.js`) — the fixed diagonal
+  orthographic camera looks down on voxel scenery. Instance batches compact to
+  conservative camera bounds, with extra room for tall off-screen shadow casters.
+  Moving through the world refreshes the bounds and the packed instance matrices.
+- **Combat effects** (`src/combat-fx.js`) — one preallocated draw batch holds up to
+  48 lightning/ink strokes and 192 sparks. Impact fans are prebuilt, corpse parts
+  are instanced by shared geometry, and idle corpse physics sleep. No per-attack
+  PointLights or extra bloom passes are introduced. The film uses an SDR target
+  with 4× MSAA; the final fullscreen canvas avoids redundant MSAA.
 - **Framing** — 2.39:1 letterbox, capped so a narrow window still has room to
   play in. External ink bars show health and signature charge. A white ink
   aura also marks signature readiness. Run statistics stay in the black bars.
@@ -317,3 +321,30 @@ __samurai.film.uniforms.uGrain.value = 0.3;   // heavier grain
 __samurai.state.focus = 100;                  // charge the iai
 for (let i = 0; i < 600; i++) __samurai.step(1/60);
 ```
+
+## Blender assets and combat verification
+
+`assets/models/storm-court.blend` is the editable character source. The reproducible
+`tools/build-actors.py` creates its own scene and exports `storm-court.js` plus a
+triangle manifest. It can be executed through Blender MCP, or in a separate process:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/build-actors.py
+```
+
+The background process saves the source `.blend`. Interactive MCP generation only
+adds its own scene and exports the runtime mesh module, preserving other scenes.
+The game loads that module through the same versioned import graph as its code;
+there is no runtime model decoder dependency or network model-loading race.
+
+- [Model study](http://127.0.0.1:5173/tools/model-gallery.html): inspect the enemy
+  roster, all four legends, and both weapons; rotate the models.
+- [Combat lab](http://127.0.0.1:5173/?qa-scenario=combat&profile=1): play a mixed arena,
+  inspect held iai frames and tsunami, run the combat audit, or run a 20-second
+  stress scenario. This opt-in panel is limited to localhost and uses QA record
+  isolation; it does not unlock rewards or change run records.
+- `node --experimental-default-type=module --test tests/*.test.mjs` checks combat
+  rules, mesh integrity/budgets, signature timing, and versioned module imports.
+
+The normal controls and unlock rules are unchanged. The `F` signature still needs
+full focus. Deployments use the committed source and versioned module graph described above.

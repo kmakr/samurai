@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-05",
+  "baseCommit": "8a06a62529b85873c4b7535a102ed77158bc22df",
+  "environment": "Local Codex browser, 1280x720 CSS pixels; hardware-dependent results",
+  "scenario": "Fresh world; 20 seconds of mixed combat; replenishes up to 24 enemies; repeated attacks and iai; first 1.5 seconds excluded",
+  "samples": 1496,
+  "frameMeanMs": 12.358021390374374,
+  "frameP95Ms": 17,
+  "frameP99Ms": 18.600000000000364,
+  "framesOver25Ms": 2,
+  "endOfRun": {
+    "modelAsset": "storm-court:player",
+    "drawCalls": 683,
+    "triangles": 431548,
+    "sceneryInstances": 493,
+    "corpseDrawBatches": 53,
+    "geometries": 150,
+    "shaderPrograms": 20,
+    "pointLights": 0,
+    "enemies": 24,
+    "ragdolls": 23,
+    "debris": 57,
+    "gibs": 88,
+    "droppedCatchupSimulationMs": 0
+  },
+  "validation": {
+    "automatedTests": 22,
+    "browserAssertions": 27,
+    "browserConsoleErrors": 0,
+    "additionalViewport": "844x390 landscape; resized and inspected; desktop input, not a physical touch device"
+  },
+  "notes": "Frame intervals are actual requestAnimationFrame deltas. End-of-run rendering counts are a snapshot, not averages. Spawns and cosmetic physics include randomness; this is a local stress sample, not a cross-device FPS guarantee."
+}

@@ -9,6 +9,7 @@
 // rigid bodies. Both kinds of debris bleed onto the paper as they go.
 
 import * as THREE from 'three';
+import { toon } from './actors.js';
 import { RAGDOLL_LIMITS, pushBounded } from './bounded-pool.js';
 export { RAGDOLL_LIMITS } from './bounded-pool.js';
 
@@ -55,6 +56,8 @@ export class RagdollSystem {
     this.bodies = [];
     this.debris = [];
     this.accum = 0;
+    this.renderBatches = new Map();
+    this.corpseMaterial = toon(1, { vertexColors: true, emissive: 0x4b4b4b, emissiveIntensity: .28 });
   }
 
   get count() { return this.bodies.length + this.debris.length; }
@@ -286,6 +289,40 @@ export class RagdollSystem {
     this.pose();
     this.updateDebris(dt);
     this.retire(dt);
+    this.updateBatches();
+  }
+
+  // Dead actors share vertex-ink materials and geometry. Submit one instance
+  // batch per body part instead of a draw for every bone of every corpse.
+  // The source transforms remain in the Verlet rig, so severing and cleanup
+  // retain their original behavior and the full 48-body budget.
+  updateBatches() {
+    for (const batch of this.renderBatches.values()) batch.count = 0;
+    for (const body of this.bodies) for (const bone of body.bones) this.writeBatched(bone.obj);
+    for (const debris of this.debris) this.writeBatched(debris.obj);
+    for (const batch of this.renderBatches.values()) {
+      batch.visible = batch.count > 0;
+      if (batch.count) batch.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  writeBatched(root) {
+    root.updateMatrixWorld(true);
+    root.traverse(object => {
+      if (!object.isMesh) return;
+      object.visible = false;
+      if (object.userData.isBladeGlow || object.userData.isFlowOutline) return;
+      let batch = this.renderBatches.get(object.geometry);
+      if (!batch) {
+        batch = new THREE.InstancedMesh(object.geometry, this.corpseMaterial,
+          RAGDOLL_LIMITS.bodies + RAGDOLL_LIMITS.debris);
+        batch.name = 'corpse-batch'; batch.count = 0;
+        batch.frustumCulled = false; batch.castShadow = true; batch.receiveShadow = true;
+        batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.renderBatches.set(object.geometry, batch); this.scene.add(batch);
+      }
+      if (batch.count < batch.instanceMatrix.count) batch.setMatrixAt(batch.count++, object.matrixWorld);
+    });
   }
 
   simulate(h) {
@@ -293,7 +330,15 @@ export class RagdollSystem {
     const g = GRAVITY * h * h;
 
     for (const body of this.bodies) {
+      if (body.age > 4 || body.sleeping) continue;
       const P = body.P;
+
+      // Bodies have no external collisions after death. Once every joint has
+      // been still for a quarter second, retain its pose without solving it.
+      let moving = false;
+      for (const key in P) if (P[key].pos.distanceToSquared(P[key].prev) > .000001) moving = true;
+      body.settleAt = moving || body.age < 1.2 ? 0 : body.settleAt + h;
+      if (body.settleAt > .25) { body.sleeping = true; continue; }
 
       for (const k in P) {
         const p = P[k];
@@ -354,6 +399,8 @@ export class RagdollSystem {
 
   pose() {
     for (const body of this.bodies) {
+      // Let retirement sink accumulate instead of resetting from the rig.
+      if (body.age > 4) continue;
       const P = body.P;
       const chest = _chest.addVectors(P.chestL.pos, P.chestR.pos).multiplyScalar(0.5);
       const pelvis = _pelvis.addVectors(P.pelvisL.pos, P.pelvisR.pos).multiplyScalar(0.5);
@@ -502,6 +549,7 @@ export class RagdollSystem {
     for (const d of this.debris) this.dispose(d.obj);
     this.bodies.length = 0;
     this.debris.length = 0;
+    for (const batch of this.renderBatches.values()) { batch.count = 0; batch.visible = false; }
     this.accum = 0;
   }
 }
