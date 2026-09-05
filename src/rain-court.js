@@ -108,7 +108,12 @@ export function buildRainCourt(scene, time, renderer) {
       add('leaf','moss',x,y,z,.30+rnd()*.55,.45,.40,rnd()*6,.3,1.1);
     }
   }
-  wall(-19.5,0,37,Math.PI/2,3.4);wall(19.5,0,37,Math.PI/2,2.8);
+  for(const side of [-1,1]) {
+    for(const z of [-10.6,10.6])wall(side*19.5,z,15.8,Math.PI/2,side<0?3.4:2.8);
+    for(const z of [-2.45,2.45])box('timber',side*19.5,1.8,z,.45,3.6,.45);
+    box('timber',side*19.5,3.7,0,.7,.4,5.8);
+    box('roofEdge',side*19.5,3.95,0,1.5,.18,6.1);
+  }
   wall(-13,-18,13,0,3.4);wall(13,-18,13,0,3.4);
   // Foreground wall stays low enough to preserve combat silhouettes.
   wall(-12,18.1,15,0,1.1);wall(12,18.1,15,0,1.1);
@@ -256,7 +261,7 @@ export function buildRainCourt(scene, time, renderer) {
   // Their count remains fixed through every wave and signature.
   for(const x of [-4,4]){const light=new THREE.PointLight(0xffbd68,24,14,2);light.position.set(x,3,-15.5);scene.add(light)}
   const ambience={rustle:0};
-  return {group,scatters,ambience,artDirection:'rain-court',bounds:COURT,reflectionStats,
+  return {group,scatters,ambience,artDirection:'rain-court',bounds:COURT,reflectionStats,kit:{geometries,materials},
     update(center){ambience.rustle=Math.max(0,Math.abs(center.x)-12)*.055;},
     reflect(renderer,camera){
       reflectionStats.calls=0;reflectionStats.triangles=0;

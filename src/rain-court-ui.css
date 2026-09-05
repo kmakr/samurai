@@ -129,3 +129,59 @@ body{background:#233c41;color:var(--paper)}
 .skinOption[aria-pressed=true],.weaponOption[aria-pressed=true]{color:var(--paper)}
 #overlay.intro #ledger{display:none}
 #overlay.intro #ovTitle .wordmark,#overlay.intro #ovSub,#overlay.intro #ovText,#overlay.intro #skinPicker,#overlay.intro #weaponPicker,#overlay.intro #ovButtons{animation:none;opacity:1;transform:none;filter:none}
+
+/* A route to remember, kept at the edges of the fight. */
+[hidden]{display:none!important}
+#chapterHUD{position:absolute;top:118px;left:30px;width:310px;max-width:calc(100vw - 60px);font-family:var(--font-ui);pointer-events:none}
+.chapterRoute{display:flex;align-items:center;gap:9px;color:#8a9d98;font-size:7px;letter-spacing:.15em}
+.chapterRoute i{width:22px;height:1px;background:#adc3b33d}
+.chapterRoute .current{color:#f4d797}.chapterRoute .complete{color:#a9c9b8}
+.chapterObjective{font:14px/1.6 Georgia,serif;color:#e5dec9;margin:10px 0 5px}
+.chapterEncounter{font-size:7px;letter-spacing:.08em;color:#b0c7c1}
+.gate-open .chapterObjective{color:#ffe0a3}
+#techniqueHUD{position:absolute;left:28px;bottom:155px;max-width:310px;font:9px/1.65 var(--font-ui);color:#cbe3dc;letter-spacing:.025em;padding:8px 10px;border-left:1px solid #bdc5a8;background:#132c32c9}
+#chapterRival{position:absolute;top:30px;left:50%;transform:translateX(-50%);width:330px;max-width:35vw;text-align:center}
+#chapterRival>span{font:15px Georgia,serif;letter-spacing:.15em;color:#efd6b0}
+#chapterRival small{display:block;font:7px var(--font-ui);letter-spacing:.25em;margin:6px 0 10px;color:#c9bda5}
+#chapterRival [role=progressbar]{height:4px;background:#172f32;border:1px solid #e0c9a444}
+#chapterRival i{height:100%;display:block;background:#bb795b;transform-origin:left;transition:transform 140ms ease-out}
+#chapterRival em{display:block;font:7px var(--font-ui);letter-spacing:.06em;margin-top:8px;color:#c2cfc7}
+#chapterNarrative{position:absolute;bottom:93px;left:50%;transform:translate(-50%,6px);width:430px;max-width:calc(100vw - 48px);text-align:center;font:15px/1.7 Georgia,serif;color:#f2e4c9;background:linear-gradient(90deg,transparent,#10292ae6 18%,#10292ae6 82%,transparent);padding:14px 28px;opacity:0;transition:opacity 240ms ease-out,transform 240ms ease-out;pointer-events:none}
+#chapterNarrative.show{opacity:1;transform:translate(-50%,0)}
+#chapterWaypoint{position:absolute;left:0;top:0;width:100px;text-align:center;pointer-events:none;color:#f6dda3;text-shadow:0 2px 8px #122d2d}
+#chapterWaypoint span{display:block;font:38px/1 Georgia,serif}#chapterWaypoint small{font:8px var(--font-ui);letter-spacing:.13em;background:#153132cf;padding:4px 6px}
+#chapterCurtain{position:fixed;inset:0;background:#10262b;z-index:90;opacity:0;pointer-events:none;transition:opacity 550ms ease-in-out}
+#chapterCurtain.show{opacity:1;pointer-events:auto}
+#endlessBtn{border:0;background:none;color:#9db4b0;font:8px var(--font-ui);letter-spacing:.14em;padding:13px 0;text-align:left;cursor:pointer;margin-top:5px!important;min-height:35px}
+#endlessBtn:focus-visible{outline:1px solid #d6bd86;outline-offset:3px}
+#endlessBtn:active{transform:scale(.98)}
+#upgradeOverlay .scroll{background:linear-gradient(150deg,#254344,#142e32);border:1px solid #a5bdac55;border-top:2px solid #baa777;border-radius:3px;clip-path:none;color:#eadfc6;min-height:260px;padding:26px 24px;box-shadow:0 16px 40px #05161940;animation:none;opacity:1;transform:none;transition:transform 160ms ease-out,border-color 160ms ease-out}
+#upgradeOverlay .scroll .name{font:22px Georgia,serif;letter-spacing:.035em;color:#efe2c3}
+#upgradeOverlay .scroll .desc{font:12px/1.75 var(--font-ui);color:#c4d4cb;letter-spacing:0}
+#upgradeOverlay .scroll .level{font:8px var(--font-ui);letter-spacing:.15em;color:#d5b982}
+#upgradeOverlay .scroll .key{color:#a7bfb5}
+#upgradeOverlay .scroll .sigil{color:#cfb882;font:42px Georgia,serif;min-height:57px}
+#upgradeOverlay .scroll:active{transform:scale(.98)}
+#upgradeOverlay .scroll:focus-visible{outline:2px solid #e5d09f;outline-offset:5px}
+#overlay.chapter-victory{background:linear-gradient(180deg,#18302dc9,#152d30ef);backdrop-filter:blur(3px)}
+#overlay.chapter-victory #ovTitle{font-size:clamp(30px,5vw,64px);letter-spacing:.08em;color:#eddbab}
+#overlay.chapter-victory #ovPoem{font:20px/1.9 Georgia,serif;color:#d1ddd2;margin:20px 0}
+#overlay.chapter-victory #ovSeal{display:none}
+#overlay.chapter-victory #controls,#overlay.chapter-victory #ledger{display:none}
+@media(hover:hover) and (pointer:fine){#upgradeOverlay .scroll:hover{transform:translateY(-3px);border-color:#d2bd86}#endlessBtn:hover{color:#eedab0}}
+@media(hover:hover) and (pointer:fine){#ovBtn:hover{background:#ddcda8;filter:none}#ovDaily:hover{background:#304c4f;color:#f3e7c9;filter:none}}
+@media(max-width:900px){#chapterHUD{left:20px;top:100px;width:245px}.chapterObjective{font-size:12px}#techniqueHUD{left:20px;bottom:137px;font-size:8px;max-width:230px}#chapterNarrative{font-size:13px;bottom:100px;width:340px}#chapterRival{top:20px;width:270px}}
+@media(max-height:570px){#chapterHUD{top:78px;width:245px}.chapterObjective{font-size:11px;margin:6px 0 3px}.chapterRoute{font-size:6px}#techniqueHUD{bottom:125px;font-size:7px;max-width:180px}#chapterNarrative{bottom:80px;font-size:12px;width:340px}#chapterRival{top:15px}#upgradeHeading{font-size:22px}#upgradeOverlay .scroll{min-height:195px;padding:15px}#upgradeOverlay .scroll .sigil{min-height:35px;font-size:32px}#upgradeOverlay .scroll .name{font-size:18px}#upgradeOverlay .scroll .desc{font-size:10px}#endlessBtn{padding:5px 0;min-height:25px}#overlay.chapter-victory #ovPoem{font-size:14px;margin:8px 0}}
+@media(max-width:550px){#chapterHUD{left:16px;top:92px;width:calc(100vw - 32px)}#chapterRival{top:185px;max-width:calc(100vw - 50px);width:300px}#chapterNarrative{bottom:175px;padding:12px 18px}#techniqueHUD{bottom:138px;left:15px}#upgradeOverlay{padding:25px 22px}#upgradeChoices{gap:12px}#upgradeOverlay .scroll{min-height:185px}#overlay.chapter-victory #ovTitle{font-size:30px}}
+@media(prefers-reduced-motion:reduce){#chapterCurtain,#chapterNarrative,#upgradeOverlay .scroll,#chapterRival i{transition:none}}
+body:has(#upgradeOverlay:not(.hidden)) #touchUI,body.paused #touchUI{display:none}
+@media(max-width:720px){
+  #upgradeOverlay .scroll{display:grid;grid-template-columns:56px 1fr;column-gap:16px;min-height:170px;padding:20px;text-align:left}
+  #upgradeOverlay .scroll .sigil{position:static;grid-column:1;grid-row:1 / span 3;width:56px;margin:8px 0 0;font-size:40px;min-height:0}
+  #upgradeOverlay .scroll .sigil svg{width:50px;height:50px}
+  #upgradeOverlay .scroll .name,#upgradeOverlay .scroll .level,#upgradeOverlay .scroll .desc{grid-column:2}
+  #upgradeOverlay .scroll .name{margin:0;font-size:20px}
+  #upgradeOverlay .scroll .level{margin-top:8px}
+  #upgradeOverlay .scroll .desc{margin-top:12px;font-size:11px;line-height:1.6}
+  #upgradeOverlay .scroll .key{top:12px;right:12px}
+}

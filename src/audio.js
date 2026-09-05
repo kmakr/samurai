@@ -842,6 +842,15 @@ export class Audio {
   }
 
   // Taiko: wave announcements and the iai release.
+  shrineBell() {
+    if (!this.ctx) return;
+    this.silenceMusic(1.8,.01);
+    for (const [index,frequency] of [174,351,484,723].entries()) {
+      this.tone(frequency,3.2-index*.45,{type:'sine',gain:.18/(index+1),to:frequency*.998});
+    }
+    this.noise(.035,{type:'bandpass',freq:1800,q:1.2,gain:.07});
+  }
+
   taiko(pitch = 82, gain = 0.5) {
     this.tone(pitch, 0.5, { type: 'sine', gain, to: pitch * 0.45 });
     this.noise(0.09, { type: 'lowpass', freq: 1400, gain: 0.25, sweep: 0.2 });

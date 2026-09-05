@@ -5,7 +5,7 @@ import { FLOW_WINDOW, FOCUS_MAX } from './combat.js';
 // and audiovisual feedback remain ports supplied by the scene layer.
 export class EnemyDirector {
   constructor({
-    state, player, getEnemies, tmp, clamp,
+    state, player, getEnemies, tmp, clamp, navigationTarget, onDeflect,
     ink, enemyTrail, audio, onStrike,
     enemyWindup, commitStrike, restoreStrikeTiming,
     updateBladeTelegraph, poseEnemy, resolveEnemyStrike,
@@ -14,7 +14,7 @@ export class EnemyDirector {
     hitstop, shake, showCombatCallout, updateHUD, damagePlayer,
   }) {
     Object.assign(this, {
-      state, player, getEnemies, tmp, clamp,
+      state, player, getEnemies, tmp, clamp, navigationTarget, onDeflect,
       ink, enemyTrail, audio, onStrike,
       enemyWindup, commitStrike, restoreStrikeTiming,
       updateBladeTelegraph, poseEnemy, resolveEnemyStrike,
@@ -67,8 +67,15 @@ export class EnemyDirector {
         }
         const progress = this.clamp(enemy.t / (enemy.rival ? 0.62 : 0.42), 0, 1);
         const rise = 1 - (1 - progress) ** 3;
-        position.y = -0.62 * enemy.spec.height * (1 - rise);
-        enemy.actor.root.rotation.y += dt * (enemy.rival ? 1.4 : 0.8) * (1 - progress);
+        if (enemy.walkIn) {
+          position.y = 0;
+          const dx=playerPosition.x-position.x,dz=playerPosition.z-position.z,d=Math.hypot(dx,dz)||1;
+          position.x+=dx/d*enemy.speed*dt;position.z+=dz/d*enemy.speed*dt;
+          enemy.actor.root.rotation.y=Math.atan2(dx,dz);enemy.phase+=dt*9;
+        } else {
+          position.y = -0.62 * enemy.spec.height * (1 - rise);
+          enemy.actor.root.rotation.y += dt * (enemy.rival ? 1.4 : 0.8) * (1 - progress);
+        }
         this.poseEnemy(enemy, dt);
         if (progress >= 1) {
           position.y = 0;
@@ -182,6 +189,7 @@ export class EnemyDirector {
             const across = Math.abs(playerX * enemy.aimDir.z - playerZ * enemy.aimDir.x);
             if (along > 0 && along < lineLength && across < 0.6) {
               if (this.parryActive()) {
+                this.onDeflect?.(enemy);
                 state.chainTimer = Math.max(state.chainTimer, FLOW_WINDOW);
                 state.focus = Math.min(FOCUS_MAX, state.focus + 12 * this.flowMultiplier());
                 this.tmp.set(playerPosition.x, 1.2, playerPosition.z);
@@ -283,7 +291,7 @@ export class EnemyDirector {
           break;
         }
         case 'stagger': {
-          if (enemy.t >= 0.3) {
+          if (enemy.t >= Math.max(.22,enemy.stagger || .3)) {
             enemy.state = 'circle';
             enemy.t = 0;
             enemy.cooldown = Math.max(enemy.cooldown, 0.4);
@@ -294,8 +302,11 @@ export class EnemyDirector {
 
       this.updateBladeTelegraph(enemy);
       if (move > 0) {
-        position.x += nx * move * dt;
-        position.z += nz * move * dt;
+        const waypoint=this.navigationTarget?.(position,playerPosition,enemy);
+        const wx=waypoint?waypoint.x-position.x:nx,wz=waypoint?waypoint.z-position.z:nz;
+        const wl=Math.hypot(wx,wz)||1;
+        position.x += wx/wl * move * dt;
+        position.z += wz/wl * move * dt;
         enemy.phase += dt * 9 * (move / enemy.spec.speed);
       }
       if (turn) {

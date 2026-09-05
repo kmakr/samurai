@@ -3,10 +3,34 @@
 A cinematic isometric samurai hack-and-slash set in a rain-soaked shrine courtyard.
 Warm lanterns, wet stone, layered teal roofs, and weathered timber frame the fight.
 
+The default **chapter, The Iron Demon**, is a finite journey through three
+courts: the outer watch, a planted lantern garden, and the inner shrine.
+Nine authored encounters lead to Kurogane. Clear each court, follow the gate
+marker, and cross to the next precinct; a crossing restores life and strengthens
+your chosen technique. Kurogane survives individual signatures and changes his
+attack rhythm at half life. Ordinary cuts cannot interrupt him; parry the white
+blade to create an opening, and dash the red blade. Defeat him, approach the shrine, and leave your
+blade on the offering stone to complete the chapter. Clears and best completion
+time are saved locally. **Endless Vigil** and **Daily Trial** retain the wave game.
+
+After the first encounter, choose one technique for the entire journey:
+
+- **Storm Reprisal:** perfect parries store lightning; the next successful cut
+  chains it through nearby enemies. Crossing a gate adds a lightning target.
+- **Hollow Step:** a dash leaves a visible swordsman who performs a delayed cut.
+  Gate crossings increase the echo's damage and reach.
+- **Heaven's Thread:** ordinary cuts mark up to three foes for twelve seconds.
+  A signature also strikes marked foes outside its normal reach, without hitting
+  the same foe twice. Gate crossings strengthen these remote strikes.
+
+Paper lanterns break under player and enemy cuts, leaving bounded debris.
+Garden bamboo bends under a cut or nearby movement. All scenery and technique
+state resets on retry. The garden's solid planters have shared pathfinding
+clearance for enemies and signature endpoints.
+
 No web build step or dependencies to install. Characters and weapons are authored
 in Blender and exported as small, quantized mesh modules. Scenery placement, ink
-textures, and animation are generated procedurally at load. Wet masonry uses a
-generated albedo; concept and prompt provenance live in `docs/art-direction/`. The
+textures, and animation are generated procedurally at load. Wet masonry uses seam-free shader grain; concept and prompt provenance live in `docs/art-direction/`. The
 exceptions are the score — a looping recorded track (`assets/score.mp3`, a
 free Nujabes-type beat) played through the game's dynamic mix bus, with a
 fully procedural engine as the loading cover and offline fallback — and two
@@ -101,7 +125,7 @@ scrolls pause the fight and offer a run upgrade: parry timing, dash damage,
 combo-finisher damage, focus retention, or iai reach. Each discipline has three
 ranks; selecting a mastered discipline restores life and focus instead.
 
-Waves escalate by silhouette: ronin under a straw kasa, bare-headed hunters
+In Endless Vigil and Daily Trial, waves escalate by silhouette: ronin under a straw kasa, bare-headed hunters
 that close fast, then the lean **yari** spearman from wave three — a narrow,
 taller figure whose long pole strikes from what feels like safe distance.
 Brutes arrive at wave four, the **yumi** archer at wave six — it holds its
@@ -110,7 +134,7 @@ tracks, then locks, leaving a beat to move off it (a held parry still turns
 the arrow) — and every fifth wave brings a named rival with a fast follow-up
 cut.
 
-Every five waves is a named act — THE RAIN COURT, THE CROWS, NIGHTFALL, THE
+In the endless modes, every five waves is a named act — THE RAIN COURT, THE CROWS, NIGHTFALL, THE
 LONG RAIN, THE BLACK PAGE. Rain and wind intensify in later acts. The last act
 holds; an endless run does not cycle back to morning. Stand still long enough
 on a quiet field and the samurai sheathes the blade; the first input draws it
@@ -146,7 +170,7 @@ The **Rain Court** is a bounded isometric courtyard within a shrine district ins
 
 - **Materials and light** (`src/render.js`, `src/rain-court.js`, `src/surface-shaders.js`): linear HDR with a filmic output curve, depth-based contact shading,
   one shadowed directional key, cool ambient fill, two permanent lantern lights,
-  a prefiltered HDR sky, generated masonry albedo, stone relief, varying wetness,
+  a prefiltered HDR sky, seam-free stone relief, varying wetness,
   glazed roof highlights, wood grain and weathered plaster. Detail is shaded in
   world space without extra geometry or texture downloads.
 - **Architecture**: nine reusable meshes authored through Blender MCP make the
@@ -306,8 +330,7 @@ legacy/                  original single-file prototype, kept for reference
   uses resolved nearest sampling. Gate weave moves by complete pixels, so the
   print can move without smearing voxel edges; halation stays limited to hot
   highlights.
-- **Rain** is held back for boss waves, where white streaks over a dark field
-  are the single most recognisable image in the genre.
+- **Rain** intensifies during rival fights and eases after the chapter is won.
 
 ## Debugging
 
@@ -348,3 +371,21 @@ there is no runtime model decoder dependency or network model-loading race.
 
 The normal controls and unlock rules are unchanged. The `F` signature still needs
 full focus. Deployments use the committed source and versioned module graph described above.
+
+## Chapter verification
+
+`http://127.0.0.1:5173/?qa-scenario=chapter&profile=1` exposes a local-only
+chapter lab: held views of all courts, technique demonstrations, a complete
+progression/technique audit, normal-input automated play and a 20-second garden
+stress scenario. The progression audit uses fixture kills and gate positioning
+to verify the real transitions; automated play uses movement and combat inputs.
+Neither QA mode writes saved progress. Press backquote to hide or show the lab.
+
+`node --test tests/*.test.mjs` includes full finite progression, gate/victory
+requirements, navigation around planted islands, technique charge/mark rules,
+records, and the existing combat, asset, pool and import checks.
+
+The chapter director and navigation are independent of the renderer. Scene
+props, technique visuals and chapter UI live in their own modules. The existing
+Blender kit supplies the architectural geometry; no new texture download or
+dynamic light is required. See `docs/chapter-one.md` for the completion audit.

@@ -1,0 +1,220 @@
+{
+  "ok": true,
+  "scenario": "20 second garden combat / echoes / breakable scenery",
+  "seconds": 20.0061,
+  "won": false,
+  "wave": 4,
+  "hp": 100,
+  "kills": 47,
+  "position": [
+    -4.805695818233762,
+    0,
+    -0.9328731646596239
+  ],
+  "enemies": [
+    {
+      "type": "ronin",
+      "state": "circle",
+      "position": [
+        -5.649657503409874,
+        0,
+        -5.573580815614491
+      ]
+    },
+    {
+      "type": "yari",
+      "state": "circle",
+      "position": [
+        6,
+        0,
+        -4
+      ]
+    },
+    {
+      "type": "hunter",
+      "state": "circle",
+      "position": [
+        3.5268098730237707,
+        0,
+        7.021469736919085
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "circle",
+      "position": [
+        -5.045495489244997,
+        0,
+        6.368601440462442
+      ]
+    },
+    {
+      "type": "yari",
+      "state": "circle",
+      "position": [
+        -1.003993576273633,
+        0,
+        -4.055831749586939
+      ]
+    },
+    {
+      "type": "yari",
+      "state": "circle",
+      "position": [
+        -7.8,
+        0,
+        2.554875911046346
+      ]
+    },
+    {
+      "type": "yumi",
+      "state": "circle",
+      "position": [
+        -12.42409309185551,
+        0,
+        9.084864882627446
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "windup",
+      "position": [
+        -0.9743534194935165,
+        0,
+        1.7167077270360642
+      ]
+    },
+    {
+      "type": "yumi",
+      "state": "circle",
+      "position": [
+        -3.924620979336561,
+        0,
+        11.508213312814025
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "windup",
+      "position": [
+        -2.1171205053485083,
+        0,
+        -4.853627895082978
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "circle",
+      "position": [
+        0.6869245465916458,
+        0,
+        0.19965038075825026
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "circle",
+      "position": [
+        -0.5092360455273542,
+        0,
+        -2.286516236761019
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "circle",
+      "position": [
+        0.9001781816676195,
+        0,
+        -1.2699576918675382
+      ]
+    },
+    {
+      "type": "brute",
+      "state": "circle",
+      "position": [
+        3.172816707527003,
+        0,
+        -2.8601159622432406
+      ]
+    },
+    {
+      "type": "ronin",
+      "state": "stagger",
+      "position": [
+        -4.31265088476866,
+        0,
+        -1.882276852805243
+      ]
+    },
+    {
+      "type": "ronin",
+      "state": "circle",
+      "position": [
+        -5.232930253596208,
+        0,
+        -0.08597355597956403
+      ]
+    }
+  ],
+  "trace": [],
+  "frames": 2221,
+  "mean": 8.334038721296727,
+  "p95": 10.299999999999272,
+  "p99": 10.399999999997817,
+  "over25": 0,
+  "profile": {
+    "pointLights": 2,
+    "chapter": {
+      "phase": "combat",
+      "stage": 1,
+      "encounter": 4,
+      "brokenLanterns": 6,
+      "sceneryDebris": 48,
+      "gateOpen": false
+    },
+    "technique": "echo",
+    "modelAsset": "storm-court:player",
+    "artDirection": "rain-court",
+    "lighting": "hdr-surface-v2",
+    "hdr": true,
+    "contactAO": 0.9,
+    "drawCalls": 642,
+    "sceneryInstances": 10962,
+    "corpseDrawBatches": 18,
+    "triangles": 678484,
+    "geometries": 119,
+    "fxStrokes": 4,
+    "fxSparks": 36,
+    "programs": 27,
+    "enemies": 16,
+    "ragdolls": 21,
+    "debris": 31,
+    "gibs": 122,
+    "stains": 620,
+    "drops": 173,
+    "jets": 5,
+    "screenMarks": 78,
+    "slashes": 0,
+    "parryRings": 0,
+    "impactBursts": 1,
+    "dashWakes": 0,
+    "poolLimits": {
+      "stains": 620,
+      "drops": 420,
+      "jets": 64,
+      "screenMarks": 120,
+      "slashes": 6,
+      "strokes": 48,
+      "sparks": 192,
+      "points": 32,
+      "ragdollBodies": 48,
+      "debris": 60,
+      "gibs": 320,
+      "parryRings": 12,
+      "impactBursts": 24,
+      "dashWakes": 12
+    },
+    "droppedSimulationMs": 0
+  }
+}

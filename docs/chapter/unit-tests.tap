@@ -1,0 +1,220 @@
+TAP version 13
+# Subtest: The whole chapter requires nine encounters, two crossings, and a final offering
+ok 1 - The whole chapter requires nine encounters, two crossings, and a final offering
+  ---
+  duration_ms: 1.320084
+  type: 'test'
+  ...
+# Subtest: Retry and endless isolation clear chapter victory, gates and clocks
+ok 2 - Retry and endless isolation clear chapter victory, gates and clocks
+  ---
+  duration_ms: 0.160458
+  type: 'test'
+  ...
+# Subtest: Encounters budget enemies, stagger reinforcements, and reserve Kurogane for the finale
+ok 3 - Encounters budget enemies, stagger reinforcements, and reserve Kurogane for the finale
+  ---
+  duration_ms: 0.13075
+  type: 'test'
+  ...
+# Subtest: Reprisal stores only perfect reads, caps charge, and consumes it once
+ok 4 - Reprisal stores only perfect reads, caps charge, and consumes it once
+  ---
+  duration_ms: 0.151083
+  type: 'test'
+  ...
+# Subtest: Thread marks are unique, bounded, expiring, and never double-hit a signature target
+ok 5 - Thread marks are unique, bounded, expiring, and never double-hit a signature target
+  ---
+  duration_ms: 0.541291
+  type: 'test'
+  ...
+# Subtest: Chapter records preserve a best time and count completed journeys
+ok 6 - Chapter records preserve a best time and count completed journeys
+  ---
+  duration_ms: 0.152292
+  type: 'test'
+  ...
+# Subtest: Enemies can reach the player around both planted islands from every entrance
+ok 7 - Enemies can reach the player around both planted islands from every entrance
+  ---
+  duration_ms: 44.32925
+  type: 'test'
+  ...
+# Subtest: A target at a planter edge remains reachable by an opponent with larger clearance
+ok 8 - A target at a planter edge remains reachable by an opponent with larger clearance
+  ---
+  duration_ms: 1.920583
+  type: 'test'
+  ...
+# Subtest: Pausing or losing focus clears held touch movement and queued attacks
+ok 9 - Pausing or losing focus clears held touch movement and queued attacks
+  ---
+  duration_ms: 0.480209
+  type: 'test'
+  ...
+# Subtest: Movement, dash and signature destinations remain inside the wall clearance
+ok 10 - Movement, dash and signature destinations remain inside the wall clearance
+  ---
+  duration_ms: 3.258
+  type: 'test'
+  ...
+# Subtest: Every edge and corner retains a distant, valid enemy arrival for all directions
+ok 11 - Every edge and corner retains a distant, valid enemy arrival for all directions
+  ---
+  duration_ms: 8.093208
+  type: 'test'
+  ...
+# Subtest: Blender architecture is finite, nondegenerate, and inexpensive to instance
+ok 12 - Blender architecture is finite, nondegenerate, and inexpensive to instance
+  ---
+  duration_ms: 0.722917
+  type: 'test'
+  ...
+# Subtest: Lantern plinths and supplies are solid from every approach, including near a wall
+ok 13 - Lantern plinths and supplies are solid from every approach, including near a wall
+  ---
+  duration_ms: 27.139458
+  type: 'test'
+  ...
+# Subtest: single-line, multiline, export, dynamic and side-effect imports share one version
+ok 14 - single-line, multiline, export, dynamic and side-effect imports share one version
+  ---
+  duration_ms: 0.544792
+  type: 'test'
+  ...
+# Subtest: early waves introduce silhouettes in their authored order
+ok 15 - early waves introduce silhouettes in their authored order
+  ---
+  duration_ms: 1.046042
+  type: 'test'
+  ...
+# Subtest: late waves stay within the field budget and retain rivals
+ok 16 - late waves stay within the field budget and retain rivals
+  ---
+  duration_ms: 4.053792
+  type: 'test'
+  ...
+# Subtest: pressure and scaling curves retain their caps
+ok 17 - pressure and scaling curves retain their caps
+  ---
+  duration_ms: 0.532625
+  type: 'test'
+  ...
+# Subtest: weapon and dash attack selection stays deterministic
+ok 18 - weapon and dash attack selection stays deterministic
+  ---
+  duration_ms: 0.127708
+  type: 'test'
+  ...
+# Subtest: parry window includes startup boundary and excludes its end
+ok 19 - parry window includes startup boundary and excludes its end
+  ---
+  duration_ms: 0.162833
+  type: 'test'
+  ...
+# Subtest: wave plans own rival metadata and seeded spawn layout
+ok 20 - wave plans own rival metadata and seeded spawn layout
+  ---
+  duration_ms: 0.748417
+  type: 'test'
+  ...
+# Subtest: wave director owns clear, upgrade, and next-wave transitions
+ok 21 - wave director owns clear, upgrade, and next-wave transitions
+  ---
+  duration_ms: 0.267458
+  type: 'test'
+  ...
+# Subtest: frame profiler reports stable pacing and simulation statistics
+ok 22 - frame profiler reports stable pacing and simulation statistics
+  ---
+  duration_ms: 0.276917
+  type: 'test'
+  ...
+# Subtest: fixed-step clock produces deterministic ticks and caps catch-up
+ok 23 - fixed-step clock produces deterministic ticks and caps catch-up
+  ---
+  duration_ms: 0.462209
+  type: 'test'
+  ...
+# Subtest: effect and object pools have explicit bounds and evict oldest entries
+ok 24 - effect and object pools have explicit bounds and evict oldest entries
+  ---
+  duration_ms: 0.592541
+  type: 'test'
+  ...
+# Subtest: player controller owns attack phases and dash initialization
+ok 25 - player controller owns attack phases and dash initialization
+  ---
+  duration_ms: 0.412959
+  type: 'test'
+  ...
+# Subtest: combat system owns hitstop and the full Flow lifecycle
+ok 26 - combat system owns hitstop and the full Flow lifecycle
+  ---
+  duration_ms: 0.272875
+  type: 'test'
+  ...
+# Subtest: enemy director owns attack slots and deterministic crowd separation
+ok 27 - enemy director owns attack slots and deterministic crowd separation
+  ---
+  duration_ms: 0.21225
+  type: 'test'
+  ...
+# Subtest: run records reject corrupt and invalid stored values
+ok 28 - run records reject corrupt and invalid stored values
+  ---
+  duration_ms: 0.166875
+  type: 'test'
+  ...
+# Subtest: QA record isolation calculates outcomes without changing storage
+ok 29 - QA record isolation calculates outcomes without changing storage
+  ---
+  duration_ms: 0.1845
+  type: 'test'
+  ...
+# Subtest: unlock rules hold their exact boundaries and report new rewards
+ok 30 - unlock rules hold their exact boundaries and report new rewards
+  ---
+  duration_ms: 0.138875
+  type: 'test'
+  ...
+# Subtest: run flow owns delayed start, defeat, and in-place retry decisions
+ok 31 - run flow owns delayed start, defeat, and in-place retry decisions
+  ---
+  duration_ms: 0.280208
+  type: 'test'
+  ...
+# Subtest: retry state reset clears combat progress and creates fresh upgrades
+ok 32 - retry state reset clears combat progress and creates fresh upgrades
+  ---
+  duration_ms: 0.107625
+  type: 'test'
+  ...
+# Subtest: Blender export covers every actor with finite, nondegenerate geometry under budget
+ok 33 - Blender export covers every actor with finite, nondegenerate geometry under budget
+  ---
+  duration_ms: 6.027666
+  type: 'test'
+  ...
+# Subtest: Every cosmetic feature and both player weapons survive export
+ok 34 - Every cosmetic feature and both player weapons survive export
+  ---
+  duration_ms: 0.208791
+  type: 'test'
+  ...
+# Subtest: Iai draws, moves, cuts, releases time, then recovers on an independent clock
+ok 35 - Iai draws, moves, cuts, releases time, then recovers on an independent clock
+  ---
+  duration_ms: 0.189209
+  type: 'test'
+  ...
+1..35
+# tests 35
+# suites 0
+# pass 35
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 110.259084

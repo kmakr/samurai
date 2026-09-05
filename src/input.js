@@ -23,7 +23,7 @@ export class Input {
       if (e.code === 'KeyF') this.buffers.focus = BUFFER;
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    addEventListener('blur', () => this.clear());
 
     addEventListener('mousemove', (e) => {
       this.mouse.x = e.clientX;
@@ -42,6 +42,7 @@ export class Input {
   // half of the screen and dies when the thumb lifts. `ring`/`nub` are the
   // visual; the zone owns the pointer so buttons never steal a moving thumb.
   bindStick(zone, ring, nub) {
+    this.stickRing=ring;
     const RADIUS = 52;
     const DEAD = 10;
     zone.addEventListener('pointerdown', (e) => {
@@ -110,7 +111,15 @@ export class Input {
     }
   }
 
-  // Movement intent in world axes, camera-relative (the camera yaw is fixed).
+  // Clear held movement as well as buffered actions when focus or play stops.
+  clear() {
+    this.keys.clear();
+    for(const key in this.buffers)this.buffers[key]=0;
+    this.stick.active=false;this.stick.id=-1;this.stick.x=0;this.stick.z=0;
+    this.stickRing?.classList.remove('on');
+  }
+
+  // Screen-relative movement. The controller applies the fixed camera yaw.
   // Keyboard wins when both are held; the stick is analog up to full speed.
   moveVector(out) {
     let x = 0, z = 0;

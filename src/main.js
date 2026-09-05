@@ -4,7 +4,7 @@ import { DISCIPLINE_ART, HUD_LIFE, HUD_IAI, MASTERY_SEAL, POEM_FLOURISH } from '
 import { INK_LIMITS, InkSystem } from './ink.js';
 import { ARENA, Rain } from './world.js';
 import { buildRainCourt } from './rain-court.js';
-import { COURT, constrainToCourt, courtSpawn } from './court-layout.js';
+import { COURT, courtSpawn } from './court-layout.js';
 import {
   makeSamurai, makeEnemy, ENEMY_TYPES, animateLocomotion,
   SAMURAI_SKINS, applySamuraiSkin,
@@ -27,7 +27,7 @@ import {
   weaponComboFor,
 } from './combat.js';
 import {
-  enemyScalingForWave, isRivalWave,
+  enemyScalingForWave,
 } from './waves.js';
 import { WAVE_EVENT, WaveDirector } from './wave-director.js';
 import { FrameProfiler } from './profiler.js';
@@ -45,6 +45,10 @@ import {
   newlyUnlockedSkins, newlyUnlockedWeapons,
 } from './unlocks.js';
 import { RunFlow, resetRunState } from './run-flow.js';
+import { ChapterDirector, CHAPTER_STAGES, TECHNIQUES, chapterRecord } from './chapter.js';
+import { ChapterWorld } from './chapter-world.js';
+import { Techniques } from './techniques.js';
+import { ChapterUI } from './chapter-ui.js';
 
 // ---------------------------------------------------------------- constants
 
@@ -97,7 +101,7 @@ scene.fog = new THREE.Fog(0x526c6e, 95, 168);
 const ISO_AZIMUTH = Math.PI / 4;
 const ISO_ELEVATION = 0.66;          // ~38 degrees; roofs and fighting floor stay visible
 const ISO_DISTANCE = 80;
-const VIEW_HALF = 14.0;               // world units from screen centre to top edge
+const VIEW_HALF = 11.4;               // world units from screen centre to top edge
 const ISO_OFFSET = new THREE.Vector3(
   Math.sin(ISO_AZIMUTH) * Math.cos(ISO_ELEVATION),
   Math.sin(ISO_ELEVATION),
@@ -132,6 +136,7 @@ const simulationClock = new FixedStepClock();
 function enableTouchUI() {
   if (document.body.classList.contains('touch')) return;
   document.body.classList.add('touch');
+  document.getElementById('touchUI').setAttribute('aria-hidden','false');
   input.touchActive = true;
 }
 input.bindStick(
@@ -317,7 +322,7 @@ const DEV_START_WAVE = LOCAL_QA
 const DEV_QA_SCENARIO = LOCAL_QA ? QA_PARAMS.get('qa-scenario') : '';
 const DEV_QA_ACTIVE = LOCAL_QA && (QA_PARAMS.has('qa-wave') || QA_PARAMS.has('qa-scenario'));
 const run = {
-  daily: false, dateStr: '', rng: Math.random, generation: 0,
+  daily: false, dateStr: '', rng: Math.random, generation: 0, mode: 'chapter',
   weaponIntro: '', skinIntro: '',
 };
 const waveDirector = new WaveDirector(state, { rng: run.rng });
@@ -330,6 +335,48 @@ const runFlow = new RunFlow(state, run, {
   onModeChange: updateRunModeTag,
 });
 updateRunModeTag();
+const chapter = new ChapterDirector(state);
+chapter.disable();
+const chapterWorld = new ChapterWorld(scene, combatFX, audio, world.kit);
+const techniques = new Techniques({ scene, player, getEnemies: () => enemies,
+  damage: damageEnemy, fx: combatFX, audio, callout: showCombatCallout,
+  worldStrike: (...args) => chapterWorld.strike(...args),
+});
+const chapterUI = new ChapterUI();
+const isChapter = () => run.mode === 'chapter' && chapter.active;
+function resetJourney() {
+  chapter.reset(); techniques.reset();
+  const active = run.mode === 'chapter' && (!DEV_QA_ACTIVE || DEV_QA_SCENARIO === 'chapter');
+  if (!active) chapter.disable();
+  chapterWorld.reset(0, active);
+  chapterUI.reset();
+  document.body.classList.toggle('chapter-run', active);
+  if (active) {
+    state.wave = 0;
+    player.root.position.set(0,0,10);
+    chapterUI.arrive(CHAPTER_STAGES[0]);
+  }
+}
+function enterChapterCourt() {
+  clearPendingSignatureBodies(); clearLivingEnemies(); ragdolls.clear(); gibs.clear(); ink.clear();
+  combatFX.clear(); trail.clear(); enemyTrail.clear(); techniques.empower();
+  chapterWorld.reset(chapter.stage, true);
+  player.root.position.set(0,0,11);state.facing=Math.PI;state.action='idle';state.actionT=0;
+  state.hp=PLAYER_MAX_HP;state.focus=Math.min(100,state.focus+25);state.invuln=3;
+  chapterUI.arrive(chapter.stageInfo);chapterUI.fade(false);audio.boon();updateHUD();
+}
+function handleChapterEvent(event) {
+  if(event==='start')startWave();
+  else if(event==='technique')showUpgradeChoice(true);
+  else if(event==='upgrade')showUpgradeChoice();
+  else if(event==='gate'||event==='offering') {
+    chapterWorld.openGate();
+    chapterUI.say(event==='offering'?'The iron demon falls. Leave your blade at the shrine.':'The gate is open. A quiet crossing. Life will be restored.', 7);
+    audio.silenceMusic(2,.025);
+  } else if(event==='fade') { input.enabled=false; chapterUI.fade(true); }
+  else if(event==='enter') {enterChapterCourt();input.enabled=true;}
+  else if(event==='victory')finishChapter();
+}
 
 // Reusable scratch vectors — the update loop allocates nothing.
 const vAim = new THREE.Vector3();
@@ -358,7 +405,7 @@ function nearestEnemyYaw(range) {
   let best = null;
   let bestD = range * range;
   for (const e of enemies) {
-    if (e.dead) continue;
+    if (e.dead || !e.actor.root.visible) continue;
     const dx = e.actor.root.position.x - player.root.position.x;
     const dz = e.actor.root.position.z - player.root.position.z;
     const d = dx * dx + dz * dz;
@@ -376,7 +423,7 @@ function aimYaw() {
     const attacking = state.action === 'attack'
       || input.buffers.attack > 0 || input.buffers.focus > 0;
     if (attacking && target !== null) return target;
-    if (input.moveVector(vTmp)) return Math.atan2(vTmp.x, vTmp.z);
+    if (input.moveVector(vTmp)) return Math.atan2(vTmp.x, vTmp.z) + ISO_AZIMUTH;
     if (target !== null) return target;
     return state.facing;
   }
@@ -756,7 +803,7 @@ function spawnEnemy(type, options = {}) {
     0,
     player.root.position.z + Math.sin(a) * r,
   );
-  const entry = courtSpawn(player.root.position,r,a);
+  const entry = options.entry || courtSpawn(player.root.position,r,a);
   actor.root.position.x=entry.x;actor.root.position.z=entry.z;
   scene.add(actor.root);
 
@@ -794,7 +841,7 @@ function spawnEnemy(type, options = {}) {
   // correct while a later group is still below the page.
   actor.root.visible = false;
   enemies.push({
-    type, spec, actor, bladeMats, bladeGlow,
+    type, spec, actor, bladeMats, bladeGlow, walkIn: Boolean(options.entry),
     aimLine,
     aimDir: new THREE.Vector3(),
     rival: Boolean(options.rival),
@@ -804,8 +851,8 @@ function spawnEnemy(type, options = {}) {
     rivalChain: 0,
     awakened: false,
     attackScale: 1,
-    hp: spec.hp * scaling.hp,
-    maxHp: spec.hp * scaling.hp,
+    hp: isChapter() && options.rival ? 880 : spec.hp * scaling.hp,
+    maxHp: isChapter() && options.rival ? 880 : spec.hp * scaling.hp,
     damage: spec.damage * scaling.damage,
     state: 'enter',
     t: -Math.max(0, options.delay || 0),
@@ -866,7 +913,10 @@ function enemyWindup(e) {
 }
 
 function startWave() {
-  const plan = waveDirector.startNextWave({ grudgeName: loadGrudge() });
+  const plan = isChapter() ? chapter.startEncounter({ grudgeName: loadGrudge() })
+    : waveDirector.startNextWave({ grudgeName: loadGrudge() });
+  if (!plan) return;
+  if (isChapter() && plan.rivalName) audio.shrineBell();
   if (plan.rivalName) audio.silenceMusic(0.82, 0.002);
   for (const enemy of plan.enemies) spawnEnemy(enemy.type, enemy);
   audio.taiko(plan.rivalName ? 58 : 82, 0.55);
@@ -893,6 +943,10 @@ const waveTitleEl = document.getElementById('waveTitle');
 function showWaveTitle(plan) {
   const n = plan.wave;
   const boss = Boolean(plan.rivalName);
+  if (isChapter() && !boss) {
+    waveTitleEl.innerHTML = `<span class="kanji">${numberKanji((n-1)%3+1)}</span><span class="latin">${plan.name}</span>`;
+    waveTitleEl.classList.remove('show'); void waveTitleEl.offsetWidth; waveTitleEl.classList.add('show'); return;
+  }
   // A remembering rival trades the demon's 鬼 for 怨 — the grudge — and the
   // introduction stops being about the rival and starts being about you.
   waveTitleEl.innerHTML = boss
@@ -991,14 +1045,17 @@ function chooseUpgradeSet() {
   return [...waveDirector.shuffle(available), ...waveDirector.shuffle(mastered)].slice(0, 3);
 }
 
-function showUpgradeChoice() {
+function showUpgradeChoice(techniqueChoice = false) {
   waveDirector.beginUpgrade();
   input.enabled = false;
-  offeredUpgrades = chooseUpgradeSet();
+  offeredUpgrades = techniqueChoice ? TECHNIQUES.map(t => ({...t, technique: true, describe: () => t.description})) : chooseUpgradeSet();
+  document.getElementById('upgradeHeading').textContent = techniqueChoice ? 'CHOOSE YOUR WAY' : 'A MOMENT TO REFINE';
+  document.getElementById('upgradePrompt').textContent = techniqueChoice ? 'ONE TECHNIQUE FOR THIS JOURNEY · GROWS AT EACH GATE' : 'TAKE A DISCIPLINE BEFORE THE NEXT ENCOUNTER';
+  upgradeOverlayEl.classList.toggle('technique-choice',techniqueChoice);
   upgradeChoicesEl.replaceChildren();
 
   offeredUpgrades.forEach((upgrade, index) => {
-    const current = state.upgrades[upgrade.id];
+    const current = state.upgrades[upgrade.id] || 0;
     const next = Math.min(3, current + 1);
     const mastered = current >= 3;
     const button = document.createElement('button');
@@ -1006,9 +1063,9 @@ function showUpgradeChoice() {
     button.className = 'scroll';
     button.innerHTML = `
       <span class="key">${index + 1}</span>
-      <span class="sigil">${DISCIPLINE_ART[upgrade.id] || upgrade.mark}</span>
+      <span class="sigil">${upgrade.technique ? upgrade.mark : DISCIPLINE_ART[upgrade.id] || upgrade.mark}</span>
       <span class="name">${upgrade.name}</span>
-      <span class="level">${mastered ? `${MASTERY_SEAL} MASTERED` : current ? `RANK ${current} → ${next}` : 'NEW DISCIPLINE'}</span>
+      <span class="level">${upgrade.technique ? upgrade.style : mastered ? `${MASTERY_SEAL} MASTERED` : current ? `RANK ${current} → ${next}` : 'NEW DISCIPLINE'}</span>
       <span class="desc">${mastered ? 'Restore 20 life and 20 focus.' : upgrade.describe(next)}</span>
     `;
     button.addEventListener('click', () => takeUpgrade(upgrade));
@@ -1022,6 +1079,11 @@ function showUpgradeChoice() {
 
 function takeUpgrade(upgrade) {
   if (!state.choosingUpgrade) return;
+  if (upgrade.technique) {
+    techniques.select(upgrade.id);state.choosingUpgrade=false;chapter.finishChoice();
+    input.enabled=true;upgradeOverlayEl.classList.add('hidden');upgradeOverlayEl.setAttribute('aria-hidden','true');
+    document.activeElement?.blur();chapterUI.say(`${upgrade.name}. ${upgrade.description}`,7);audio.boon();updateHUD();return;
+  }
   const current = state.upgrades[upgrade.id];
   const mastered = current >= 3;
   const next = Math.min(3, current + 1);
@@ -1034,6 +1096,7 @@ function takeUpgrade(upgrade) {
     if (upgrade.id === 'fallingLeaf') state.escapeCharges++;
   }
   waveDirector.finishUpgrade();
+  if(isChapter())chapter.finishChoice();
   input.enabled = true;
   upgradeOverlayEl.classList.add('hidden');
   upgradeOverlayEl.setAttribute('aria-hidden', 'true');
@@ -1089,7 +1152,7 @@ function playerAttackHits() {
   const straight = isFinisher || isThrust ? 1 : 0;
 
   for (const e of enemies) {
-    if (e.dead || state.hitThisSwing.has(e)) continue;
+    if (e.dead || !e.actor.root.visible || state.hitThisSwing.has(e)) continue;
     const dx = e.actor.root.position.x - px;
     const dz = e.actor.root.position.z - pz;
     const dist = Math.hypot(dx, dz);
@@ -1108,6 +1171,7 @@ function playerAttackHits() {
     const dmgScale = isFinisher ? 1 + state.upgrades.finalStroke * 0.25 : 1;
     damageEnemy(e, cfg.damage * dmgScale, cx / cl, cz / cl,
       isFinisher ? 'bisect' : 'limb');
+    techniques.hit(e);
     // The great blade hurls survivors outward — a wall of steel, not a nick.
     if (isSweep && !e.dead) {
       const inv = 1 / (dist || 1);
@@ -1180,7 +1244,7 @@ function playerAttackHits() {
 }
 
 function damageEnemy(e, amount, dirX, dirZ, severity = 'limb', options = {}) {
-  if (e.dead) return false;
+  if (e.dead || !e.actor.root.visible) return false;
   e.hp -= amount;
   restoreStrikeTiming(e);
   const tier = getFlowTier();
@@ -1206,6 +1270,9 @@ function damageEnemy(e, amount, dirX, dirZ, severity = 'limb', options = {}) {
   // Further hits can still kill the rival during the transformation, but an
   // ordinary hit reaction must not cancel the second-form pose and warning.
   if (e.state === 'awaken') return;
+  // The chapter's lone rival holds his ground through ordinary wounds.
+  // Perfect parries still create the full stagger window in resolveEnemyStrike.
+  if (isChapter() && e.rival) return false;
   const reaction = 0.35 * (1 + tier * 0.12);
   e.actor.root.position.x += dirX * reaction;
   e.actor.root.position.z += dirZ * reaction;
@@ -1421,7 +1488,7 @@ function playerDashHits() {
   const p = player.root.position;
   const dir = state.dashDir;
   for (const e of [...enemies]) {
-    if (e.dead || state.dashHit.has(e)) continue;
+    if (e.dead || !e.actor.root.visible || state.dashHit.has(e)) continue;
     const ep = e.actor.root.position;
     const radius = 0.9 + e.spec.height * 0.45;
     const dx = ep.x - p.x, dz = ep.z - p.z;
@@ -1507,6 +1574,7 @@ function clearPendingSignatureBodies() {
 }
 
 function fireIaiCut() {
+  const signatureHits=new Set();
   iaiCutFired = true;
   combatFX.iai(iaiOrigin, iaiEnd, iaiFacing);
   const fx = Math.sin(iaiFacing), fz = Math.cos(iaiFacing);
@@ -1521,10 +1589,14 @@ function fireIaiCut() {
     const along = dx * fx + dz * fz;
     const across = Math.abs(dx * fz - dz * fx);
     if (along > -1 && along < reach && across < width) {
-      killedAny = killEnemy(e, fx, fz, 'bisect', { deferBody: true, batch: true }) || killedAny;
+      signatureHits.add(e);
+      killedAny = (isChapter() && e.rival ? damageEnemy(e,260,fx,fz,'bisect',{deferBody:true,batch:true})
+        : killEnemy(e, fx, fz, 'bisect', { deferBody: true, batch: true })) || killedAny;
     }
   }
   finishSignatureKillBatch(killedAny);
+  techniques.signature(signatureHits);
+  for(let t=0;t<30;t+=3)chapterWorld.strike({x:iaiOrigin.x+fx*t,z:iaiOrigin.z+fz*t},iaiFacing,3,true);
 
   vTmp.lerpVectors(iaiOrigin, iaiEnd, 0.45); vTmp.y = 0.2;
   iaiTrail.fire(vTmp, iaiFacing, { duration: 0.56, scale: 1.2, style: 2 });
@@ -1583,7 +1655,7 @@ function beginIai() {
   iaiEnd.copy(iaiOrigin);
   iaiEnd.x += Math.sin(iaiFacing) * dist;
   iaiEnd.z += Math.cos(iaiFacing) * dist;
-  constrainToCourt(iaiEnd);
+  chapterWorld.constrain(iaiEnd);
 }
 
 function beginTsunamiCut() {
@@ -1600,6 +1672,7 @@ function beginTsunamiCut() {
 }
 
 function fireTsunamiCut() {
+  const signatureHits=new Set();
   iaiCutFired = true;
   combatFX.arc(player.root.position, iaiFacing, {heavy: true, combo: 2});
   for (const radius of [2.5, 4.2, 6.2]) combatFX.ring(player.root.position, radius, .40 + radius * .035, radius === 4.2);
@@ -1618,9 +1691,11 @@ function fireTsunamiCut() {
     if (dist > reach + e.spec.height * 0.4) continue;
     if ((dx * fx + dz * fz) / (dist || 1) < -0.32) continue;
     const nx = dx / (dist || 1), nz = dz / (dist || 1);
+    signatureHits.add(e);
     killedAny = damageEnemy(e, 180, nx, nz, 'bisect', { deferBody: true, batch: true }) || killedAny;
   }
   finishSignatureKillBatch(killedAny);
+  techniques.signature(signatureHits);chapterWorld.strike(player.root.position,iaiFacing,reach,true);
 
   // The crescent stroke, a ground shockwave of ink, and the heavy contact
   // grammar the iai cut already speaks (respecting reduce-shake downstream).
@@ -1914,7 +1989,7 @@ function poseArms(dt) {
 
 const playerController = new PlayerController({
   state, player, input, audio, ink, trail,
-  onAttack: (position, facing, spec) => combatFX.arc(position, facing, spec),
+  onAttack: (position, facing, spec) => {combatFX.arc(position, facing, spec);chapterWorld.strike(position,facing,activeAttack().reach);},
   move: new THREE.Vector3(),
   tmp: new THREE.Vector3(),
   animateLocomotion,
@@ -1925,7 +2000,7 @@ const playerController = new PlayerController({
   aimYaw,
   trySignature,
   rewardDashRead,
-  spawnDashWake,
+  spawnDashWake: (position,direction) => {spawnDashWake(position,direction);techniques.dash(position,state.facing);},
   spawnImpactBurst,
   dashCameraPunch: (direction) => {
     camPunch.x += direction.x * 0.2;
@@ -2040,6 +2115,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
     releaseSlot(e);
     addFlow();
     state.perfectParries++;
+    techniques.parry();
     state.focus = Math.min(FOCUS_MAX, state.focus + 34 * flowMultiplier());
     const pos = e.actor.root.position;
     ink.spray(pos.x, 1.4 * e.spec.height, pos.z, 6, { dirX: -nx, dirZ: -nz, force: 0.7 });
@@ -2070,7 +2146,7 @@ function resolveEnemyStrike(e, dist, nx, nz, reach) {
 
 function poseEnemy(e, dt) {
   const a = e.actor;
-  const walking = e.state === 'approach' || e.state === 'circle';
+  const walking = e.state === 'approach' || e.state === 'circle' || (e.walkIn && e.state === 'enter');
   animateLocomotion(a, e.phase, walking ? 1 : 0, state.time);
 
   let armX = -0.3, torsoY = 0;
@@ -2116,7 +2192,9 @@ const enemyDirector = new EnemyDirector({
   clamp: THREE.MathUtils.clamp,
   ink,
   enemyTrail,
-  onStrike: (enemy, facing) => combatFX.enemy(enemy.actor.root.position, facing, enemy.type, enemy.spec.reach),
+  onStrike: (enemy, facing) => {combatFX.enemy(enemy.actor.root.position, facing, enemy.type, enemy.spec.reach);chapterWorld.strike(enemy.actor.root.position,facing,enemy.spec.reach);},
+  navigationTarget: (position,target,enemy) => chapterWorld.waypoint(position,target,enemy.type==='oni'?1.3:.7),
+  onDeflect: () => {state.perfectParries++;techniques.parry();},
   audio,
   enemyWindup,
   commitStrike,
@@ -2154,16 +2232,17 @@ function updateCamera(dt) {
   if (l > 0.001) vTmp2.multiplyScalar(Math.min(l, 7) / l * 0.28);
 
   const narrow=sizedW/sizedH<1.2;
-  camTarget.set(THREE.MathUtils.clamp(p.x*(narrow?.95:.60)+vTmp2.x,-(narrow?COURT.halfX:COURT.cameraX),narrow?COURT.halfX:COURT.cameraX),1.4,THREE.MathUtils.clamp(p.z*(narrow?.95:.60)+vTmp2.z,-(narrow?COURT.halfZ:COURT.cameraZ),narrow?COURT.halfZ:COURT.cameraZ));
+  camTarget.set(THREE.MathUtils.clamp(p.x*.86+vTmp2.x,-(narrow?COURT.halfX:12),narrow?COURT.halfX:12),1.4,THREE.MathUtils.clamp(p.z*.86+vTmp2.z,-(narrow?COURT.halfZ:12),narrow?COURT.halfZ:12));
 
   // Crowded fights zoom out instead of pulling back — with an orthographic
   // camera, distance changes nothing; only the frustum (via zoom) does.
   const pressure = Math.min(1, enemies.length / 12);
-  const wantZoom = 1 / (1 + pressure * 0.10);
+  const wantZoom = state.chapterWon ? 1.18 : 1 / (1 + pressure * 0.10);
   camera.zoom += (wantZoom - camera.zoom) * (1 - Math.exp(-3 * dt));
   camera.updateProjectionMatrix();
 
   vTmp.copy(camTarget).add(ISO_OFFSET);
+  if(state.chapterWon)vTmp.y+=32;
   camera.position.lerp(vTmp, 1 - Math.exp(-5 * dt));
 
   shakeAmount *= Math.exp(-6 * dt);
@@ -2178,6 +2257,7 @@ function updateCamera(dt) {
   camPunch.multiplyScalar(Math.exp(-9 * dt));
   camera.position.addScaledVector(camPunch, juiceScale);
   camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
+  camera.updateMatrixWorld();
 
   // A fixed side light gives the entire district consistent, raking shadows.
   key.position.set(-24, 38, 14);
@@ -2194,6 +2274,7 @@ const iaiGaugeEl = document.getElementById('iaiGauge');
 const combatStatusEl = document.getElementById('combatStatus');
 const killsValueEl = document.getElementById('killsValue');
 const waveValueEl = document.getElementById('waveValue');
+const waveLabelEl = waveValueEl.parentElement.querySelector('.statLabel');
 const escapeStatEl = document.getElementById('escapeStat');
 const escapeValueEl = document.getElementById('escapeValue');
 const flowEl = document.getElementById('flow');
@@ -2253,9 +2334,10 @@ function updateHUD() {
   iaiWasReady = iaiReady;
   killsValueEl.textContent = `${state.kills}`;
   waveValueEl.textContent = `${state.wave}`;
+  waveLabelEl.textContent = isChapter() ? 'ENCOUNTER' : 'WAVE';
   escapeStatEl.hidden = !state.escapeCharges;
   escapeValueEl.textContent = `${state.escapeCharges}`;
-  combatStatusEl.setAttribute('aria-label', `Wave ${state.wave}, ${state.kills} kills${state.escapeCharges ? `, ${state.escapeCharges} escapes` : ''}`);
+  combatStatusEl.setAttribute('aria-label', `${isChapter() ? 'Encounter' : 'Wave'} ${state.wave}, ${state.kills} kills${state.escapeCharges ? `, ${state.escapeCharges} escapes` : ''}`);
   flowEl.classList.toggle('active', state.chain > 0);
   const tier = getFlowTier();
   for (let level = 1; level <= 3; level++) flowEl.classList.toggle(`tier-${level}`, tier === level);
@@ -2506,7 +2588,7 @@ function renderTitleScreen() {
   ovCause.hidden = true;
   ovPoem.hidden = true;
   ovSeal.classList.remove('stamp');
-  ovText.innerHTML = 'Rain on stone. A blade in the quiet.<br />Hold the courtyard until only your legend remains.';
+  ovText.innerHTML = 'Kurogane waits inside the shrine.<br />Cross three courts. Choose your way. End the long rain.';
   const chaseLines = [];
   if (records.wave > 0) {
     chaseLines.push(`BEST · WAVE <b>${records.wave}</b> · ${records.kills} KILLS · ${records.parries} PERFECT PARRIES`);
@@ -2516,7 +2598,7 @@ function renderTitleScreen() {
   if (grudge) {
     const names = ['KUROGANE', 'AKATSUKI', 'SHIROGANE', 'MURASAME'];
     const wave = (names.indexOf(grudge) + 1) * 5;
-    chaseLines.push(`GRUDGE · <b>${grudge}</b> WAITS AT WAVE ${wave}`);
+    chaseLines.push(`GRUDGE · <b>${grudge}</b> WAITS ${grudge==='KUROGANE'?'AT THE INNER SHRINE':`IN ENDLESS WAVE ${wave}`}`);
   }
   // The next legend to earn: shown before the run so the goal is already in mind.
   const nextSkin = nextLockedSkin(records);
@@ -2530,7 +2612,11 @@ function renderTitleScreen() {
   renderWeaponLocks(records);
   skinPickerEl.hidden = false;
   weaponPickerEl.hidden = false;
-  ovBtn.textContent = 'DRAW THE BLADE';
+  ovBtn.textContent = 'BEGIN CHAPTER';
+  chapterUI.showModes(true);
+  const chapterBest=recordsStore.readJson('samurai-chapter',null);
+  if(chapterBest?.clears)chaseLines.unshift(`THE IRON DEMON · ${chapterBest.clears} CLEARS · BEST ${chapterUI.time(chapterBest.bestSeconds)}`);
+  ovChase.innerHTML=chaseLines.join('<br />');
   ovDaily.hidden = false;
   ovShare.hidden = true;
 }
@@ -2611,6 +2697,7 @@ function composeDeathPoem(record) {
 let lastPoem = null;
 
 function buildShareText() {
+  if(state.chapterWon)return `ONISOLO · THE IRON DEMON\nChapter complete · ${chapterUI.time(chapter.elapsed)}\n${TECHNIQUES.find(t=>t.id===techniques.id)?.name || 'The wandering sword'} · ${state.kills} kills · ${state.perfectParries} perfect parries\nhttps://samurai.theoazriel.com`;
   const tag = run.daily ? `Daily · ${run.dateStr}` : todayStamp();
   const poem = lastPoem ? [``, ...lastPoem.map((l) => `  ${l}`), ``] : [];
   return [
@@ -2635,6 +2722,7 @@ async function copyResult() {
 
 function gameOver() {
   if (!runFlow.finish()) return;
+  chapterUI.showModes(false);
   updateHUD();
   ink.splashScreen(20, 2.2);
   // The print ends rather than fading: the final frame holds near-frozen for a
@@ -2659,7 +2747,8 @@ function gameOver() {
 
   // The chase line: the single strongest reason to draw again.
   let chase;
-  if (state.wave > prevBestWave) chase = `NEW BEST: WAVE <b>${state.wave}</b>`;
+  if (isChapter()) chase = `${chapter.cleared} OF 9 ENCOUNTERS CLEARED · <b>${chapter.stageInfo.name.toUpperCase()}</b>`;
+  else if (state.wave > prevBestWave) chase = `NEW BEST: WAVE <b>${state.wave}</b>`;
   else if (prevBestWave === 0) chase = 'FIRST BLOOD ON THE PAGE';
   else if (state.wave === prevBestWave) chase = `YOU MATCHED YOUR BEST: WAVE <b>${prevBestWave}</b>`;
   else {
@@ -2701,10 +2790,12 @@ function gameOver() {
     run.weaponIntro = earnedWeapons[0].id;
   }
 
+  const defeatGeneration=run.generation;
   setTimeout(() => {
+    if(run.generation!==defeatGeneration||!state.over||state.chapterWon)return;
     overlay.classList.remove('intro');
     ovTitle.textContent = 'DEFEAT';
-    ovSub.textContent = record ? 'A NEW RECORD' : run.daily ? `DAILY · ${run.dateStr}` : 'DEATH ON THE PAGE';
+    ovSub.textContent = isChapter() ? 'THE SHRINE STILL WAITS' : record ? 'A NEW RECORD' : run.daily ? `DAILY · ${run.dateStr}` : 'DEATH ON THE PAGE';
     ovCause.hidden = false;
     ovCause.textContent = state.deathBy || 'CUT DOWN';
     ovPoem.hidden = false;
@@ -2713,7 +2804,7 @@ function gameOver() {
     // of color, spent when the page gains a new mark.
     ovSeal.classList.remove('stamp');
     if (record) { void ovSeal.offsetWidth; ovSeal.classList.add('stamp'); }
-    ovText.innerHTML = `WAVE ${state.wave} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
+    ovText.innerHTML = `${isChapter()?'ENCOUNTER':'WAVE'} ${state.wave}${isChapter()?' / 9':''} · ${state.kills} KILLS<br><b>${state.perfectParries} PERFECT PARRIES · BEST FLOW ${state.bestChain}</b>`;
     ovChase.hidden = false;
     ovChase.innerHTML = chaseLines.join('<br />');
     renderLedger(ledger);
@@ -2726,6 +2817,44 @@ function gameOver() {
     overlay.classList.remove('hidden');
     input.enabled = false;
   }, 1200);
+}
+
+function finishChapter() {
+  if (!runFlow.finish()) return;
+  chapterUI.showModes(false);input.enabled=false;
+  state.action='idle';state.hitstop=0;state.slowmo=0;state.timeScale=1;
+  state.facing=Math.PI;player.root.rotation.y=Math.PI;
+  player.torso.rotation.x=.28;player.armR.rotation.x=-.65;
+  chapterWorld.offerBlade(player.katana);
+  player.katana.visible=false;
+  waveTitleEl.classList.remove('show');combatCalloutEl.classList.remove('show');
+  chapterUI.say('The blade rests. For a moment, only rain.',4);
+  audio.silenceMusic(4,.003);audio.shrineBell();audio.taiko(46,.5);
+  const result=runResult(state);
+  const outcome=recordsStore.recordRun(result,{...result,daily:false,date:todayStamp()});
+  const record=chapterRecord(recordsStore.readJson('samurai-chapter',null),{
+    seconds:chapter.elapsed,technique:techniques.id,kills:state.kills,parries:state.perfectParries});
+  recordsStore.writeJson('samurai-chapter',record);
+  const earnedSkins=newlyUnlockedSkins(SAMURAI_SKINS,outcome.previous,outcome.records);
+  const earnedBlades=newlyUnlockedWeapons(WEAPONS,outcome.previous,outcome.records);
+  const earned=[...earnedSkins.map(s=>s.name),...earnedBlades.map(w=>w.roman)];
+  if(earnedSkins.length){run.skinIntro=earnedSkins.at(-1).id;selectSkin(run.skinIntro,{persist:!DEV_QA_ACTIVE});}
+  if(earnedBlades.length){run.weaponIntro=earnedBlades[0].id;selectWeapon(run.weaponIntro,{persist:!DEV_QA_ACTIVE,force:true});}
+  const generation=run.generation;
+  setTimeout(()=>{
+    if(run.generation!==generation||!state.chapterWon)return;
+    overlay.classList.remove('intro','hidden');overlay.classList.add('chapter-victory');
+    ovTitle.textContent='THE RAIN ENDS';ovSub.textContent='CHAPTER COMPLETE / THE IRON DEMON';
+    ovCause.hidden=true;ovPoem.hidden=false;ovSeal.classList.remove('stamp');
+    lastPoem=['The gate stands open.','No blade answers yours.','For a moment, only rain.'];
+    ovPoemText.innerHTML=lastPoem.join('<br />');
+    ovText.innerHTML=`${chapterUI.time(chapter.elapsed)} · ${state.kills} KILLS · ${state.perfectParries} PERFECT PARRIES<br /><b>${TECHNIQUES.find(t=>t.id===techniques.id)?.name || 'THE WANDERING SWORD'}</b>`;
+    ovChase.hidden=false;ovChase.textContent=earned.length?`UNLOCKED · ${earned.join(' · ')}`:`${record.clears} CHAPTER ${record.clears===1?'CLEAR':'CLEARS'} · ANOTHER WAY AWAITS`;
+    skinPickerEl.hidden=true;weaponPickerEl.hidden=true;renderLedger(outcome.ledger);
+    ovBtn.textContent='WALK THE PATH AGAIN';ovDaily.hidden=false;ovDaily.textContent='RETURN TO TITLE';
+    ovShare.hidden=false;ovShare.textContent='COPY RESULT';ovBtn.focus();
+  },1800);
+  updateHUD();
 }
 
 function clearTransientMeshList(list, { geometry = false } = {}) {
@@ -2775,6 +2904,7 @@ function restartRunInPlace() {
   state.dashHit.clear();
 
   player.root.visible = true;
+  player.katana.visible = true;
   player.root.position.set(0, 0, 0);
   player.root.rotation.set(0, 0, 0);
   player.hips.position.y = player.baseHipY;
@@ -2814,14 +2944,14 @@ function restartRunInPlace() {
   damageFlashEl.classList.remove('show');
   upgradeOverlayEl.classList.add('hidden');
   upgradeOverlayEl.setAttribute('aria-hidden', 'true');
-  overlay.classList.remove('intro', 'leaving');
+  overlay.classList.remove('intro', 'leaving','chapter-victory');
   overlay.classList.add('hidden');
-  input.keys.clear();
-  for (const key in input.buffers) input.buffers[key] = 0;
+  input.clear();
   input.enabled = true;
   audio.setFlowTier(0);
   audio.setCriticalHealth(0);
   audio.begin();
+  resetJourney();chapterUI.showModes(false);
   updateHUD();
   const earnedSkin = SKIN_META[run.skinIntro];
   const earnedWeapon = WEAPON_META[run.weaponIntro];
@@ -2841,11 +2971,13 @@ function restartRunInPlace() {
 }
 
 function beginGame(opts = {}) {
+  if(!state.over&&!state.running)run.mode=opts.daily?'endless':opts.mode||'chapter';
   const commit = () => {
     overlay.classList.remove('leaving');
     overlay.classList.add('hidden');
     input.enabled = true;
     state.running = true;
+    resetJourney();chapterUI.showModes(false);
     simulationClock.reset();
     waveDirector.reset({ firstWave: DEV_START_WAVE });
     if (DEV_QA_SCENARIO === 'upgrade') {
@@ -2884,7 +3016,8 @@ function beginGame(opts = {}) {
 }
 
 ovBtn.addEventListener('click', () => beginGame());
-ovDaily.addEventListener('click', () => beginGame({ daily: true }));
+ovDaily.addEventListener('click', () => state.chapterWon ? location.reload() : beginGame({ daily: true }));
+chapterUI.endless.addEventListener('click',()=>beginGame({mode:'endless'}));
 ovShare.addEventListener('click', copyResult);
 addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && !state.running) beginGame({ instant: true });
@@ -2903,7 +3036,7 @@ const pauseQuit = document.getElementById('pauseQuit');
 let paused = false;
 
 function canPause() {
-  return state.running && !state.over && !state.choosingUpgrade;
+  return state.running && !state.over && !state.choosingUpgrade && chapter.phase !== 'transition';
 }
 
 function setPaused(p) {
@@ -2914,8 +3047,7 @@ function setPaused(p) {
   document.body.classList.toggle('paused', p);
   audio.setPaused(p);
   input.enabled = !p;          // pointer actions ignore input while paused
-  input.keys.clear();
-  for (const k in input.buffers) input.buffers[k] = 0;   // nothing queued fires on resume
+  input.clear();   // nothing queued or held fires on resume
 }
 function togglePause() { setPaused(!paused); }
 
@@ -2999,6 +3131,7 @@ function onResize() {
   const { w, h } = film.resize();
   sizedW = w; sizedH = h;
   const aspect = w / h;
+  if(input.touchActive&&aspect<1&&canPause())setPaused(true);
   camera.left = -VIEW_HALF * aspect;
   camera.right = VIEW_HALF * aspect;
   camera.top = VIEW_HALF;
@@ -3039,7 +3172,7 @@ function runtimeProfileStats() {
   let pointLights = 0;
   scene.traverse((object) => { if (object.isPointLight) pointLights++; });
   return {
-    pointLights,
+    pointLights, chapter: isChapter()?{phase:chapter.phase,stage:chapter.stage,encounter:chapter.index+1,...chapterWorld.stats}:null, technique:techniques.id,
     modelAsset: player.root.name,
     artDirection: world.artDirection,
     lighting: 'hdr-surface-v2',
@@ -3103,16 +3236,17 @@ function simulate(dt) {
 
   input.update(dt);
   if (state.running) {
-    if (!state.choosingUpgrade) {
+    if (!state.choosingUpgrade && chapter.phase !== 'transition') {
       playerController.update(state.action === 'iai' && activeWeapon.skill === 'iai' ? dt : sdt);
-      constrainToCourt(player.root.position);
+      chapterWorld.constrain(player.root.position);
       if (!stopped) enemyDirector.update(worldDt);
-      if (!stopped) for(const enemy of enemies)constrainToCourt(enemy.actor.root.position,enemy.type==='oni'?1.3:.7);
+      if (!stopped) for(const enemy of enemies)chapterWorld.constrain(enemy.actor.root.position,enemy.type==='oni'?1.3:.7);
       updateFlow(worldDt);
-      const waveEvent = waveDirector.tick(worldDt, enemies.length);
+      const waveEvent = isChapter() ? null : waveDirector.tick(worldDt, enemies.length);
       if (waveEvent === WAVE_EVENT.UPGRADE) showUpgradeChoice();
       else if (waveEvent === WAVE_EVENT.START) startWave();
     }
+    if(isChapter()&&!state.choosingUpgrade)handleChapterEvent(chapter.tick(dt,enemies.length,player.root.position));
   } else if (!state.over) {
     // Idle breathing on the title screen.
     animateLocomotion(player, state.phase, 0, state.time);
@@ -3131,11 +3265,14 @@ function simulate(dt) {
   gibs.update(worldDt, ink);
   ink.update(worldDt, camera, dt);
   world.update(player.root.position, camera);
+  const effectDt=state.running&&!state.choosingUpgrade&&!stopped?worldDt:0;
+  techniques.update(effectDt);chapterWorld.update(worldDt,player.root.position);
+  chapterUI.update(dt,{chapter,techniques,state,enemies,active:isChapter()});
   audio.setRustle(world.ambience.rustle);
 
-  const bossWave = state.running && isRivalWave(state.wave) && enemies.some((e) => e.type === 'oni');
+  const bossWave = state.running && enemies.some((e) => e.rival);
   const act = currentAct();
-  rain.update(worldDt, player.root.position, Math.max(bossWave ? .75 : .30, state.running ? act.rain : .3));
+  rain.update(worldDt, player.root.position, state.chapterWon?.06:Math.max(bossWave ? .75 : .30, state.running ? act.rain : .3));
   audio.setWind(bossWave ? 0.13 : 0.05 + (state.running ? act.wind : 0));
   const musicPressure = state.running
     ? Math.min(1, 0.12 + enemies.length * 0.07 + state.chain * 0.025 + (bossWave ? 0.25 : 0))
@@ -3145,6 +3282,7 @@ function simulate(dt) {
 
 function renderFrame(dt) {
   updateCamera(dt);
+  chapterUI.projectGate(camera,sizedW,sizedH);
   updateIaiAura();
   updateFlowOutline(dt);
 
@@ -3165,7 +3303,7 @@ function renderFrame(dt) {
   // On death the print is crushed rather than faded: contrast and vignette
   // climb on real time while scaled time stands still, so the held final frame
   // visibly hardens into its last image.
-  deathCrush += ((state.over ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
+  deathCrush += ((state.over && !state.chapterWon ? 1 : 0) - deathCrush) * Math.min(1, dt * 5);
   film.uniforms.uGrain.value = .012 + hurtK*.006;
   film.uniforms.uVignette.value = .13 + hurtK*.18 + criticalPulse*.07 + deathCrush*.3;
   film.uniforms.uContrast.value = 1.02 + deathCrush*.20;
@@ -3227,7 +3365,7 @@ requestAnimationFrame(frame);
 window.__samurai = {
   version: GAME_VERSION,
   film, scene, camera, state, ink, ragdolls, input, player, step, audio, world,
-  frameProfiler, simulationClock,
+  frameProfiler, simulationClock, chapter, chapterWorld, techniques, chapterUI, resetJourney, handleChapterEvent,
   trail, enemyTrail, iaiTrail, combatFX,
   getFlowTier, addFlow, breakFlow, SAMURAI_SKINS, selectSkin,
   get selectedSkin() { return selectedSkinId; },
@@ -3251,5 +3389,18 @@ if (LOCAL_QA && DEV_QA_SCENARIO === 'combat') {
     pendingBodies: () => pendingSignatureBodies.length,
     updateHUD,
     stats: runtimeProfileStats,
+  });
+}
+
+if (LOCAL_QA && DEV_QA_SCENARIO === 'chapter') {
+  const { installChapterLab } = await import('./chapter-lab.js');
+  installChapterLab(window.__samurai, {
+    restart: restartRunInPlace, choose: showUpgradeChoice, damage: damageEnemy,
+    strike: resolveEnemyStrike, attack: (chain,kind) => playerController.beginAttack(chain,kind),
+    advance: count => {for(let i=0;i<count;i++)simulate(1/60);renderFrame(1/60);},
+    settleView: () => {for(let i=0;i<90;i++)renderFrame(1/60);},
+    stats: runtimeProfileStats,
+    storageSnapshot: () => JSON.stringify(['samurai-chapter','samurai-records','samurai-ledger'].map(k=>browserStorage?.getItem(k))),
+    touch: () => {enableTouchUI();onResize();},
   });
 }

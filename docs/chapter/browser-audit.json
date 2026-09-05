@@ -1,0 +1,332 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "Encounter 1 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 1 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Gate blocks the player before the watch falls",
+      "ok": true
+    },
+    {
+      "name": "Hidden reinforcements cannot take premature damage",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 2 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 2 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 3 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 3 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Court clear opens the physical gate",
+      "ok": true
+    },
+    {
+      "name": "Crossing begins a transition",
+      "ok": true
+    },
+    {
+      "name": "Next court restores life and changes scenery",
+      "ok": true
+    },
+    {
+      "name": "Encounter 4 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 4 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 5 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 5 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 6 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 6 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Court clear opens the physical gate",
+      "ok": true
+    },
+    {
+      "name": "Crossing begins a transition",
+      "ok": true
+    },
+    {
+      "name": "Next court restores life and changes scenery",
+      "ok": true
+    },
+    {
+      "name": "Encounter 7 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 7 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 8 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 8 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Reward waits for a real choice",
+      "ok": true
+    },
+    {
+      "name": "Three usable choices",
+      "ok": true
+    },
+    {
+      "name": "Choice resumes the journey",
+      "ok": true
+    },
+    {
+      "name": "Encounter 9 starts through the director",
+      "ok": true
+    },
+    {
+      "name": "Encounter 9 has enemies",
+      "ok": true
+    },
+    {
+      "name": "Final encounter is a lone named rival",
+      "ok": true
+    },
+    {
+      "name": "Kurogane holds a committed swing through ordinary damage",
+      "ok": true
+    },
+    {
+      "name": "A perfect parry opens Kurogane to a full stagger",
+      "ok": true
+    },
+    {
+      "name": "Kurogane survives one signature",
+      "ok": true,
+      "detail": {
+        "hp": 619
+      }
+    },
+    {
+      "name": "Kurogane enters his second form",
+      "ok": true
+    },
+    {
+      "name": "Boss defeat opens the offering, not an automatic win",
+      "ok": true
+    },
+    {
+      "name": "Crossing the shrine finishes the chapter",
+      "ok": true
+    },
+    {
+      "name": "The blade is left on the offering stone",
+      "ok": true
+    },
+    {
+      "name": "QA completion never writes saved progress",
+      "ok": true
+    },
+    {
+      "name": "Retry returns to an intact first court",
+      "ok": true
+    },
+    {
+      "name": "A real perfect parry stores reprisal",
+      "ok": true
+    },
+    {
+      "name": "Reprisal damages chained targets and consumes charge",
+      "ok": true,
+      "detail": {
+        "hp": [
+          915,
+          915,
+          1000
+        ]
+      }
+    },
+    {
+      "name": "The echo waits before cutting",
+      "ok": true
+    },
+    {
+      "name": "The delayed echo cuts once",
+      "ok": true,
+      "detail": {
+        "hp": 930
+      }
+    },
+    {
+      "name": "Echo damage never repeats",
+      "ok": true
+    },
+    {
+      "name": "Echo pool stays bounded",
+      "ok": true
+    },
+    {
+      "name": "Thread reaches marked enemies but skips the primary signature hit",
+      "ok": true
+    },
+    {
+      "name": "Sword cuts shatter a lantern and keep debris",
+      "ok": true
+    },
+    {
+      "name": "Scenery debris remains bounded",
+      "ok": true
+    },
+    {
+      "name": "Bamboo reacts to cuts",
+      "ok": true
+    },
+    {
+      "name": "Second retry clears every technique and prop effect",
+      "ok": true
+    }
+  ],
+  "profile": {
+    "pointLights": 2,
+    "chapter": {
+      "phase": "arrival",
+      "stage": 0,
+      "encounter": 0,
+      "brokenLanterns": 0,
+      "sceneryDebris": 0,
+      "gateOpen": false
+    },
+    "technique": "",
+    "modelAsset": "storm-court:player",
+    "artDirection": "rain-court",
+    "lighting": "hdr-surface-v2",
+    "hdr": true,
+    "contactAO": 0.9,
+    "drawCalls": 185,
+    "sceneryInstances": 10962,
+    "corpseDrawBatches": 0,
+    "triangles": 535180,
+    "geometries": 105,
+    "fxStrokes": 0,
+    "fxSparks": 0,
+    "programs": 28,
+    "enemies": 0,
+    "ragdolls": 0,
+    "debris": 0,
+    "gibs": 0,
+    "stains": 0,
+    "drops": 0,
+    "jets": 0,
+    "screenMarks": 0,
+    "slashes": 0,
+    "parryRings": 0,
+    "impactBursts": 0,
+    "dashWakes": 0,
+    "poolLimits": {
+      "stains": 620,
+      "drops": 420,
+      "jets": 64,
+      "screenMarks": 120,
+      "slashes": 6,
+      "strokes": 48,
+      "sparks": 192,
+      "points": 32,
+      "ragdollBodies": 48,
+      "debris": 60,
+      "gibs": 320,
+      "parryRings": 12,
+      "impactBursts": 24,
+      "dashWakes": 12
+    },
+    "droppedSimulationMs": 0
+  }
+}
